@@ -85,7 +85,7 @@ export function HomeComponent() {
                 </h2>
                 <p className="text-sm text-white/60 mt-1">React · Node · REST APIs</p>
             </div>
-            <a download="resume.pdf" href='/resume.pdf' className="bg-white text-violet-600 w-[30%] text-sm font-medium px-5 py-2.5 rounded-full w-filt hover:opacity-90 transition-opacity">
+            <a download="resume.pdf" href='/resume.pdf' className="bg-white text-violet-600 w-[50%] md:w-[35%] my-4 text-sm font-medium px-5 py-2.5 rounded-full w-filt hover:opacity-90 transition-opacity">
                 View Resume →
             </a>
         </div>

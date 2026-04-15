@@ -26,7 +26,7 @@ export default function About() {
         {
             year: "2025", 
             title: "Building Portfolio Apps",
-            desc: ""
+            desc: "This year I got my first internship which allowed me to help contribute to a start up and their MVP. I would help create their web pages and style them appropriate to the companies aesthetics."
         },
         {
             year: "2024", 
@@ -41,17 +41,17 @@ export default function About() {
         {
             year: "2022", 
             title: "Building Portfolio Apps",
-            desc: ""
+            desc: "Throughout this year I programmed in Solidity and learned a bit of Golang. "
         }, 
         {
             year: "2021", 
             title: "Learning ",
-            desc: ""
+            desc: "Throughout this year I explored ReactJS, NodeJS, ExpressJS, and other frameworks that helped create a full stack application"
         }, 
         {
             year: "2020", 
             title: "Journey Starts",
-            desc: "Being locked up during COVID gave me free time to pursue my hobby of creating websites that are pleasing for UI and UX."
+            desc: "Being locked up during COVID gave me free time to pursue my hobby of creating websites that are aesthtically intuitive for UI and UX."
         }, 
 
     ]
