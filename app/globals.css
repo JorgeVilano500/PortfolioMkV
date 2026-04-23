@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "highlight.js/styles/atom-one-dark.min.css";
+
+/* Let our pre container control the background; only keep token colors */
+.hljs { background: transparent !important; padding: 0 !important; }
 
 :root {
   --background: #ffffff;

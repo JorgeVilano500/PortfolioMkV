@@ -1,5 +1,7 @@
-
+"use client"
 import resume from '../../public/assets/resume.pdf'
+import {ProjectList, Modal} from '../index'
+import {useState} from 'react'
 
 type Skills = {
     name: string
@@ -25,6 +27,10 @@ type GetInTouch = {
 }
 
 export function HomeComponent() {
+
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+    const toggleModal = () => setIsModalOpen(!isModalOpen);
 
     const skills: Skills[] = [
         {name: "Typescript", pct: 90},
@@ -112,13 +118,29 @@ export function HomeComponent() {
         <div className="col-span-1 md:col-span-1 xl:col-span-5 bg-[#0f1a14] border border-[#1a2e20] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
             <p>Projects</p>
             <div className="grid grid-cols-3 gap-3">
-                    {projects.map(({icon, label, muted, link}) => (
-                        <a target="_blank" href={link} key={label} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024]
+                    {projects.map(({icon, label, muted, link}) => (<>
+                        {link ? (
+                            <a target="_blank" href={link} key={label} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024]
                             bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer ${muted ? "opacity-50 border-dashed": ""}`}>
                                 <span className="text-xl">{icon}</span>
                                 <span className="text-[10px] text-emerald-600 font-medium">{label}</span>
 
                         </a>
+                        ) : (
+                            <a onClick={() => toggleModal()} key={label} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024]
+                            bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer `}>
+                                <span className="text-xl">{icon}</span>
+                                <span className="text-[10px] text-emerald-600 font-medium">{label}</span>
+
+                              
+
+                            </a>
+                        )}
+                          <Modal isOpen={isModalOpen} onClose={toggleModal} title="Projects" > 
+                                    <ProjectList />
+
+                                </Modal>
+                        </>
                 ))}
             </div>
         </div>
@@ -136,7 +158,7 @@ export function HomeComponent() {
 
         {/* Contact card */}
 
-        <div className="col-span-1 md:col-span-1 lg:col-span-4 bg-[#1a1216] border border-[#2e1f28] rounded-2xl p-6 flex flex-col justify-between min-h-[130px] hover:-translate-y-1 transition-transform duration-300">
+        {/* <div className="col-span-1 md:col-span-1 lg:col-span-4 bg-[#1a1216] border border-[#2e1f28] rounded-2xl p-6 flex flex-col justify-between min-h-[130px] hover:-translate-y-1 transition-transform duration-300">
             <p className="text-xs tracking-widest uppercase text-gray-600">Get In Touch</p>
             <p className="text-base font-bold text-pink-200 break-all">vilanova.jorge50@gmail.com</p>
             <div className="flex gap-2 flex-wrap">
@@ -149,7 +171,7 @@ export function HomeComponent() {
                     ))
                 }
             </div>
-        </div>
+        </div> */}
         
             
         {/* Quote */}
