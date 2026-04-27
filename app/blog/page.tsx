@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { Navbar } from "@/components"
 import { Modal } from "@/components/features/Modal"
 import { MarkdownRenderer } from "@/components/ui/MarkdownRenderer"
@@ -233,7 +234,21 @@ export default function Blog() {
                         <div className="h-4 bg-[#1e1c2e] rounded w-3/4" />
                     </div>
                 ) : openPost?.content ? (
-                    <MarkdownRenderer content={openPost.content} />
+                    <>
+                        <MarkdownRenderer content={openPost.content} />
+                        <div className="border-t border-[#2a2840] pt-4 mt-2 flex items-center justify-between">
+                            <span className="text-xs text-[#555370]">
+                                {openPost.reading_time} min read
+                            </span>
+                            <Link
+                                href={`/blog/${openPost.slug}`}
+                                onClick={handleClose}
+                                className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+                            >
+                                Open full page ↗
+                            </Link>
+                        </div>
+                    </>
                 ) : null}
             </Modal>
         </div>

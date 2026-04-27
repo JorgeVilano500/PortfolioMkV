@@ -69,6 +69,18 @@ export async function getPostContent(id: string): Promise<string> {
     return (data as { content: string }).content
 }
 
+export async function getPostBySlug(slug: string): Promise<PostWithContent | null> {
+    const { data, error } = await supabase
+        .from("posts")
+        .select("*")
+        .eq("slug", slug)
+        .eq("published", true)
+        .single()
+
+    if (error) return null
+    return data as PostWithContent
+}
+
 export function formatDate(iso: string): string {
     return new Date(iso).toLocaleDateString("en-US", {
         year: "numeric",
