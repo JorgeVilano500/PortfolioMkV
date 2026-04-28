@@ -78,24 +78,24 @@ type CalloutType = keyof typeof CALLOUT
 
 const components: Components = {
 
-    // Headings
+    // Headings — clear-both so floated images never bleed into a new section
     h1: ({ children }) => (
-        <h1 className="font-syne font-extrabold text-2xl text-[#f0eeff] mt-8 mb-4 pb-3 leading-tight tracking-tight border-b border-[#2a2840]">
+        <h1 className="clear-both font-syne font-extrabold text-2xl text-[#f0eeff] mt-8 mb-4 pb-3 leading-tight tracking-tight border-b border-[#2a2840]">
             {children}
         </h1>
     ),
     h2: ({ children }) => (
-        <h2 className="font-syne font-bold text-xl text-[#f0eeff] mt-7 mb-3 leading-snug">
+        <h2 className="clear-both font-syne font-bold text-xl text-[#f0eeff] mt-7 mb-3 leading-snug">
             {children}
         </h2>
     ),
     h3: ({ children }) => (
-        <h3 className="font-syne font-semibold text-lg text-[#c4c0d8] mt-5 mb-2">
+        <h3 className="clear-both font-syne font-semibold text-lg text-[#c4c0d8] mt-5 mb-2">
             {children}
         </h3>
     ),
     h4: ({ children }) => (
-        <h4 className="font-semibold text-[#c4c0d8] mt-4 mb-2">{children}</h4>
+        <h4 className="clear-both font-semibold text-[#c4c0d8] mt-4 mb-2">{children}</h4>
     ),
 
     // Paragraph & inline
@@ -191,7 +191,7 @@ const components: Components = {
         )
     },
 
-    hr: () => <hr className="border-[#2a2840] my-8" />,
+    hr: () => <hr className="clear-both border-[#2a2840] my-8" />,
 
     // Tables (remark-gfm)
     table: ({ children }) => (
@@ -209,32 +209,82 @@ const components: Components = {
         <td className="px-4 py-2.5 border-b border-[#1e1c2e]">{children}</td>
     ),
 
-    // Images — alt text becomes a caption
-    img: ({ src, alt }) => (
-        <figure className="mb-6">
-            <img
-                src={src}
-                alt={alt ?? ""}
-                loading="lazy"
-                className="rounded-xl w-full object-cover border border-[#2a2840] shadow-lg"
-            />
-            {alt && (
-                <figcaption className="text-center text-xs text-[#555370] mt-2 italic">
-                    {alt}
-                </figcaption>
-            )}
-        </figure>
-    ),
+    // Images
+    // Default: max-w-lg centered (never full-bleed unless you ask for it)
+    // Syntax:  ![Caption|modifier](url)
+    // Sizes:   small (320px) · medium (448px) · large (672px) · full (100%)
+    // Float:   left · right  — text wraps around the image
+    img: ({ src, alt }) => {
+        const [caption, modifier] = (alt ?? "").split("|").map((s) => s.trim())
+
+        const sizeMap: Record<string, string> = {
+            small:  "max-w-xs",
+            sm:     "max-w-xs",
+            medium: "max-w-md",
+            md:     "max-w-md",
+            large:  "max-w-2xl",
+            lg:     "max-w-2xl",
+            full:   "w-full",
+        }
+
+        // Float variants — image sits beside the text
+        if (modifier === "left" || modifier === "right") {
+            return (
+                <span className={`
+                    block w-2/5 max-w-[260px] rounded-xl overflow-hidden
+                    border border-[#2a2840] shadow-md
+                    ${modifier === "left" ? "float-left mr-5 mb-3" : "float-right ml-5 mb-3"}
+                `}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                        src={src}
+                        alt={caption}
+                        loading="lazy"
+                        className="w-full h-auto block"
+                    />
+                    {caption && (
+                        <span className="block text-center text-[10px] text-[#555370] py-1.5 px-2 italic bg-[#0d0c14]">
+                            {caption}
+                        </span>
+                    )}
+                </span>
+            )
+        }
+
+        // Default size is max-w-lg (512px) centered — not full-bleed
+        const sizeClass = sizeMap[modifier ?? ""] ?? "max-w-lg"
+        const isFullWidth = sizeClass === "w-full"
+
+        return (
+            <figure className={`clear-both mb-6 ${isFullWidth ? "w-full" : `${sizeClass} mx-auto`}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                    src={src}
+                    alt={caption}
+                    loading="lazy"
+                    className="rounded-xl w-full h-auto border border-[#2a2840] shadow-lg"
+                />
+                {caption && (
+                    <figcaption className="text-center text-xs text-[#555370] mt-2 italic">
+                        {caption}
+                    </figcaption>
+                )}
+            </figure>
+        )
+    },
 }
 
 export function MarkdownRenderer({ content }: { content: string }) {
     return (
-        <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw, rehypeHighlight]}
-            components={components}
-        >
-            {content}
-        </ReactMarkdown>
+        // flow-root creates a new block formatting context, containing any floated images
+        <div className="flow-root">
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                components={components}
+            >
+                {content}
+            </ReactMarkdown>
+        </div>
     )
 }

@@ -25,7 +25,7 @@ export function WorkComponent() {
             {/* header */}
             <section className="col-span-1 md:col-span-1 xl:col-span-7 rounded-2xl p-6 flex flex-col justify-end min-h-[200] ">
                 <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Portfolio</p>
-                <h1 className="font-syne font-extrabold text-3xl md:text-4xl text-[#f0eeff] tracking-tight mb-2">Things I've built</h1>
+                <h1 className="font-syne font-extrabold text-3xl md:text-4xl text-[#f0eeff] tracking-tight mb-2">Things I&apos;ve built</h1>
                 <p className="text-sm text-gray-500 max-w-sm leading-relaxed">Interactive apps, full stack projects, and UI experiments</p>
             </section>
 
@@ -72,8 +72,8 @@ export function WorkComponent() {
                                         </p>
                                         <div className="flex flex-wrap gap-1.5">
                                             {
-                                                featured.tags.map((tag) => 
-                                                    <span className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${featured.tagStyle}`}>
+                                                featured.tags.map((tag) =>
+                                                    <span key={tag} className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${featured.tagStyle}`}>
                                                         {tag}
                                                     </span>
                                                 )
@@ -118,7 +118,7 @@ export function WorkComponent() {
                                     <div className="flex flex-wrap gap-1.5">
                                             {
                                                 sideCard.tags.map((tag) => (
-                                                    <span className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${sideCard.tagStyle}`}>
+                                                    <span key={tag} className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${sideCard.tagStyle}`}>
                                                         {tag}
                                                     </span>
                                                 ))
@@ -141,7 +141,7 @@ export function WorkComponent() {
 
                 {/* Bottom Row */}
                 {
-                    smallCards.map((card, index) => (
+                    smallCards.map((card) => (
                         <div className={`col-span-1 xl:col-span-4 ${card.cardBg} rounded-2xl relative overflow-hidden hover:-translate-y-1 transition-transform duration-300 cursor-pointer`} key={card.id} >
                             <div className="flex flex-col justify-between min-h-[200px] p-6">
                                 <div>
@@ -159,7 +159,7 @@ export function WorkComponent() {
                                     </p>
                                     <div className="flex flex-wrap gap-1.5 ">
                                         {card.tags.map((tag) => (
-                                            <span className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${card.tagStyle} `}>
+                                            <span key={tag} className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${card.tagStyle} `}>
                                                 {tag}
                                             </span>
                                         ))}
@@ -192,9 +192,17 @@ export function WorkComponent() {
                                                 )
                                             }
                                         </div>
-                                        <a target="_blank" href={card.link ? card.link : "#"} className={`text-xs font-medium hover:underline ${card.catColor}`}>
+                                       {
+                                        card.link ? (
+                                             <a target="_blank" href={card.link ? card.link : "#"} className={`text-xs font-medium hover:underline ${card.catColor}`}>
                                             View →
                                         </a>
+                                        ) : (
+                                            <span className={`text-xs font-medium ${card.catColor}`}>
+                                                No Link
+                                            </span>
+                                        )
+                                       }
 
                                 </div>
 

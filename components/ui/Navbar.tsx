@@ -25,7 +25,7 @@ export function Navbar({currentLink}: NabarType) {
             </Link>
             <ul className="hidden md:flex lg:flex flex-row gap-6 md:gap-8  list-none ">
                 {
-                    NavbarLinks.map((link, i) => (
+                    NavbarLinks.map((link) => (
                       <li key={link}>
                           <Link className={`${link === currentLink.toLowerCase() ? "text-[#7c6dff] ":"text-[#888] hover:text-white  "} capitalize`} href={`/${link}`}>
                             {link}

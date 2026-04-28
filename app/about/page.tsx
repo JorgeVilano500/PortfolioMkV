@@ -1,7 +1,6 @@
 "use client"
 
 import { Navbar } from "@/components"
-import Link from "next/link"
 
 type Hobbies = {
     icon: string, 
@@ -30,28 +29,28 @@ export default function About() {
         },
         {
             year: "2024", 
-            title: "Building Portfolio Apps",
-            desc: ""
+            title: "Learning and Growing",
+            desc: "During this year I have continued working on websites including my mothers business website and a few freelance projects. I tried exploring different frameworks and languages such as Svelte.JS and Next.JS. I also got my certificates from Codecademy for Frontend Development and Full Stack Development."
         },
         {
             year: "2023", 
-            title: "Building Portfolio Apps",
-            desc: ""
+            title: "Graduated and Pursuing Software Development",
+            desc: "I graduated from UC Davis with a B.S. in Genetics but have been aggressively pursuing software development as a career. I build a wide variety of websites and applications that are focused on pushing my UI and UX knowledge. "
         }, 
         {
             year: "2022", 
-            title: "Building Portfolio Apps",
-            desc: "Throughout this year I programmed in Solidity and learned a bit of Golang. "
+            title: "Learning about Blockchain and Golang",
+            desc: "Throughout this year I programmed in learned different programming languages such as Solidity and Golang. I was briefly interested in blockchain development as I created a few smart contracts using Solidity. I learned Golang to be able to contribute to AggieWorks and their Clubly.org website. I briefly used it to create some routes and database queries but haven't had the chance to try it since then."
         }, 
         {
             year: "2021", 
-            title: "Learning ",
-            desc: "Throughout this year I explored ReactJS, NodeJS, ExpressJS, and other frameworks that helped create a full stack application"
+            title: "Learning New Languages and Frameworks",
+            desc: "Throughout this year I explored ReactJS, NodeJS, ExpressJS, and other frameworks that helped create a full stack application. I learned to create different websites using these frameworks and created projects with different backgrounds and aesthetics. I also started learning about UI and UX design patterns that helped me create more intuitive and aesthetically pleasing websites."
         }, 
         {
             year: "2020", 
             title: "Journey Starts",
-            desc: "Being locked up during COVID gave me free time to pursue my hobby of creating websites that are aesthtically intuitive for UI and UX."
+            desc: "I had plenty of free time to pursue my hobby of creating websites that are aesthtically intuitive for UI and UX. By starting out at Codecademy.com and Youtube tutorials, I eventually created full stack applications that would require different frameworks."
         }, 
 
     ]
@@ -89,17 +88,17 @@ export default function About() {
                     </h1>
                     <p className="text-sm text-[#7a7890] leading-relaxed mb-3">
                         I am a full stack developer that enjoys creating aesthetically pleasing websites. 
-                        I started with designs for wheel spinners and dice rollers and have since then advanced to different projects. 
+                        I started making websites back in 2020 and have since then learned and built many applications using different programming languages. 
 
                     </p>
                     <p className="text-sm text-[#7a7890] leading-relaxed mb-5">
-                        I believe that software should look good as well as it performs. 
+                        I believe that software should look good as well as be easy to use. The better interface and user experience, the faster a user will come back to use the application.
                     </p>
                    </div>
                 <div className="flex flex-wrap gap-2">
                     {
                         values.map((value) => (
-                            <span className="text-xs px-3 py-1.5 rounded-full border border-[#2a2840] text-[#c4c0d8] font-medium">
+                            <span key={value} className="text-xs px-3 py-1.5 rounded-full border border-[#2a2840] text-[#c4c0d8] font-medium">
                                 {value}
                             </span>
                         ))
@@ -194,8 +193,8 @@ export default function About() {
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {
-                        hobbies.map((hobby, i) => (
-                            <a target="_blank" href={hobby.link ? hobby.link : "#"} className="bg-[#13121c] cursor-pointer border border-[#2a2840] rounded-xl p-4 text-center hover:-translate-y-1 transition-transform duration-300 ">
+                        hobbies.map((hobby) => (
+                            <a key={hobby.label} target="_blank" href={hobby.link ? hobby.link : "#"} className="bg-[#13121c] cursor-pointer border border-[#2a2840] rounded-xl p-4 text-center hover:-translate-y-1 transition-transform duration-300 ">
                                 <div className="text-xl mb-2">{hobby.icon}</div>
                                 <p className="text-xs text-[#c4c0d8] font-medium mb-1">{hobby.label}</p>
                                 <p className="text-[11px] text-[#555370]">{hobby.sub}</p>

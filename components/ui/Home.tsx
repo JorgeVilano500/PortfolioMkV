@@ -1,5 +1,4 @@
 "use client"
-import resume from '../../public/assets/resume.pdf'
 import {ProjectList, Modal} from '../index'
 import {useState} from 'react'
 
@@ -21,11 +20,6 @@ type Stats = {
     sub: string 
 }
 
-type GetInTouch = {
-    link: string
-    platform: string 
-}
-
 export function HomeComponent() {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -33,10 +27,12 @@ export function HomeComponent() {
     const toggleModal = () => setIsModalOpen(!isModalOpen);
 
     const skills: Skills[] = [
-        {name: "Typescript", pct: 90},
-        {name: "TailwindCSS", pct: 80},
-        {name: "Solidity", pct: 70},
-        {name: "Golang", pct: 50},
+        {name: "ReactJS", pct: 90},
+        {name: "NodeJS", pct: 80},
+        {name: "Typescript", pct: 100},
+        {name: "TailwindCSS", pct: 60},
+        {name: "Solidity", pct: 40},
+        {name: "Golang", pct: 25},
     ]
     const projects: Project[] =[
         { icon: "🎱", label: "8-Ball", link: "https://fatesball.netlify.app/" },
@@ -53,12 +49,6 @@ export function HomeComponent() {
         {label: "Technologies", value: "14+", sub: "Tools, Languages, Frameworks used"}
       ]
 
-     const contact: GetInTouch[]  = [
-        {link: "https://github.com/JorgeVilano500", platform: "Github"},
-        {link: "https://www.linkedin.com/in/jorge-vilanova-983750100/", platform: "LinkedIn"},
-        {link: "", platform: "Instagram"},
-        {link: "", platform: "Crypto"}
-     ]
 
 
     return (
@@ -148,7 +138,7 @@ export function HomeComponent() {
             {/* Status */}
         {
             stats.map(({label, value, sub}) => (
-                <div className="col-span-1 xl:col-span-3 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 flex flex-col justify-between min-h-[130px] hover:-translate-y-1 transition-transform duration-300">
+                <div key={label} className="col-span-1 xl:col-span-3 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 flex flex-col justify-between min-h-[130px] hover:-translate-y-1 transition-transform duration-300">
                     <p className="text-2xl tracking-widest uppercase text-gray-600">{label}</p>
                     <p className="text-5xl text-white font-extrabold tracking-tight">{value}</p>
                     <p className="text-2xl text-gray-600">{sub}</p>
@@ -177,7 +167,7 @@ export function HomeComponent() {
         {/* Quote */}
         <div className="col-span-1 md:col-span-1 lg:col-span-5 bg-[#16131a] border border-[#2a2840] rounded-2xl p-6 flex flex-col justify-center min-h-[130px] hover:-translate-y-1 transition-transform duration-300">
             <p className="font-bold text-lg text-gray-300 leading-relaxed tracking-tight">
-                "Don't stop trying to prove something"
+                &ldquo;Don&apos;t stop trying to prove something&rdquo;
             </p>
             <p className="text-xs text-gray-600 mt-3">
                 -- Quote I like to say
