@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Navbar } from "@/components"
 import type { StatsPayload } from "@/app/api/analytics/stats/route"
 
@@ -172,23 +172,50 @@ function PasswordGate({ onAuth }: { onAuth: (key: string) => void }) {
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 
 function Dashboard({ authKey }: { authKey: string }) {
-    const [stats, setStats]       = useState<StatsPayload | null>(null)
-    const [loading, setLoading]   = useState(true)
-    const [lastRefresh, setLast]  = useState<Date>(new Date())
+    const [stats, setStats]             = useState<StatsPayload | null>(null)
+    const [loading, setLoading]         = useState(true)
+    const [lastRefresh, setLast]        = useState<Date>(new Date())
+    const [tick, setTick]               = useState(0)
+    const [deviceExcluded, setExcluded] = useState(false)
+    const [copied, setCopied]           = useState(false)
 
-    const fetchStats = useCallback(async () => {
-        setLoading(true)
-        const res = await fetch("/api/analytics/stats", {
-            headers: { "x-logistics-key": authKey },
-        })
-        if (res.ok) {
-            setStats(await res.json())
-            setLast(new Date())
-        }
-        setLoading(false)
-    }, [authKey])
+    // Read device exclusion flag from localStorage (deferred to avoid SSR mismatch)
+    useEffect(() => {
+        Promise.resolve()
+            .then(() => { try { return localStorage.getItem("_pv_exclude") === "1" } catch { return false } })
+            .then((v) => setExcluded(v))
+    }, [])
 
-    useEffect(() => { fetchStats() }, [fetchStats])
+    // setState calls are inside .then()/.catch() callbacks — not synchronous in the effect body
+    useEffect(() => {
+        fetch("/api/analytics/stats", { headers: { "x-logistics-key": authKey } })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data: StatsPayload | null) => {
+                if (data) { setStats(data); setLast(new Date()) }
+                setLoading(false)
+            })
+            .catch(() => setLoading(false))
+    }, [authKey, tick])
+
+    const refresh = () => { setLoading(true); setTick((t) => t + 1) }
+
+    const toggleExclusion = () => {
+        try {
+            if (deviceExcluded) {
+                localStorage.removeItem("_pv_exclude")
+            } else {
+                localStorage.setItem("_pv_exclude", "1")
+            }
+            setExcluded((v) => !v)
+        } catch { /* ignore */ }
+    }
+
+    const copyIp = (ip: string) => {
+        navigator.clipboard.writeText(ip).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        }).catch(() => {})
+    }
 
     if (loading && !stats) {
         return (
@@ -215,7 +242,7 @@ function Dashboard({ authKey }: { authKey: string }) {
                     Last refreshed {lastRefresh.toLocaleTimeString()}
                 </p>
                 <button
-                    onClick={fetchStats}
+                    onClick={refresh}
                     disabled={loading}
                     className="text-xs text-[#7c6dff] hover:underline disabled:opacity-40 cursor-pointer"
                 >
@@ -421,6 +448,76 @@ function Dashboard({ authKey }: { authKey: string }) {
                 </div>
             </div>
 
+            {/* Row 5 — IP exclusion / this device */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* This device */}
+                <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-6">
+                    <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium mb-4">
+                        This Device
+                    </p>
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <p className="text-xs text-[#c4c0d8] font-medium mb-0.5">Device tracking</p>
+                            <p className="text-[10px] text-[#555370]">
+                                {deviceExcluded ? "Your visits on this browser are not being recorded." : "Your visits on this browser are being recorded."}
+                            </p>
+                        </div>
+                        <button
+                            onClick={toggleExclusion}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 cursor-pointer shrink-0 ${deviceExcluded ? "bg-[#7c6dff]" : "bg-[#2a2840]"}`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${deviceExcluded ? "translate-x-6" : "translate-x-1"}`}
+                            />
+                        </button>
+                    </div>
+                    <p className="text-[10px] text-[#555370] leading-relaxed">
+                        Toggle this on every browser / device you use. The flag is stored in localStorage — it survives refreshes but will reset if you clear site data.
+                    </p>
+                </div>
+
+                {/* IP exclusion */}
+                <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-6">
+                    <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium mb-4">
+                        IP Exclusion
+                    </p>
+                    <div className="mb-4">
+                        <p className="text-xs text-[#c4c0d8] font-medium mb-1">Your current IP</p>
+                        <div className="flex items-center gap-2">
+                            <code className="flex-1 bg-[#0a0a0f] border border-[#2a2840] rounded-lg px-3 py-2 text-xs text-[#7c6dff] font-mono">
+                                {stats.yourIp}
+                            </code>
+                            <button
+                                onClick={() => copyIp(stats.yourIp)}
+                                className="shrink-0 text-xs px-3 py-2 rounded-lg border border-[#2a2840] text-[#888] hover:border-[#7c6dff] hover:text-[#c4c0d8] transition-colors cursor-pointer"
+                            >
+                                {copied ? "Copied!" : "Copy"}
+                            </button>
+                        </div>
+                    </div>
+                    {stats.excludedIps.length > 0 && (
+                        <div className="mb-4">
+                            <p className="text-xs text-[#c4c0d8] font-medium mb-2">Blocked IPs</p>
+                            <div className="space-y-1">
+                                {stats.excludedIps.map((ip) => (
+                                    <div key={ip} className="flex items-center gap-2">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                        <code className="text-xs text-[#555370] font-mono">{ip}</code>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    <p className="text-[10px] text-[#555370] leading-relaxed">
+                        To permanently block an IP (works across all browsers), add it to{" "}
+                        <code className="text-[#7c6dff]">ANALYTICS_EXCLUDED_IPS</code> in your{" "}
+                        <code className="text-[#7c6dff]">.env.local</code> as a comma-separated list, then redeploy.
+                    </p>
+                </div>
+
+            </div>
+
         </div>
     )
 }
@@ -431,13 +528,12 @@ export default function Logistics() {
     const [authKey, setAuthKey] = useState<string | null>(null)
     const [hydrated, setHydrated] = useState(false)
 
-    // Restore saved key from sessionStorage
+    // Restore saved key from sessionStorage — deferred into .then() so setState
+    // is never called synchronously inside the effect body
     useEffect(() => {
-        try {
-            const saved = sessionStorage.getItem("_lk")
-            if (saved) setAuthKey(saved)
-        } catch { /* ignore */ }
-        setHydrated(true)
+        Promise.resolve()
+            .then(() => { try { return sessionStorage.getItem("_lk") } catch { return null } })
+            .then((saved) => { if (saved) setAuthKey(saved); setHydrated(true) })
     }, [])
 
     if (!hydrated) return null

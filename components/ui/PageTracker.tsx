@@ -41,6 +41,9 @@ export function PageTracker() {
 
         if (SKIP_PREFIXES.some((p) => pathname.startsWith(p))) return
 
+        // Device-level opt-out — set from the /logistics dashboard
+        try { if (localStorage.getItem("_pv_exclude") === "1") return } catch { /* ignore */ }
+
         const sessionId    = getOrCreateSessionId()
         const isNewVisitor = checkIsNewVisitor()
         const referrer     = document.referrer ?? ""

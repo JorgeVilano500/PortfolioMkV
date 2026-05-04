@@ -25,6 +25,8 @@ export type StatsPayload = {
     dailyViews:        { date: string; count: number }[]
     peakHours:         { hour: number; count: number }[]
     bounceRate:        number  // % of sessions with only 1 page view
+    yourIp:            string  // IP of the dashboard viewer — for exclusion setup
+    excludedIps:       string[] // IPs currently blocked via env var
 }
 
 function categoriseDevice(w: number | null): "mobile" | "tablet" | "desktop" {
@@ -32,6 +34,19 @@ function categoriseDevice(w: number | null): "mobile" | "tablet" | "desktop" {
     if (w < 768)  return "mobile"
     if (w < 1024) return "tablet"
     return "desktop"
+}
+
+function getClientIp(req: NextRequest): string {
+    const xff = req.headers.get("x-forwarded-for")
+    if (xff) return xff.split(",")[0].trim()
+    return req.headers.get("x-real-ip") ?? "unknown"
+}
+
+function getExcludedIps(): string[] {
+    return (process.env.ANALYTICS_EXCLUDED_IPS ?? "")
+        .split(",")
+        .map((ip) => ip.trim())
+        .filter(Boolean)
 }
 
 function cleanReferrer(raw: string): string {
@@ -179,6 +194,8 @@ export async function GET(req: NextRequest) {
         dailyViews,
         peakHours,
         bounceRate,
+        yourIp:      getClientIp(req),
+        excludedIps: getExcludedIps(),
     }
 
     return NextResponse.json(payload)

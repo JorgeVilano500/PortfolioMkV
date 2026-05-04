@@ -3,7 +3,28 @@ import { supabaseAdmin } from "@/lib/supabase-admin"
 
 const BLOCKED_PREFIXES = ["/logistics", "/api"]
 
+function getClientIp(req: NextRequest): string {
+    // x-forwarded-for: client, proxy1, proxy2 — first entry is the real client
+    const xff = req.headers.get("x-forwarded-for")
+    if (xff) return xff.split(",")[0].trim()
+    return req.headers.get("x-real-ip") ?? "unknown"
+}
+
+function getExcludedIps(): string[] {
+    return (process.env.ANALYTICS_EXCLUDED_IPS ?? "")
+        .split(",")
+        .map((ip) => ip.trim())
+        .filter(Boolean)
+}
+
 export async function POST(req: NextRequest) {
+    // IP-level exclusion — checked before anything else
+    const clientIp    = getClientIp(req)
+    const excludedIps = getExcludedIps()
+    if (excludedIps.length > 0 && excludedIps.includes(clientIp)) {
+        return NextResponse.json({ ok: true }) // silently drop
+    }
+
     // Reject requests that aren't JSON
     const contentType = req.headers.get("content-type") ?? ""
     if (!contentType.includes("application/json")) {
