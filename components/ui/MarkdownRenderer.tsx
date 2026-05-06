@@ -99,9 +99,17 @@ const components: Components = {
     ),
 
     // Paragraph & inline
-    p: ({ children }) => (
-        <p className="text-sm text-[#7a7890] leading-relaxed mb-4">{children}</p>
-    ),
+    // Use div when the paragraph wraps a block element like <figure> (from img),
+    // otherwise <p><figure> is invalid HTML and causes a hydration error.
+    p: ({ children, node }) => {
+        const hasImg = node?.children?.some(
+            (c) => c.type === "element" && (c as { tagName: string }).tagName === "img"
+        )
+        if (hasImg) {
+            return <div className="text-sm text-[#7a7890] leading-relaxed mb-4">{children}</div>
+        }
+        return <p className="text-sm text-[#7a7890] leading-relaxed mb-4">{children}</p>
+    },
     a: ({ href, children }) => (
         <a
             href={href}

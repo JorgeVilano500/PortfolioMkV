@@ -81,7 +81,7 @@ export function HomeComponent() {
                 </h2>
                 <p className="text-sm text-white/60 mt-1">React · Node · REST APIs</p>
             </div>
-            <a download="resume.pdf" href='/resume.pdf' className="bg-white text-violet-600 w-[50%] md:w-[35%] my-4 text-sm font-medium px-5 py-2.5 rounded-full w-filt hover:opacity-90 transition-opacity">
+            <a download="resume.pdf" href='/resume.pdf' className="bg-white text-violet-600 w-[55%] md:w-[45%] my-4 text-sm font-medium px-5 py-2.5 rounded-full w-filt hover:opacity-90 transition-opacity">
                 View Resume →
             </a>
         </div>
@@ -108,31 +108,25 @@ export function HomeComponent() {
         <div className="col-span-1 md:col-span-1 xl:col-span-5 bg-[#0f1a14] border border-[#1a2e20] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
             <p>Projects</p>
             <div className="grid grid-cols-3 gap-3">
-                    {projects.map(({icon, label, muted, link}) => (<>
-                        {link ? (
-                            <a target="_blank" href={link} key={label} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024]
-                            bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer ${muted ? "opacity-50 border-dashed": ""}`}>
+                    {projects.map(({icon, label, muted, link}) => (
+                        link ? (
+                            // suppressHydrationWarning: browser extensions (Honey, ad blockers, etc.)
+                            // modify external <a> elements before React hydrates, causing a className mismatch.
+                            <a suppressHydrationWarning target="_blank" href={link} key={label} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024] bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer${muted ? " opacity-50 border-dashed" : ""}`}>
                                 <span className="text-xl">{icon}</span>
                                 <span className="text-[10px] text-emerald-600 font-medium">{label}</span>
-
-                        </a>
-                        ) : (
-                            <a onClick={() => toggleModal()} key={label} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024]
-                            bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer `}>
-                                <span className="text-xl">{icon}</span>
-                                <span className="text-[10px] text-emerald-600 font-medium">{label}</span>
-
-                              
-
                             </a>
-                        )}
-                          <Modal isOpen={isModalOpen} onClose={toggleModal} title="Projects" > 
-                                    <ProjectList />
-
-                                </Modal>
-                        </>
-                ))}
+                        ) : (
+                            <a suppressHydrationWarning key={label} onClick={() => toggleModal()} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024] bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer${muted ? " opacity-50 border-dashed" : ""}`}>
+                                <span className="text-xl">{icon}</span>
+                                <span className="text-[10px] text-emerald-600 font-medium">{label}</span>
+                            </a>
+                        )
+                    ))}
             </div>
+            <Modal isOpen={isModalOpen} onClose={toggleModal} title="Projects">
+                <ProjectList />
+            </Modal>
         </div>
 
             {/* Status */}

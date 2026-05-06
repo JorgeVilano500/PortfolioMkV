@@ -1,6 +1,7 @@
 "use client"
 
 import { Navbar } from "@/components"
+import { useEffect, useRef, useState } from "react"
 
 type Hobbies = {
     icon: string, 
@@ -20,6 +21,31 @@ type Timeline = {
 }
 
 export default function About() {
+
+    const timelineRefs = useRef<(HTMLDivElement | null)[]>([])
+    const [visibleItems, setVisibleItems] = useState<boolean[]>([])
+
+    useEffect(() => {
+        const observers = timelineRefs.current.map((ref, i) => {
+            if (!ref) return null
+            const observer = new IntersectionObserver(
+                ([entry]) => {
+                    if (entry.isIntersecting) {
+                        setVisibleItems(prev => {
+                            const next = [...prev]
+                            next[i] = true
+                            return next
+                        })
+                        observer.disconnect()
+                    }
+                },
+                { threshold: 0.15 }
+            )
+            observer.observe(ref)
+            return observer
+        })
+        return () => { observers.forEach(obs => obs?.disconnect()) }
+    }, [])
 
     const timeline : Timeline[] = [
         {
@@ -132,7 +158,12 @@ export default function About() {
                 <div className="flex flex-col gap-0 ">
                     {
                         timeline.map((item, i) => (
-                            <div className="flex gap-4" key={item.year}>
+                            <div
+                                ref={el => { timelineRefs.current[i] = el }}
+                                className={`flex gap-4 transition-all duration-500 ease-out ${visibleItems[i] ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
+                                style={{ transitionDelay: `${i * 100}ms` }}
+                                key={item.year}
+                            >
                                 <div className="flex flex-col items-center min-h-[40px]">
                                         <p className="text-[11px] text-[#7c6dff] font-medium mb-1 whitespace-nowrap">{item.year}</p>
                                         <div className="w-2 h-2 rounded-full bg-[#7c6dff] flex-shrink-0" />
