@@ -17,23 +17,23 @@ export function ProjectList({ limit, filterBy }: Props) {
         .slice(0, limit)
 
     return (
-        <div className="flex flex-col divide-y divide-[#1e1c2e]">
+        <div className="flex flex-col gap-1">
             {displayed.map((p) => {
                 const s = statusConfig[p.status]
                 return (
                     <div
                         key={p.id}
-                        className="flex items-start gap-4 py-4 group hover:bg-[#13121c] px-3 rounded-xl transition-colors duration-200"
+                        className="flex items-start gap-4 py-4 group bg-[#0d0c14] hover:bg-[#1e1c2e] px-3 rounded-xl border-l-2 border-l-transparent hover:border-l-violet-500 transition-all duration-200"
                     >
                         {/* Icon */}
-                        <div className={`${p.iconBg} w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 mt-0.5`}>
+                        <div className={`${p.iconBg} w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 mt-0.5`}>
                             {p.icon}
                         </div>
 
                         {/* Body */}
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                                <p className="text-sm font-semibold text-[#f0eeff] leading-snug">
+                                <p className="text-sm font-semibold text-[#6b6880] group-hover:text-[#f0eeff] leading-snug transition-colors duration-200">
                                     {p.title}
                                 </p>
                                 <span className={`text-[10px] tracking-widest uppercase font-medium ${p.catColor}`}>

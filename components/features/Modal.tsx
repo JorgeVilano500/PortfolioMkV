@@ -10,9 +10,11 @@ type ModalProps = {
     title?: string
     variant?: "default" | "dark"
     size?: "md" | "lg"
+    contentClassName?: string  // styles the modal box (background, border, rounded, etc.)
+    bodyClassName?: string     // styles the children wrapper (padding, overflow, etc.)
 }
 
-export function Modal({ isOpen, onClose, children, title, variant = "default", size = "md" }: ModalProps) {
+export function Modal({ isOpen, onClose, children, title, variant = "default", size = "md", contentClassName, bodyClassName }: ModalProps) {
 
     useEffect(() => {
         const handleEscape = (e: KeyboardEvent) => {
@@ -47,14 +49,14 @@ export function Modal({ isOpen, onClose, children, title, variant = "default", s
                 aria-label="Close Modal"
             />
 
-            {/* Content */}
+            {/* Content box */}
             <div
                 className={`relative w-full max-h-[85vh] overflow-auto rounded-xl shadow-xl flex flex-col
                     ${size === "lg" ? "max-w-3xl" : "max-w-xl"}
                     ${variant === "dark"
                         ? "bg-[#13121c] border border-[#2a2840]"
                         : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700"
-                    }`}
+                    } ${contentClassName ? ` ${contentClassName}` : ""}`}
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className={`flex items-center justify-between shrink-0 px-5 py-4 border-b
@@ -70,7 +72,7 @@ export function Modal({ isOpen, onClose, children, title, variant = "default", s
                     <button
                         type="button"
                         onClick={onClose}
-                        className={`ml-auto p-1.5 rounded-lg transition-colors
+                        className={`ml-auto p-1.5 rounded-lg transition-colors cursor-pointer
                             ${variant === "dark"
                                 ? "text-[#555370] hover:text-[#c4c0d8] hover:bg-[#1e1c2e]"
                                 : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:hover:text-zinc-300 dark:hover:bg-zinc-800"
@@ -84,7 +86,9 @@ export function Modal({ isOpen, onClose, children, title, variant = "default", s
                     </button>
                 </div>
 
-                <div className="flex-1 p-5 overflow-auto">{children}</div>
+                <div className={`flex-1 p-5 overflow-auto${bodyClassName ? ` ${bodyClassName}` : ""}`}>
+                    {children}
+                </div>
             </div>
         </div>,
         document.body
