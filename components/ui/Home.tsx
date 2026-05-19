@@ -29,7 +29,9 @@ export function HomeComponent() {
     const skills: Skills[] = [
         {name: "ReactJS", pct: 90},
         {name: "NodeJS", pct: 80},
-        {name: "Typescript", pct: 100},
+        {name: "Typescript", pct: 90},
+        {name: "Python", pct: 45},
+        {name: "PostgreSQL", pct: 65},
         {name: "TailwindCSS", pct: 60},
         {name: "Solidity", pct: 40},
         {name: "Golang", pct: 25},
