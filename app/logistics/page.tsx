@@ -128,15 +128,22 @@ function PasswordGate({ onAuth }: { onAuth: (key: string) => void }) {
         if (!value) return
         setLoading(true)
         setError(false)
-        const res = await fetch("/api/analytics/stats", {
-            headers: { "x-logistics-key": value },
-        })
-        setLoading(false)
-        if (res.ok) {
-            try { sessionStorage.setItem("_lk", value) } catch { /* ignore */ }
-            onAuth(value)
-        } else {
+        try {
+            const res = await fetch("/api/analytics/stats", {
+                headers: { "x-logistics-key": value },
+            })
+            if (res.ok) {
+                try { sessionStorage.setItem("_lk", value) } catch { /* ignore */ }
+                onAuth(value)
+            } else {
+                setError(true)
+            }
+        } catch {
+            // Network failure — surface as a failed attempt instead of
+            // leaving the button stuck on "Checking…"
             setError(true)
+        } finally {
+            setLoading(false)
         }
     }
 

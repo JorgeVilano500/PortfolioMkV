@@ -63,6 +63,7 @@ export async function getPostContent(id: string): Promise<string> {
         .from("posts")
         .select("content")
         .eq("id", id)
+        .eq("published", true) // defense-in-depth alongside RLS
         .single()
 
     if (error) throw error

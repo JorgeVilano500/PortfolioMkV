@@ -1,47 +1,41 @@
 import { type NextRequest } from "next/server"
 import matter from "gray-matter"
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { safeEqual, getClientIp } from "@/lib/security"
+import { isAuthBlocked, recordAuthFailure } from "@/lib/rate-limit"
+import {
+    LIMITS,
+    isValidSlug,
+    slugify,
+    normalizeTags,
+    normalizeTheme,
+    estimateReadingTime,
+} from "@/lib/validation"
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function slugify(title: string): string {
-    return title
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .trim()
-}
-
-function estimateReadingTime(content: string): number {
-    const words = content.trim().split(/\s+/).length
-    return Math.max(1, Math.ceil(words / 200))
-}
-
-function normalizeTheme(value: unknown): "purple" | "green" | "pink" {
-    if (value === "green" || value === "pink") return value
-    return "purple"
-}
-
-function normalizeTags(value: unknown): string[] {
-    if (Array.isArray(value)) return value.map(String)
-    if (typeof value === "string") return value.split(",").map((t) => t.trim()).filter(Boolean)
-    return []
-}
+const ROUTE = "blog/upload"
 
 // ─── Route handler ───────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-    // 1. Authenticate
+    // 1. Authenticate (constant-time compare + brute-force damping)
+    const ip = getClientIp(request)
+    if (isAuthBlocked(ROUTE, ip)) {
+        return Response.json({ error: "Too many attempts. Try again later." }, { status: 429 })
+    }
     const apiKey = request.headers.get("x-api-key")
-    if (!apiKey || apiKey !== process.env.BLOG_UPLOAD_SECRET) {
+    const secret = process.env.BLOG_UPLOAD_SECRET
+    if (!secret || !safeEqual(apiKey, secret)) {
+        recordAuthFailure(ROUTE, ip)
         return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // 2. Read raw body (the .md file content)
+    // 2. Read raw body (the .md file content), with a size cap
     const raw = await request.text()
     if (!raw.trim()) {
         return Response.json({ error: "Request body is empty" }, { status: 400 })
+    }
+    if (raw.length > LIMITS.uploadBody) {
+        return Response.json({ error: "Request body too large" }, { status: 413 })
     }
 
     // 3. Parse YAML frontmatter + markdown body
@@ -55,26 +49,35 @@ export async function POST(request: NextRequest) {
     const { data: meta, content } = parsed
 
     // 4. Validate required fields
-    if (!meta.title || typeof meta.title !== "string") {
+    if (!meta.title || typeof meta.title !== "string" || meta.title.length > LIMITS.title) {
         return Response.json(
-            { error: "Missing required frontmatter field: title" },
+            { error: "Missing or invalid frontmatter field: title" },
             { status: 400 }
         )
     }
 
-    // 5. Build the row
-    const slug: string = typeof meta.slug === "string" ? meta.slug : slugify(meta.title)
+    // 5. Build the row — slug is always normalized/validated, never trusted raw
+    const rawSlug = typeof meta.slug === "string" ? meta.slug : meta.title
+    const slug = isValidSlug(rawSlug) ? rawSlug : slugify(rawSlug)
+    if (!isValidSlug(slug)) {
+        return Response.json(
+            { error: "Could not derive a valid slug from frontmatter (use lowercase letters, numbers, hyphens)" },
+            { status: 400 }
+        )
+    }
+
+    const tags = normalizeTags(meta.tags)
 
     const post = {
-        title:        meta.title as string,
+        title:        meta.title,
         slug,
-        excerpt:      typeof meta.excerpt === "string" ? meta.excerpt : "",
-        content:      content.trim(),
-        tags:         normalizeTags(meta.tags),
-        cover_emoji:  typeof meta.cover_emoji === "string" ? meta.cover_emoji : "📝",
+        excerpt:      typeof meta.excerpt === "string" ? meta.excerpt.slice(0, LIMITS.excerpt) : "",
+        content:      content.trim().slice(0, LIMITS.content),
+        tags:         tags ?? [],
+        cover_emoji:  typeof meta.cover_emoji === "string" ? meta.cover_emoji.slice(0, LIMITS.coverEmoji) : "📝",
         theme:        normalizeTheme(meta.theme),
-        reading_time: typeof meta.reading_time === "number"
-                          ? meta.reading_time
+        reading_time: typeof meta.reading_time === "number" && meta.reading_time > 0 && meta.reading_time < 1000
+                          ? Math.round(meta.reading_time)
                           : estimateReadingTime(content),
         published:    meta.published === true,
     }
@@ -87,7 +90,8 @@ export async function POST(request: NextRequest) {
         .single()
 
     if (error) {
-        return Response.json({ error: error.message }, { status: 500 })
+        console.error(`[${ROUTE}]`, error.message)
+        return Response.json({ error: "Database error" }, { status: 500 })
     }
 
     return Response.json(

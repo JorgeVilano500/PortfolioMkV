@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { getClientIp } from "@/lib/security"
+import { rateLimit } from "@/lib/rate-limit"
+import { LIMITS } from "@/lib/validation"
 
-const BLOCKED_PREFIXES = ["/logistics", "/api"]
+const BLOCKED_PREFIXES = ["/logistics", "/blog-editor", "/api"]
 
-function getClientIp(req: NextRequest): string {
-    // x-forwarded-for: client, proxy1, proxy2 — first entry is the real client
-    const xff = req.headers.get("x-forwarded-for")
-    if (xff) return xff.split(",")[0].trim()
-    return req.headers.get("x-real-ip") ?? "unknown"
-}
+// Unauthenticated public endpoint → strictest limiter in the app.
+// A normal visitor generates a handful of page views per minute at most.
+const TRACK_LIMIT = 30
+const TRACK_WINDOW_MS = 60_000
 
 function getExcludedIps(): string[] {
     return (process.env.ANALYTICS_EXCLUDED_IPS ?? "")
@@ -23,6 +24,16 @@ export async function POST(req: NextRequest) {
     const excludedIps = getExcludedIps()
     if (excludedIps.length > 0 && excludedIps.includes(clientIp)) {
         return NextResponse.json({ ok: true }) // silently drop
+    }
+
+    // Rate limit per IP — this endpoint writes to the DB with no auth,
+    // so without this anyone can flood the page_views table.
+    const rl = rateLimit("track", clientIp, TRACK_LIMIT, TRACK_WINDOW_MS)
+    if (!rl.ok) {
+        return NextResponse.json(
+            { error: "Too many requests" },
+            { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+        )
     }
 
     // Reject requests that aren't JSON
@@ -47,23 +58,29 @@ export async function POST(req: NextRequest) {
         screen_width?: number | null
     }
 
-    if (!page || !session_id || typeof page !== "string" || typeof session_id !== "string") {
+    // Strict shape validation — everything here is attacker-controlled.
+    if (
+        typeof page !== "string" || !page.startsWith("/") || page.length > LIMITS.page ||
+        typeof session_id !== "string" || session_id.length === 0 || session_id.length > LIMITS.sessionId
+    ) {
         return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Skip internal / logistics pages
+    // Skip internal / admin pages
     if (BLOCKED_PREFIXES.some((prefix) => page.startsWith(prefix))) {
         return NextResponse.json({ ok: true })
     }
 
     const { error } = await supabaseAdmin.from("page_views").insert({
         page,
-        referrer:        typeof referrer === "string" ? referrer : "",
-        user_agent:      req.headers.get("user-agent") ?? "",
+        referrer:        typeof referrer === "string" ? referrer.slice(0, LIMITS.referrer) : "",
+        user_agent:      (req.headers.get("user-agent") ?? "").slice(0, LIMITS.userAgent),
         session_id,
         is_new_visitor:  is_new_visitor === true,
-        load_time:       typeof load_time === "number" ? load_time : null,
-        screen_width:    typeof screen_width === "number" ? screen_width : null,
+        load_time:       typeof load_time === "number" && Number.isFinite(load_time) && load_time >= 0 && load_time <= 120_000
+                             ? Math.round(load_time) : null,
+        screen_width:    typeof screen_width === "number" && Number.isFinite(screen_width) && screen_width > 0 && screen_width <= 10_000
+                             ? Math.round(screen_width) : null,
     })
 
     if (error) {

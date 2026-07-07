@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { safeEqual, getClientIp } from "@/lib/security"
+import { isAuthBlocked, recordAuthFailure } from "@/lib/rate-limit"
+
+const ROUTE = "analytics/stats"
 
 export type PageViewRow = {
     page:           string
@@ -36,12 +40,6 @@ function categoriseDevice(w: number | null): "mobile" | "tablet" | "desktop" {
     return "desktop"
 }
 
-function getClientIp(req: NextRequest): string {
-    const xff = req.headers.get("x-forwarded-for")
-    if (xff) return xff.split(",")[0].trim()
-    return req.headers.get("x-real-ip") ?? "unknown"
-}
-
 function getExcludedIps(): string[] {
     return (process.env.ANALYTICS_EXCLUDED_IPS ?? "")
         .split(",")
@@ -61,10 +59,16 @@ function cleanReferrer(raw: string): string {
 }
 
 export async function GET(req: NextRequest) {
+    // Auth: constant-time compare + brute-force damping (this endpoint is
+    // the oracle the /logistics password gate checks against).
+    const ip = getClientIp(req)
+    if (isAuthBlocked(ROUTE, ip)) {
+        return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 })
+    }
     const key = req.headers.get("x-logistics-key")
     const secret = process.env.LOGISTICS_PASSWORD
-
-    if (!secret || key !== secret) {
+    if (!secret || !safeEqual(key, secret)) {
+        recordAuthFailure(ROUTE, ip)
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

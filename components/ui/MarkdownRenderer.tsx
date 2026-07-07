@@ -5,6 +5,8 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
 import rehypeRaw from "rehype-raw"
+import rehypeSanitize from "rehype-sanitize"
+import { markdownSanitizeSchema } from "@/lib/markdown-sanitize"
 import type { Components } from "react-markdown"
 import { MdContentCopy, MdCheck } from "react-icons/md"
 
@@ -288,7 +290,9 @@ export function MarkdownRenderer({ content }: { content: string }) {
         <div className="flow-root">
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                // Order matters: raw HTML is parsed, then sanitized (XSS
+                // protection), then highlighted (so hljs classes survive).
+                rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema], rehypeHighlight]}
                 components={components}
             >
                 {content}
