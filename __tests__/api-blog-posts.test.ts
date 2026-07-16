@@ -28,6 +28,7 @@ beforeEach(() => {
     process.env.LOGISTICS_PASSWORD = KEY
     resetRateLimits()
     mockDb.result = { data: { id: "1" }, error: null }
+    mockDb.queue = []
     mockDb.calls = []
     jest.spyOn(console, "error").mockImplementation(() => {})
 })
@@ -84,12 +85,27 @@ describe("auth", () => {
 // ─── GET ─────────────────────────────────────────────────────────────────────
 
 describe("GET", () => {
-    it("returns posts with a valid key", async () => {
-        const posts = [{ id: "1", title: "Hi", slug: "hi" }]
-        mockDb.result = { data: posts, error: null }
+    it("returns posts with view counts merged from analytics", async () => {
+        mockDb.queue = [
+            { data: [{ id: "1", title: "Hi", slug: "hi" }, { id: "2", title: "Yo", slug: "yo" }], error: null },
+            { data: [{ page: "/blog/hi" }, { page: "/blog/hi" }, { page: "/blog/other" }], error: null },
+        ]
         const res = await GET(makeRequest(URL, { headers: { "x-logistics-key": KEY } }))
         expect(res.status).toBe(200)
-        expect(await res.json()).toEqual(posts)
+        expect(await res.json()).toEqual([
+            { id: "1", title: "Hi", slug: "hi", view_count: 2 },
+            { id: "2", title: "Yo", slug: "yo", view_count: 0 },
+        ])
+    })
+
+    it("still returns posts (view_count 0) when the analytics query fails", async () => {
+        mockDb.queue = [
+            { data: [{ id: "1", title: "Hi", slug: "hi" }], error: null },
+            { data: null, error: { message: "page_views unavailable" } },
+        ]
+        const res = await GET(makeRequest(URL, { headers: { "x-logistics-key": KEY } }))
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual([{ id: "1", title: "Hi", slug: "hi", view_count: 0 }])
     })
 
     it("hides DB error details from the client", async () => {
@@ -211,6 +227,30 @@ describe("DELETE", () => {
 
     it("rejects a missing id", async () => {
         const res = await DELETE(jsonRequest(URL, "DELETE", {}, auth))
+        expect(res.status).toBe(400)
+    })
+
+    it("group-deletes by ids", async () => {
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: ["a", "b", "c"] }, auth))
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ success: true, deleted: 3 })
+        const inCall = mockDb.calls.find((c) => c.method === "in")
+        expect(inCall?.args).toEqual(["id", ["a", "b", "c"]])
+    })
+
+    it("rejects an empty ids array", async () => {
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: [] }, auth))
+        expect(res.status).toBe(400)
+    })
+
+    it("rejects ids containing non-strings", async () => {
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: ["a", 5] }, auth))
+        expect(res.status).toBe(400)
+    })
+
+    it("rejects more than 100 ids", async () => {
+        const ids = Array.from({ length: 101 }, (_, i) => `id-${i}`)
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids }, auth))
         expect(res.status).toBe(400)
     })
 })

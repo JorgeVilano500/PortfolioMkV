@@ -39,6 +39,8 @@ export function jsonRequest(
  */
 export type SupabaseMockState = {
     result: { data: unknown; error: { message: string } | null }
+    /** Optional per-query results — consumed in order before falling back to `result`. */
+    queue?: { data: unknown; error: { message: string } | null }[]
     calls: { method: string; args: unknown[] }[]
 }
 
@@ -46,7 +48,7 @@ export function createChain(state: SupabaseMockState) {
     const chain: Record<string, unknown> = {}
     const methods = [
         "from", "select", "order", "limit", "insert",
-        "update", "upsert", "delete", "eq", "single",
+        "update", "upsert", "delete", "eq", "in", "like", "single",
     ]
     for (const m of methods) {
         chain[m] = (...args: unknown[]) => {
@@ -57,7 +59,10 @@ export function createChain(state: SupabaseMockState) {
     chain.then = (
         resolve: (v: unknown) => unknown,
         reject: (e: unknown) => unknown
-    ) => Promise.resolve(state.result).then(resolve, reject)
+    ) => {
+        const result = state.queue?.length ? state.queue.shift()! : state.result
+        return Promise.resolve(result).then(resolve, reject)
+    }
     return chain
 }
 

@@ -117,7 +117,28 @@ export async function GET(req: NextRequest) {
         .order("created_at", { ascending: false })
 
     if (error) return dbError("GET", error.message)
-    return NextResponse.json(data ?? [])
+    const posts = data ?? []
+
+    // Attach per-post view counts from analytics so the editor can sort by
+    // popularity. Degrade to 0 on error — post listing must not depend on it.
+    const viewsBySlug: Record<string, number> = {}
+    const { data: viewRows, error: viewError } = await supabaseAdmin
+        .from("page_views")
+        .select("page")
+        .like("page", "/blog/%")
+    if (viewError) {
+        console.error(`[${ROUTE}] GET view counts:`, viewError.message)
+    } else {
+        for (const row of (viewRows ?? []) as { page?: string }[]) {
+            if (typeof row.page !== "string") continue
+            const slug = row.page.slice("/blog/".length).replace(/\/+$/, "")
+            if (slug) viewsBySlug[slug] = (viewsBySlug[slug] ?? 0) + 1
+        }
+    }
+
+    return NextResponse.json(
+        posts.map((p: { slug: string }) => ({ ...p, view_count: viewsBySlug[p.slug] ?? 0 }))
+    )
 }
 
 export async function POST(req: NextRequest) {
@@ -180,6 +201,8 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json(data)
 }
 
+const MAX_BULK_DELETE = 100
+
 export async function DELETE(req: NextRequest) {
     const denied = checkAuth(req)
     if (denied) return denied
@@ -187,7 +210,28 @@ export async function DELETE(req: NextRequest) {
     const body = await readJson(req)
     if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
 
-    const { id } = body
+    // Accepts { id } for a single delete or { ids } for a group delete.
+    const { id, ids } = body
+
+    if (Array.isArray(ids)) {
+        if (
+            ids.length === 0 ||
+            ids.length > MAX_BULK_DELETE ||
+            !ids.every((v) => isNonEmptyString(v, 100))
+        ) {
+            return NextResponse.json(
+                { error: `ids must be 1–${MAX_BULK_DELETE} non-empty strings` },
+                { status: 400 }
+            )
+        }
+        const { error } = await supabaseAdmin
+            .from("posts")
+            .delete()
+            .in("id", ids)
+        if (error) return dbError("DELETE", error.message)
+        return NextResponse.json({ success: true, deleted: ids.length })
+    }
+
     if (!isNonEmptyString(id, 100)) return NextResponse.json({ error: "Missing id" }, { status: 400 })
 
     const { error } = await supabaseAdmin
