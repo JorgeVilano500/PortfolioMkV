@@ -109,7 +109,7 @@ describe("validation", () => {
 })
 
 describe("filtering", () => {
-    it.each(["/logistics", "/logistics/deep", "/blog-editor", "/api/blog/posts"])(
+    it.each(["/logistics", "/logistics/deep", "/studio", "/api/blog/posts"])(
         "silently skips admin/internal page %s",
         async (page) => {
             const res = await track({ ...validBody, page })

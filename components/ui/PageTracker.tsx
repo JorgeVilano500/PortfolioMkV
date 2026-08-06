@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation"
 import { useEffect, useRef } from "react"
 
-const SKIP_PREFIXES = ["/logistics", "/blog-editor", "/api"]
+const SKIP_PREFIXES = ["/logistics", "/studio", "/api"]
 
 function getOrCreateSessionId(): string {
     try {

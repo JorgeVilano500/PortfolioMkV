@@ -15,6 +15,12 @@ export const LIMITS = {
     emailSubject: 500,
     emailBody: 500_000,
     uploadBody: 1_000_000,
+    projectTitle: 200,
+    projectDescription: 2_000,
+    category: 80,
+    year: 20,
+    url: 500,
+    icon: 16,
 } as const
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -50,6 +56,17 @@ export function normalizeTags(value: unknown): string[] | null {
 export function normalizeTheme(value: unknown): "purple" | "green" | "pink" {
     if (value === "green" || value === "pink") return value
     return "purple"
+}
+
+export function normalizeProjectStatus(value: unknown): "live" | "wip" | "planned" {
+    if (value === "live" || value === "wip") return value
+    return "planned"
+}
+
+/** Empty string clears the link; a non-empty value must be a plausible http(s) URL. */
+export function isValidUrlOrEmpty(v: unknown): v is string {
+    if (v === "") return true
+    return typeof v === "string" && v.length <= LIMITS.url && /^https?:\/\/\S+$/i.test(v)
 }
 
 export function estimateReadingTime(content: string): number {

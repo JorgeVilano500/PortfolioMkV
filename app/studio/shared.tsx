@@ -1,0 +1,95 @@
+"use client"
+
+import { useState } from "react"
+
+// ─── Password Gate ────────────────────────────────────────────────────────────
+
+export function PasswordGate({ onAuth }: { onAuth: (key: string) => void }) {
+    const [value, setValue]   = useState("")
+    const [error, setError]   = useState(false)
+    const [loading, setLoad]  = useState(false)
+
+    const attempt = async () => {
+        if (!value) return
+        setLoad(true)
+        setError(false)
+        try {
+            const res = await fetch("/api/blog/posts", {
+                headers: { "x-logistics-key": value },
+            })
+            if (res.ok) {
+                try { sessionStorage.setItem("_lk", value) } catch { /* ignore */ }
+                onAuth(value)
+            } else {
+                setError(true)
+            }
+        } catch {
+            // Network failure — surface as a failed attempt instead of
+            // leaving the button stuck on "Checking…"
+            setError(true)
+        } finally {
+            setLoad(false)
+        }
+    }
+
+    return (
+        <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-6">
+            <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-8 w-full max-w-sm">
+                <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Restricted</p>
+                <h1 className="font-syne font-extrabold text-2xl text-[#f0eeff] mb-1">Studio</h1>
+                <p className="text-sm text-[#555370] mb-6">Enter the access password to manage your content.</p>
+                <input
+                    type="password"
+                    placeholder="Password"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && attempt()}
+                    className="w-full bg-[#0a0a0f] border border-[#2a2840] rounded-xl px-4 py-3 text-sm text-[#f0eeff] placeholder-[#555370] outline-none focus:border-[#7c6dff] transition-colors mb-3"
+                />
+                {error && <p className="text-xs text-pink-400 mb-3">Incorrect password.</p>}
+                <button
+                    onClick={attempt}
+                    disabled={loading || !value}
+                    className="w-full bg-[#7c6dff] hover:bg-[#6a5de8] disabled:opacity-40 text-white font-medium text-sm py-3 rounded-xl transition-colors cursor-pointer"
+                >
+                    {loading ? "Checking…" : "Enter"}
+                </button>
+            </div>
+        </div>
+    )
+}
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
+
+export function Icon({ d, className = "w-4 h-4" }: { d: string; className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d={d} />
+        </svg>
+    )
+}
+
+export const ICON_PATHS = {
+    edit:     "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z",
+    external: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14",
+    share:    "M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z",
+    link:     "M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1",
+    trash:    "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
+    warning:  "M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-8.25 3h.008v.008h-.008v-.008z",
+    kebab:    "M12 5v.01M12 12v.01M12 19v.01",
+    close:    "M6 18L18 6M6 6l12 12",
+    check:    "M5 13l4 4L19 7",
+    search:   "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+    plus:     "M12 4v16m8-8H4",
+    chevron:  "M19 9l-7 7-7-7",
+    chevronLeft: "M15 19l-7-7 7-7",
+    gear:     "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
+    eye:      "M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
+    eyeOff:   "M3.98 8.223A10.477 10.477 0 001.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88",
+    star:     "M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z",
+    rocket:   "M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 8.39m5.96 5.98L9.63 8.39m0 0a14.98 14.98 0 00-12.12 6.16 6 6 0 007.38 5.84v-4.8m-4.8 4.8a6.01 6.01 0 001.5-6.16m-1.5 6.16v-4.8m0 0h4.8",
+} as const
+
+export function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+}

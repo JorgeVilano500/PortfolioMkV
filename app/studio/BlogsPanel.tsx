@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
-import { Navbar } from "@/components"
 import { MarkdownRenderer } from "@/components/ui/MarkdownRenderer"
+import { Icon, ICON_PATHS, formatDate } from "./shared"
 
 type PostTheme = "purple" | "green" | "pink"
 
@@ -22,14 +22,6 @@ type Post = {
 }
 
 type StatusFilter = "all" | "published" | "draft"
-
-// Cycle order for the quick visibility-toggle button: All → hide drafts → hide published → All
-const VISIBILITY_CYCLE: Record<StatusFilter, StatusFilter> = { all: "published", published: "draft", draft: "all" }
-const VISIBILITY_META: Record<StatusFilter, { label: string; icon: "eye" | "eyeOff" }> = {
-    all:       { label: "Showing all posts", icon: "eye" },
-    published: { label: "Drafts hidden",      icon: "eyeOff" },
-    draft:     { label: "Published hidden",   icon: "eyeOff" },
-}
 
 type SortKey = "newest" | "oldest" | "popular" | "title-az" | "title-za" | "longest-read"
 
@@ -52,97 +44,9 @@ function slugify(t: string) {
     return t.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").trim()
 }
 
-function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
-}
-
 function postUrl(slug: string) {
     return `${window.location.origin}/blog/${slug}`
 }
-
-// ─── Password Gate ────────────────────────────────────────────────────────────
-
-function PasswordGate({ onAuth }: { onAuth: (key: string) => void }) {
-    const [value, setValue]   = useState("")
-    const [error, setError]   = useState(false)
-    const [loading, setLoad]  = useState(false)
-
-    const attempt = async () => {
-        if (!value) return
-        setLoad(true)
-        setError(false)
-        try {
-            const res = await fetch("/api/blog/posts", {
-                headers: { "x-logistics-key": value },
-            })
-            if (res.ok) {
-                try { sessionStorage.setItem("_lk", value) } catch { /* ignore */ }
-                onAuth(value)
-            } else {
-                setError(true)
-            }
-        } catch {
-            // Network failure — surface as a failed attempt instead of
-            // leaving the button stuck on "Checking…"
-            setError(true)
-        } finally {
-            setLoad(false)
-        }
-    }
-
-    return (
-        <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-6">
-            <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-8 w-full max-w-sm">
-                <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Restricted</p>
-                <h1 className="font-syne font-extrabold text-2xl text-[#f0eeff] mb-1">Blog Editor</h1>
-                <p className="text-sm text-[#555370] mb-6">Enter the access password to manage posts.</p>
-                <input
-                    type="password"
-                    placeholder="Password"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && attempt()}
-                    className="w-full bg-[#0a0a0f] border border-[#2a2840] rounded-xl px-4 py-3 text-sm text-[#f0eeff] placeholder-[#555370] outline-none focus:border-[#7c6dff] transition-colors mb-3"
-                />
-                {error && <p className="text-xs text-pink-400 mb-3">Incorrect password.</p>}
-                <button
-                    onClick={attempt}
-                    disabled={loading || !value}
-                    className="w-full bg-[#7c6dff] hover:bg-[#6a5de8] disabled:opacity-40 text-white font-medium text-sm py-3 rounded-xl transition-colors cursor-pointer"
-                >
-                    {loading ? "Checking…" : "Enter"}
-                </button>
-            </div>
-        </div>
-    )
-}
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
-
-function Icon({ d, className = "w-4 h-4" }: { d: string; className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d={d} />
-        </svg>
-    )
-}
-
-const ICON_PATHS = {
-    edit:     "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z",
-    external: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14",
-    share:    "M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z",
-    link:     "M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1",
-    trash:    "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
-    kebab:    "M12 5v.01M12 12v.01M12 19v.01",
-    close:    "M6 18L18 6M6 6l12 12",
-    check:    "M5 13l4 4L19 7",
-    search:   "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
-    plus:     "M12 4v16m8-8H4",
-    chevron:  "M19 9l-7 7-7-7",
-    gear:     "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
-    eye:      "M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
-    eyeOff:   "M3.98 8.223A10.477 10.477 0 001.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88",
-} as const
 
 // ─── Card action dropdown ─────────────────────────────────────────────────────
 
@@ -833,9 +737,9 @@ function NewPostForm({ authKey, onCreated }: { authKey: string; onCreated: (p: P
     )
 }
 
-// ─── Editor view (authenticated) ─────────────────────────────────────────────
+// ─── Blogs panel ──────────────────────────────────────────────────────────────
 
-function Editor({ authKey }: { authKey: string }) {
+export function BlogsPanel({ authKey }: { authKey: string }) {
     const [posts, setPosts]  = useState<Post[]>([])
     const [loading, setLoad] = useState(true)
     const [error, setError]  = useState<string | null>(null)
@@ -968,221 +872,189 @@ function Editor({ authKey }: { authKey: string }) {
     }
 
     return (
-        <div className="min-h-screen font-dm p-6 md:p-8 bg-[#0a0a0f]">
-            <Navbar currentLink="blog" />
+        <div className="max-w-5xl space-y-4">
 
-            <section className="px-2 mb-8">
-                <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Internal</p>
-                <h1 className="font-syne font-extrabold text-3xl md:text-4xl text-[#f0eeff] tracking-tight mb-2">
-                    Blog Editor
-                </h1>
-                <p className="text-sm text-[#555370] max-w-sm leading-relaxed">
-                    Manage posts, edit content, and toggle visibility. Changes save directly to Supabase.
-                </p>
-            </section>
+            {/* Stats */}
+            {!loading && !error && posts.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                        { label: "Posts",     value: posts.length },
+                        { label: "Published", value: publishedCount },
+                        { label: "Drafts",    value: posts.length - publishedCount },
+                        { label: "Views",     value: totalViews },
+                    ].map((s) => (
+                        <div key={s.label} className="bg-[#13121c] border border-[#2a2840] rounded-2xl px-4 py-3">
+                            <p className="text-xl font-syne font-bold text-[#f0eeff]">{s.value}</p>
+                            <p className="text-[11px] tracking-widest uppercase text-[#555370] mt-0.5">{s.label}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
 
-            <div className="max-w-5xl space-y-4">
+            <NewPostForm authKey={authKey} onCreated={handleCreated} />
 
-                {/* Stats */}
-                {!loading && !error && posts.length > 0 && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {[
-                            { label: "Posts",     value: posts.length },
-                            { label: "Published", value: publishedCount },
-                            { label: "Drafts",    value: posts.length - publishedCount },
-                            { label: "Views",     value: totalViews },
-                        ].map((s) => (
-                            <div key={s.label} className="bg-[#13121c] border border-[#2a2840] rounded-2xl px-4 py-3">
-                                <p className="text-xl font-syne font-bold text-[#f0eeff]">{s.value}</p>
-                                <p className="text-[11px] tracking-widest uppercase text-[#555370] mt-0.5">{s.label}</p>
-                            </div>
-                        ))}
+            {/* Toolbar */}
+            {!loading && !error && posts.length > 0 && (
+                <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        {/* Search */}
+                        <div className="relative flex-1">
+                            <Icon d={ICON_PATHS.search} className="w-4 h-4 text-[#555370] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <input
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Search title, slug, or tags…"
+                                className="w-full bg-[#0a0a0f] border border-[#2a2840] rounded-xl pl-9 pr-3 py-2 text-sm text-[#f0eeff] placeholder-[#555370] outline-none focus:border-[#7c6dff] transition-colors"
+                                type="text"
+                            />
+                        </div>
+
+                        {/* Sort */}
+                        <select
+                            value={sort}
+                            onChange={(e) => setSort(e.target.value as SortKey)}
+                            aria-label="Sort posts"
+                            className="bg-[#0a0a0f] border border-[#2a2840] rounded-xl px-3 py-2 text-sm text-[#c4c0d8] outline-none focus:border-[#7c6dff] transition-colors cursor-pointer"
+                        >
+                            {SORT_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                        </select>
                     </div>
-                )}
 
-                <NewPostForm authKey={authKey} onCreated={handleCreated} />
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Status pills */}
+                        <div className="flex gap-1 bg-[#0a0a0f] p-1 rounded-xl border border-[#2a2840]">
+                            {([["all", "All"], ["published", "Published"], ["draft", "Drafts"]] as const).map(([value, label]) => (
+                                <button
+                                    key={value}
+                                    onClick={() => setStatus(value)}
+                                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                        status === value ? "bg-[#7c6dff] text-white" : "text-[#555370] hover:text-[#c4c0d8]"
+                                    }`}
+                                >{label}</button>
+                            ))}
+                        </div>
 
-                {/* Toolbar */}
-                {!loading && !error && posts.length > 0 && (
-                    <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-4 space-y-3">
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            {/* Search */}
-                            <div className="relative flex-1">
-                                <Icon d={ICON_PATHS.search} className="w-4 h-4 text-[#555370] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                <input
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Search title, slug, or tags…"
-                                    className="w-full bg-[#0a0a0f] border border-[#2a2840] rounded-xl pl-9 pr-3 py-2 text-sm text-[#f0eeff] placeholder-[#555370] outline-none focus:border-[#7c6dff] transition-colors"
-                                    type="text"
-                                />
-                            </div>
-
-                            {/* Sort */}
+                        {/* Tag filter */}
+                        {allTags.length > 0 && (
                             <select
-                                value={sort}
-                                onChange={(e) => setSort(e.target.value as SortKey)}
-                                aria-label="Sort posts"
-                                className="bg-[#0a0a0f] border border-[#2a2840] rounded-xl px-3 py-2 text-sm text-[#c4c0d8] outline-none focus:border-[#7c6dff] transition-colors cursor-pointer"
+                                value={tagFilter}
+                                onChange={(e) => setTagFilter(e.target.value)}
+                                aria-label="Filter by tag"
+                                className="bg-[#0a0a0f] border border-[#2a2840] rounded-xl px-3 py-1.5 text-xs text-[#c4c0d8] outline-none focus:border-[#7c6dff] transition-colors cursor-pointer"
                             >
-                                {SORT_OPTIONS.map((o) => (
-                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                <option value="all">All tags</option>
+                                {allTags.map((t) => (
+                                    <option key={t} value={t}>{t}</option>
                                 ))}
                             </select>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                            {/* Status pills */}
-                            <div className="flex gap-1 bg-[#0a0a0f] p-1 rounded-xl border border-[#2a2840]">
-                                {([["all", "All"], ["published", "Published"], ["draft", "Drafts"]] as const).map(([value, label]) => (
-                                    <button
-                                        key={value}
-                                        onClick={() => setStatus(value)}
-                                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                                            status === value ? "bg-[#7c6dff] text-white" : "text-[#555370] hover:text-[#c4c0d8]"
-                                        }`}
-                                    >{label}</button>
-                                ))}
-                            </div>
-
-                            {/* Tag filter */}
-                            {allTags.length > 0 && (
-                                <select
-                                    value={tagFilter}
-                                    onChange={(e) => setTagFilter(e.target.value)}
-                                    aria-label="Filter by tag"
-                                    className="bg-[#0a0a0f] border border-[#2a2840] rounded-xl px-3 py-1.5 text-xs text-[#c4c0d8] outline-none focus:border-[#7c6dff] transition-colors cursor-pointer"
-                                >
-                                    <option value="all">All tags</option>
-                                    {allTags.map((t) => (
-                                        <option key={t} value={t}>{t}</option>
-                                    ))}
-                                </select>
-                            )}
-
-                            <div className="flex-1" />
-
-                            <span className="text-xs text-[#555370]">
-                                {visible.length} of {posts.length} post{posts.length === 1 ? "" : "s"}
-                            </span>
-
-                            {hasActiveFilters && (
-                                <button
-                                    onClick={clearFilters}
-                                    className="text-xs text-[#7c6dff] hover:text-[#6a5de8] transition-colors font-medium"
-                                >Clear filters</button>
-                            )}
-
-                            <button
-                                onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-                                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                                    selectMode
-                                        ? "border-[#7c6dff] text-[#AFA9EC] bg-[#7c6dff]/10"
-                                        : "border-[#2a2840] text-[#888] hover:bg-[#1e1c2e]"
-                                }`}
-                            >{selectMode ? "Done" : "Select"}</button>
-                        </div>
-
-                        {/* Bulk action bar */}
-                        {selectMode && (
-                            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-[#2a2840]">
-                                <button
-                                    onClick={toggleSelectAll}
-                                    className="text-xs text-[#7c6dff] hover:text-[#6a5de8] transition-colors font-medium"
-                                >
-                                    {allVisibleSelected ? "Deselect all" : `Select all (${visible.length})`}
-                                </button>
-                                <span className="text-xs text-[#555370]">{selected.size} selected</span>
-                                <div className="flex-1" />
-                                <button
-                                    onClick={() => bulkSetPublished(true)}
-                                    disabled={bulkBusy || selected.size === 0}
-                                    className="text-xs px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 transition-colors"
-                                >Publish</button>
-                                <button
-                                    onClick={() => bulkSetPublished(false)}
-                                    disabled={bulkBusy || selected.size === 0}
-                                    className="text-xs px-3 py-1.5 rounded-lg border border-[#2a2840] text-[#888] hover:bg-[#1e1c2e] disabled:opacity-40 transition-colors"
-                                >Unpublish</button>
-                                <button
-                                    onClick={bulkDelete}
-                                    disabled={bulkBusy || selected.size === 0}
-                                    className="text-xs px-3 py-1.5 rounded-lg border border-pink-400/30 text-pink-400 hover:bg-pink-400/10 disabled:opacity-40 transition-colors"
-                                >
-                                    {bulkBusy ? "Working…" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
-                                </button>
-                            </div>
                         )}
 
-                        {bulkError && <p className="text-xs text-pink-400">{bulkError}</p>}
-                    </div>
-                )}
+                        <div className="flex-1" />
 
-                {/* Quick visibility toggle — cycles All → hide drafts → hide published → All */}
-                {/* {!loading && !error && posts.length > 0 && (
-                    <div className="flex justify-end">
+                        <span className="text-xs text-[#555370]">
+                            {visible.length} of {posts.length} post{posts.length === 1 ? "" : "s"}
+                        </span>
+
+                        {hasActiveFilters && (
+                            <button
+                                onClick={clearFilters}
+                                className="text-xs text-[#7c6dff] hover:text-[#6a5de8] transition-colors font-medium"
+                            >Clear filters</button>
+                        )}
+
                         <button
-                            onClick={() => setStatus(VISIBILITY_CYCLE[status])}
-                            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                                status === "all"
-                                    ? "border-[#2a2840] text-[#888] hover:bg-[#1e1c2e]"
-                                    : "border-[#7c6dff]/40 text-[#AFA9EC] bg-[#7c6dff]/10 hover:bg-[#7c6dff]/20"
+                            onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                                selectMode
+                                    ? "border-[#7c6dff] text-[#AFA9EC] bg-[#7c6dff]/10"
+                                    : "border-[#2a2840] text-[#888] hover:bg-[#1e1c2e]"
                             }`}
-                            title="Click to cycle: all posts → hide drafts → hide published"
-                        >
-                            <Icon d={ICON_PATHS[VISIBILITY_META[status].icon]} className="w-3.5 h-3.5" />
-                            {VISIBILITY_META[status].label}
-                        </button>
+                        >{selectMode ? "Done" : "Select"}</button>
                     </div>
-                )} */}
 
-                {error && (
-                    <div className="bg-[#1a0f14] border border-[#2e1f28] rounded-2xl p-6 text-pink-300 text-sm">{error}</div>
-                )}
+                    {/* Bulk action bar */}
+                    {selectMode && (
+                        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-[#2a2840]">
+                            <button
+                                onClick={toggleSelectAll}
+                                className="text-xs text-[#7c6dff] hover:text-[#6a5de8] transition-colors font-medium"
+                            >
+                                {allVisibleSelected ? "Deselect all" : `Select all (${visible.length})`}
+                            </button>
+                            <span className="text-xs text-[#555370]">{selected.size} selected</span>
+                            <div className="flex-1" />
+                            <button
+                                onClick={() => bulkSetPublished(true)}
+                                disabled={bulkBusy || selected.size === 0}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 transition-colors"
+                            >Publish</button>
+                            <button
+                                onClick={() => bulkSetPublished(false)}
+                                disabled={bulkBusy || selected.size === 0}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-[#2a2840] text-[#888] hover:bg-[#1e1c2e] disabled:opacity-40 transition-colors"
+                            >Unpublish</button>
+                            <button
+                                onClick={bulkDelete}
+                                disabled={bulkBusy || selected.size === 0}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-pink-400/30 text-pink-400 hover:bg-pink-400/10 disabled:opacity-40 transition-colors"
+                            >
+                                {bulkBusy ? "Working…" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                            </button>
+                        </div>
+                    )}
 
-                {loading && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
-                        {[1, 2, 3, 4, 5, 6].map((i) => (
-                            <div key={i} className="bg-[#13121c] border border-[#2a2840] rounded-2xl h-48" />
-                        ))}
-                    </div>
-                )}
+                    {bulkError && <p className="text-xs text-pink-400">{bulkError}</p>}
+                </div>
+            )}
 
-                {!loading && !error && posts.length === 0 && (
-                    <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-12 text-center">
-                        <p className="text-[#555370] text-sm">No posts yet. Create your first post above.</p>
-                    </div>
-                )}
+            {error && (
+                <div className="bg-[#1a0f14] border border-[#2e1f28] rounded-2xl p-6 text-pink-300 text-sm">{error}</div>
+            )}
 
-                {!loading && !error && posts.length > 0 && visible.length === 0 && (
-                    <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-12 text-center">
-                        <p className="text-[#555370] text-sm mb-3">No posts match your filters.</p>
-                        <button
-                            onClick={clearFilters}
-                            className="text-xs text-[#7c6dff] hover:text-[#6a5de8] transition-colors font-medium"
-                        >Clear filters</button>
-                    </div>
-                )}
+            {loading && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+                    {[1, 2, 3, 4, 5, 6].map((i) => (
+                        <div key={i} className="bg-[#13121c] border border-[#2a2840] rounded-2xl h-48" />
+                    ))}
+                </div>
+            )}
 
-                {!loading && visible.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {visible.map((post) => (
-                            <PostGridCard
-                                key={post.id}
-                                post={post}
-                                authKey={authKey}
-                                onSaved={handleSaved}
-                                onDeleted={handleDeleted}
-                                onOpen={() => setModal({ id: post.id, editing: false })}
-                                onEdit={() => setModal({ id: post.id, editing: true })}
-                                selectMode={selectMode}
-                                selected={selected.has(post.id)}
-                                onToggleSelect={toggleSelect}
-                            />
-                        ))}
-                    </div>
-                )}
-            </div>
+            {!loading && !error && posts.length === 0 && (
+                <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-12 text-center">
+                    <p className="text-[#555370] text-sm">No posts yet. Create your first post above.</p>
+                </div>
+            )}
+
+            {!loading && !error && posts.length > 0 && visible.length === 0 && (
+                <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-12 text-center">
+                    <p className="text-[#555370] text-sm mb-3">No posts match your filters.</p>
+                    <button
+                        onClick={clearFilters}
+                        className="text-xs text-[#7c6dff] hover:text-[#6a5de8] transition-colors font-medium"
+                    >Clear filters</button>
+                </div>
+            )}
+
+            {!loading && visible.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {visible.map((post) => (
+                        <PostGridCard
+                            key={post.id}
+                            post={post}
+                            authKey={authKey}
+                            onSaved={handleSaved}
+                            onDeleted={handleDeleted}
+                            onOpen={() => setModal({ id: post.id, editing: false })}
+                            onEdit={() => setModal({ id: post.id, editing: true })}
+                            selectMode={selectMode}
+                            selected={selected.has(post.id)}
+                            onToggleSelect={toggleSelect}
+                        />
+                    ))}
+                </div>
+            )}
 
             {modalPost && (
                 <PostModal
@@ -1196,21 +1068,4 @@ function Editor({ authKey }: { authKey: string }) {
             )}
         </div>
     )
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
-export default function BlogEditorPage() {
-    const [authKey, setAuthKey]     = useState<string | null>(null)
-    const [hydrated, setHydrated]   = useState(false)
-
-    useEffect(() => {
-        Promise.resolve()
-            .then(() => { try { return sessionStorage.getItem("_lk") } catch { return null } })
-            .then((saved) => { if (saved) setAuthKey(saved); setHydrated(true) })
-    }, [])
-
-    if (!hydrated) return null
-    if (!authKey)  return <PasswordGate onAuth={setAuthKey} />
-    return <Editor authKey={authKey} />
 }

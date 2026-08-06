@@ -1,30 +1,39 @@
 "use client"
 import {ProjectList, Modal} from '../index'
-import {useState} from 'react'
+import {useState, useEffect} from 'react'
+import {getPublicProjects, type PublicProject} from '@/lib/projects-data'
 
 type Skills = {
     name: string
     pct: number
 }
 
-type Project = { 
-    icon: string 
+type Stats = {
     label: string
-    muted?: boolean
-    link?: string
+    value: string
+    sub: string
 }
 
-type Stats = {
-    label: string 
-    value: string 
-    sub: string 
-}
+const GRID_SIZE = 6
+const VISIBLE_WHEN_OVERFLOW = 5 // real projects shown before the "+ More" cell kicks in
 
 export function HomeComponent() {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [projects, setProjects] = useState<PublicProject[]>([]);
 
     const toggleModal = () => setIsModalOpen(!isModalOpen);
+
+    useEffect(() => {
+        getPublicProjects()
+            .then(setProjects)
+            .catch(() => setProjects([]))
+    }, [])
+
+    const hasOverflow = projects.length > GRID_SIZE
+    const visibleProjects = hasOverflow ? projects.slice(0, VISIBLE_WHEN_OVERFLOW) : projects
+    const emptySlots = hasOverflow ? 0 : GRID_SIZE - visibleProjects.length
+    const overflowCount = projects.length - VISIBLE_WHEN_OVERFLOW
 
     const skills: Skills[] = [
         {name: "ReactJS", pct: 90},
@@ -36,14 +45,6 @@ export function HomeComponent() {
         {name: "Solidity", pct: 40},
         {name: "Golang", pct: 25},
     ]
-    const projects: Project[] =[
-        { icon: "🎱", label: "8-Ball", link: "https://fatesball.netlify.app/" },
-        { icon: "🎡", label: "Spinner", link: "https://spin-choice.netlify.app/" },
-        { icon: "🎲", label: "Dice", link: "https://dice-shaker.netlify.app/" },
-        { icon: "💻", label: "Old Porfolio", link: "https://javawebsite.netlify.app/" },
-        { icon: "🚀", label: "List of Projects", link: "https://productmt.netlify.app/" },
-        { icon: "+",  label: "More",  muted: true },
-      ]
 
       const stats: Stats[] = [
         {label: "Projects Built", value: "6+", sub: "Interactive apps shipped"},
@@ -110,25 +111,42 @@ export function HomeComponent() {
         <div className="col-span-1 md:col-span-1 xl:col-span-5 bg-[#0f1a14] border border-[#1a2e20] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
             <p>Projects</p>
             <div className="grid grid-cols-3 gap-3">
-                    {projects.map(({icon, label, muted, link}) => (
-                        link ? (
+                    {visibleProjects.map((p) => (
+                        p.link ? (
                             // suppressHydrationWarning: browser extensions (Honey, ad blockers, etc.)
                             // modify external <a> elements before React hydrates, causing a className mismatch.
-                            <a suppressHydrationWarning target="_blank" href={link} key={label} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024] bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer${muted ? " opacity-50 border-dashed" : ""}`}>
-                                <span className="text-xl">{icon}</span>
-                                <span className="text-[10px] text-emerald-600 font-medium">{label}</span>
+                            <a suppressHydrationWarning target="_blank" rel="noopener noreferrer" href={p.link} key={p.id} className="aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024] bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer">
+                                <span className="text-xl">{p.icon || "🚀"}</span>
+                                <span className="text-[10px] text-emerald-600 font-medium text-center px-1 truncate w-full">{p.title}</span>
                             </a>
                         ) : (
-                            <a suppressHydrationWarning key={label} onClick={() => toggleModal()} className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024] bg-[#121f17] hover:bg-[#1a2e1f] hover:scale-105 transition-all duration-200 cursor-pointer${muted ? " opacity-50 border-dashed" : ""}`}>
-                                <span className="text-xl">{icon}</span>
-                                <span className="text-[10px] text-emerald-600 font-medium">{label}</span>
-                            </a>
+                            <div key={p.id} className="aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-[#1e3024] bg-[#121f17] opacity-60">
+                                <span className="text-xl">{p.icon || "🚀"}</span>
+                                <span className="text-[10px] text-emerald-600 font-medium text-center px-1 truncate w-full">{p.title}</span>
+                            </div>
                         )
                     ))}
+
+                    {hasOverflow && (
+                        <a
+                            suppressHydrationWarning
+                            onClick={() => toggleModal()}
+                            className="aspect-square rounded-xl flex flex-col items-center justify-center gap-1.5 border border-dashed border-[#1e3024] bg-[#121f17] opacity-50 hover:opacity-80 hover:scale-105 transition-all duration-200 cursor-pointer"
+                        >
+                            <span className="text-xl">+</span>
+                            <span className="text-[10px] text-emerald-600 font-medium">More</span>
+                        </a>
+                    )}
+
+                    {Array.from({ length: emptySlots }).map((_, i) => (
+                        <div key={`empty-${i}`} className="aspect-square rounded-xl border border-dashed border-[#1e3024]/60" />
+                    ))}
             </div>
-            <Modal isOpen={isModalOpen} onClose={toggleModal} variant="dark" title="Projects">
-                <ProjectList />
-            </Modal>
+            {hasOverflow && (
+                <Modal isOpen={isModalOpen} onClose={toggleModal} variant="dark" title={`Projects (${overflowCount} more)`}>
+                    <ProjectList projects={projects} />
+                </Modal>
+            )}
         </div>
 
             {/* Status */}

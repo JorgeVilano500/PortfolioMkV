@@ -4,7 +4,7 @@ import { getClientIp } from "@/lib/security"
 import { rateLimit } from "@/lib/rate-limit"
 import { LIMITS } from "@/lib/validation"
 
-const BLOCKED_PREFIXES = ["/logistics", "/blog-editor", "/api"]
+const BLOCKED_PREFIXES = ["/logistics", "/studio", "/api"]
 
 // Unauthenticated public endpoint → strictest limiter in the app.
 // A normal visitor generates a handful of page views per minute at most.

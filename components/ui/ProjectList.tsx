@@ -1,4 +1,4 @@
-import { projects, type Project, type ProjectStatus } from "@/lib/projects"
+import { type PublicProject, type ProjectStatus, projectThemeMap } from "@/lib/projects-data"
 
 const statusConfig: Record<ProjectStatus, { dot: string; label: string; text: string }> = {
     live:    { dot: "bg-emerald-400 animate-pulse", label: "Live",        text: "text-emerald-400" },
@@ -7,26 +7,22 @@ const statusConfig: Record<ProjectStatus, { dot: string; label: string; text: st
 }
 
 type Props = {
-    limit?: number
-    filterBy?: string
+    projects: PublicProject[]
 }
 
-export function ProjectList({ limit, filterBy }: Props) {
-    const displayed: Project[] = projects
-        .filter((p) => (filterBy ? p.filters.includes(filterBy) : true))
-        .slice(0, limit)
-
+export function ProjectList({ projects }: Props) {
     return (
         <div className="flex flex-col gap-1">
-            {displayed.map((p) => {
+            {projects.map((p) => {
                 const s = statusConfig[p.status]
+                const t = projectThemeMap[p.theme]
                 return (
                     <div
                         key={p.id}
                         className="flex items-start gap-4 py-4 group bg-[#0d0c14] hover:bg-[#1e1c2e] px-3 rounded-xl border-l-2 border-l-transparent hover:border-l-violet-500 transition-all duration-200"
                     >
                         {/* Icon */}
-                        <div className={`${p.iconBg} w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 mt-0.5`}>
+                        <div className={`${t.iconBg} w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 mt-0.5`}>
                             {p.icon}
                         </div>
 
@@ -36,20 +32,24 @@ export function ProjectList({ limit, filterBy }: Props) {
                                 <p className="text-sm font-semibold text-[#6b6880] group-hover:text-[#f0eeff] leading-snug transition-colors duration-200">
                                     {p.title}
                                 </p>
-                                <span className={`text-[10px] tracking-widest uppercase font-medium ${p.catColor}`}>
-                                    {p.cat}
-                                </span>
+                                {p.category && (
+                                    <span className={`text-[10px] tracking-widest uppercase font-medium ${t.catColor}`}>
+                                        {p.category}
+                                    </span>
+                                )}
                             </div>
 
-                            <p className="text-xs text-[#6b6880] leading-relaxed mb-2 line-clamp-2">
-                                {p.desc}
-                            </p>
+                            {p.description && (
+                                <p className="text-xs text-[#6b6880] leading-relaxed mb-2 line-clamp-2">
+                                    {p.description}
+                                </p>
+                            )}
 
                             <div className="flex flex-wrap gap-1.5">
                                 {p.tags.map((tag) => (
                                     <span
                                         key={tag}
-                                        className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${p.tagStyle}`}
+                                        className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${t.tagStyle}`}
                                     >
                                         {tag}
                                     </span>
@@ -72,7 +72,8 @@ export function ProjectList({ limit, filterBy }: Props) {
                                 <a
                                     href={p.link}
                                     target="_blank"
-                                    className={`text-[10px] font-medium ${p.catColor} opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:underline`}
+                                    rel="noopener noreferrer"
+                                    className={`text-[10px] font-medium ${t.catColor} opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:underline`}
                                 >
                                     View →
                                 </a>
