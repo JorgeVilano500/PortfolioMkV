@@ -17,6 +17,8 @@ Built with **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind
 | About | `/about` | Bio, animated career timeline, tech stack, hobbies |
 | Blog | `/blog`, `/blog/[slug]` | Markdown posts stored in Supabase, with themed cards, callouts, syntax highlighting, and per-post OG images |
 | Contact | `/contact` | Email, socials, quick message form |
+| Privacy | `/privacy` | Plain-language privacy and cookie policy, with cookie settings |
+| First-visit intro | every page | Welcome → privacy choice (analytics off by default, enforced server-side) → how-to guide with live previews → optional guided tour that highlights the next navbar tab on each page |
 | Studio 🔒 | `/studio` | Password-gated CMS: create, edit, publish, and bulk-manage blog posts and projects |
 | Logistics 🔒 | `/logistics` | Password-gated, first-party visitor analytics |
 
@@ -37,9 +39,10 @@ npm install
 1. `supabase/schema.sql`: `posts`
 2. `supabase/projects-schema.sql`: `projects`
 3. `supabase/analytics-schema.sql`: `page_views`
+4. `supabase/consent-schema.sql`: `consent_events`, plus the opt-in `page_views` columns (IP, language, timezone, visitor id)
+5. `supabase/documents-schema.sql`: `project_documents`
 
-**Already have a database from before 2026-10-19?** Run `supabase/security-hardening.sql` once. It locks the analytics table away from the public anon key and tightens grants (SECURITY.md S-1 and S-22).
-4. `supabase/documents-schema.sql`: `project_documents`
+**Already have a database from before 2026-10-20?** Run `supabase/security-hardening.sql` and `supabase/consent-schema.sql` once each (both are safe to re-run). They lock the analytics table away from the public anon key, tighten grants, and add the consent tables (SECURITY.md S-1, S-22, S-5).
 
 **2. Configure the environment.** Create `.env.local` in the repo root:
 
@@ -71,7 +74,7 @@ Sign in at `/studio` with your `LOGISTICS_PASSWORD` to add your first post or pr
 |---|---|
 | `npm run dev` | Dev server (Turbopack) |
 | `npm run build` / `npm start` | Production build and serve (needs the Supabase env vars) |
-| `npm test` / `npm run test:watch` | Jest suite (315 tests; Supabase and Resend are mocked, so no secrets are needed) |
+| `npm test` / `npm run test:watch` | Jest suite (406 tests, including jsdom component tests; Supabase and Resend are mocked, so no secrets are needed) |
 | `npm run lint` | ESLint (in Next 16, `next build` no longer lints) |
 | `npx tsc --noEmit` | Type-check |
 

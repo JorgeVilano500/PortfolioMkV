@@ -198,6 +198,23 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 | `PageTracker` | `components/ui/PageTracker.tsx` | Invisible; mounted once in the root layout |
 | `ComingSoon` | `components/ui/ComingSoon.tsx` | Dead code. Don't use it; delete it (P1-6). |
 
+### 7.1b Onboarding and tour (`components/onboarding/`, added 2026-10-20)
+| Component | Pattern |
+|---|---|
+| `IntroModal` | **Bottom sheet on phones** (`items-end`, `rounded-t-2xl`), centred card from `sm` up with a **fixed height** of `sm:h-[min(88vh,46rem)]`, so the dialog doesn't jump between steps. It has a sticky header (wordmark, step dots, ✕ when allowed), a scrolling body (`StepBody`), and a sticky footer (`StepFooter`). On phones the footer buttons stack with the primary action on top. Enters with `motion-safe:animate-[intro-in_.25s_ease-out]` (keyframes in `globals.css`). |
+| Step heading | Eyebrow plus `font-syne font-extrabold text-2xl sm:text-3xl`. It receives focus on each step (`data-step-heading`, `tabIndex=-1`) so screen readers announce it. |
+| Consent buttons | **"Necessary only" (secondary, `border-[#3a3850]`) and "Accept all" (primary) are the same size**: equal prominence is a compliance requirement, not a style choice. "Save my choices" is ghost. |
+| Category card | `bg-[#0d0c14] border border-[#2a2840] rounded-xl p-4`; "Always on" pill `text-emerald-400 border-emerald-500/30`; switch per §7.3 with `role="switch"` |
+| `PreviewFrame` | A browser-chrome frame (3 dots, monospace URL, "LIVE PREVIEW" label) around **real components rendered small and `inert`**. Use it for any "here's what X looks like" content instead of screenshots. |
+| Guide tabs | Vertical `role="tablist"` from `md` up and a horizontal scroll row on phones. The active tab is `bg-[#7c6dff] text-white`. Arrow, Home, and End keys move focus. |
+| `TourToolbar` | `border-[#7c6dff]/40 bg-[#13121c] rounded-2xl` under the nav row, with a 1 px progress bar on the bottom edge. When scrolled away, a compact copy docks at the top (`fixed top-0`, `bg-[#13121c]/95 backdrop-blur`). |
+| Next-tab highlight | `ring-2 ring-[#7c6dff] bg-[#7c6dff]/15 text-white` plus a ping ring and a `NEXT` pill: floated above the link in the desktop nav, inline after the link in the mobile drawer. The ☰ button gets the ring and a ping dot. |
+| `TourSpotlight` | Fixed box around the target. A **single inline `box-shadow` stack**: 2 px `#7c6dff` outline, glow, then a `9999px rgba(5,5,10,.5)` page dim. `pointer-events: none`. Don't use Tailwind `ring-*` on it, because the inline shadow overrides it. |
+| `Toast` | Bottom-centre, `bg-[#13121c] border-[#2a2840] rounded-xl`, `role="status"`, auto-hides after 4.5 s |
+| `SiteFooter` | `border-t border-[#1e1c2e]`, `text-xs text-[#8a88a0]`, with links for Privacy · Cookie settings · Take the tour. Hidden on admin pages. |
+
+**Z-index scale** (keep new overlays inside it): spotlight `z-45` · highlighted nav tab `z-46` · tour bar `z-47` · docked tour bar `z-48` · mobile drawer `z-55` · modal `z-60` · toast `z-70`. Use Tailwind's canonical integer classes (`z-46`, not `z-[46]`).
+
 ### 7.2 Studio-local primitives (`app/studio/shared.tsx`)
 - The admin gate now lives in `components/features/AdminGate.tsx`, shared by `/studio` and `/logistics`. `<AdminGate title description>` checks the session and otherwise shows a centred card with the "Restricted" eyebrow, a password input, an inline error, and a primary button. `<SignOutButton/>` is a secondary-style button for admin page headers.
 - `Icon({ d, className = "w-4 h-4" })` with `ICON_PATHS` (edit, external, share, link, trash, warning, kebab, close, check, search, plus, chevron, chevronLeft, gear, eye, eyeOff, star, rocket): 24 px outline paths with stroke 2 in the Heroicons style. **Use these for admin UI icons**; add new paths here instead of pulling in another icon set.
@@ -335,7 +352,7 @@ fill:  h-full rounded-full bg-violet-500 (or inline background colour), width vi
 | 9 | Two modal systems: `components/features/Modal` (portal, black/60) vs hand-rolled Studio modals (no portal, black/70) | Studio | Extend `Modal` (header slot, footer slot, `size="xl"`) and migrate the Studio modals onto it |
 | 10 | The `/work` featured and side cards always show "Live" | `WorkComponent` | Render from `status` like the small cards |
 | 11 | `globals.css` defines a light palette for `prefers-color-scheme: light`, so `body` is white in light mode (visible on overscroll, and in `Modal variant="default"`) | `globals.css` | Make dark unconditional (`--background: #0a0a0f`, `--foreground: #ededed`) and `color-scheme: dark` |
-| 12 | Off-palette colours in the Navbar: the mobile close button is `bg-red-400`, and the hamburger hover is `hover:bg-slate-200` | Navbar | An icon button per §7.3 |
+| ~~12~~ | ~~Off-palette colours in the Navbar~~. **Fixed 2026-10-20**: both menu buttons now use the §7.3 icon-button style and have `aria-label`s, and the closed drawer is `inert`. | Navbar | |
 | 13 | Class typos: `w-filt` (meant `w-fit`) on the resume button; `font-white/65` (meant `text-white/65`) on About; conflicting `w-full w-16` on the Work featured icon; `tracking-light` (does not exist) | Home, About, Work | Fix during P0-3 or P1-1 |
 | 14 | Home shell uses `p-8 font-sans`; the other pages use `p-6 md:p-8 font-dm` | `app/page.tsx` | `p-6 md:p-8 font-dm` |
 

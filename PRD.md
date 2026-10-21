@@ -64,7 +64,13 @@ Legend: ✅ working · ⚠️ working but has a known gap · ❌ missing or brok
 | Markdown rendering: GFM, alerts, code highlighting with copy button, image size and float syntax, sanitized raw HTML | `components/ui/MarkdownRenderer.tsx` | ✅ | See BLOG-3 |
 | Contact: copy email, socials, mailto form, location, status, response-time, and coffee tiles | `app/contact/page.tsx` | ⚠️ | The Instagram card links to `#`. The form opens the visitor's mail client and does not send server-side. |
 | SEO: per-route metadata, root and per-post OG images, robots, sitemap, Person and BlogPosting JSON-LD | `app/**/layout.tsx`, `app/opengraph-image.tsx`, `app/blog/[slug]/opengraph-image.tsx`, `robots.ts`, `sitemap.ts` | ✅ | The `metadataBase` fallback is `https://java.dev`, which only matters if `NEXT_PUBLIC_SITE_URL` is unset. `/studio` and `/logistics` are neither `noindex` nor disallowed. |
-| Page-view tracking | `components/ui/PageTracker.tsx`, `POST /api/analytics/track` | ✅ | Skips `/logistics`, `/studio`, and `/api`. Supports per-device opt-out and per-IP exclusion. |
+| Page-view tracking | `components/ui/PageTracker.tsx`, `POST /api/analytics/track` | ✅ | **Opt-in only** (consent cookie, enforced server-side). For consenting visitors it records IP, language, timezone, and a visitor id. Skips `/logistics`, `/studio`, and `/api`. Supports per-device opt-out and per-IP exclusion. |
+| **First-visit intro modal** | `components/onboarding/IntroModal.tsx` | ✅ | 4 steps: Welcome → Privacy choice → "How to use this site" guide (live previews built from real components) → tour offer. Shown once per browser; re-asks only the privacy step when `CONSENT_VERSION` changes. |
+| **Cookie consent** | `lib/consent.ts`, `/api/consent`, `java_consent` cookie | ✅ | Necessary (always on) + Analytics (off by default). "Necessary only" is as prominent as "Accept all". A receipt is logged to `consent_events` (no IP). |
+| **Guided tour** | `lib/tour.ts`, `TourToolbar`, `TourSpotlight`, `Navbar` | ✅ | 10 steps across Home → Work → About → Blog → Contact. A bar under the navbar explains each page and highlights the next tab (desktop links, or the ☰ menu on phones); key elements are spotlighted. It survives reloads, docks to the top when scrolled away, and exits with Esc. |
+| **Site footer** | `components/onboarding/SiteFooter.tsx` | ✅ | Privacy · Cookie settings · Take the tour, on every public page |
+| **Privacy page** | `/privacy` | ✅ | Plain-language policy covering every storage key and data point (generated from the same constants as the modal), plus a "Manage cookie settings" button |
+| **Cookie settings / erasure** | footer → settings dialog, `DELETE /api/consent` | ✅ | Change the choice any time; "Delete my data" erases this browser's analytics rows |
 | Error and 404 pages | none | ❌ | Uses Next.js defaults |
 
 ### 4.2 Admin 🔒
@@ -146,9 +152,23 @@ published: true           # optional: only literal true publishes
   - *Device* is decided by `screen.width`: under 768 is mobile, under 1024 is tablet, anything else (including null) is desktop.
   - *Daily views* cover the last 30 days in UTC, zero-filled. *Peak hours* use UTC.
   - *Average load time* is the mean of positive `load_time` values, which are recorded only on hard loads (`navigation` timing).
+- **LOG-4** Since 2026-10-20 **every metric covers only visitors who accepted analytics.** Totals will drop compared with the pre-consent era. The Consent card shows how many visitors accepted, declined, or erased their data (latest choice per visitor), and Recent Activity shows IP, browser·OS, language, and timezone for consenting visitors.
 - **LOG-3** The owner can exclude themselves per device (`localStorage._pv_exclude = "1"`, toggled from the dashboard) or per IP (the `ANALYTICS_EXCLUDED_IPS` env var, comma-separated, which needs a redeploy).
 
-### 5.6 Automation endpoints (AUTO)
+### 5.6 Onboarding, consent, and tour (ONB / CON / TOUR)
+- **ONB-1** On a first visit to any page except `/studio`, `/logistics`, and `/privacy`, the intro modal opens automatically. A visitor whose current-version choice is already stored (cookie, or the localStorage mirror within 180 days) never sees it again, and is never offered the tour again.
+- **ONB-2** The intro steps are Welcome → Privacy → Guide → Tour offer. "Skip intro" jumps to Privacy, then closes after the choice. The modal **cannot be dismissed until a privacy choice is made**; after that, ✕, Esc, and a backdrop click close it.
+- **ONB-3** The guide previews are built from real components and data (the real `Navbar`, `lib/projects`, `lib/theme`), never screenshots, so they can't go stale.
+- **CON-1** Analytics are **off by default**. "Necessary only" and "Accept all" have equal prominence; "Save my choices" honors the switch.
+- **CON-2** Without a current analytics opt-in, nothing is written to `page_views`. This is enforced in `/api/analytics/track`, not just in the browser. Declining stores only a receipt (random id, choice, version, time) in `consent_events`.
+- **CON-3** Everything analytics collects is disclosed in the modal and on `/privacy`. Both render `ANALYTICS_DATA_POINTS`, so they can't diverge.
+- **CON-4** Withdrawing must be as easy as giving: the Cookie settings link appears on every public page, and "Delete my data" erases this browser's rows.
+- **CON-5** Changing what is collected means bumping `CONSENT_VERSION`, which re-asks everyone (only the privacy step).
+- **TOUR-1** The tour visits every main page in nav order. On each page's last step, the navbar highlights the next tab (with a "Next" badge, or a ring on ☰ on mobile), and either the tab or the bar's "Go to …" button advances it.
+- **TOUR-2** Navigating elsewhere mid-tour is handled: another tour page jumps to that page's first step, and a non-tour page shows "You've stepped off the tour" with a way back. Tour progress survives a reload (sessionStorage) and ends with Esc, ✕, or Finish.
+- **TOUR-3** Spotlights never block clicks, and every target is a `data-tour` anchor that a test verifies exists.
+
+### 5.7 Automation endpoints (AUTO)
 - **AUTO-1** `POST /api/docs/upload` takes the header `x-api-key: $DOCS_UPLOAD_SECRET` and the JSON body `{ project: slug, filename: "X.md", content, title?, source? }`. It upserts on `(project_slug, filename)`, stores the SHA-256 `content_hash`, and returns `201 { success, document }`.
 - **AUTO-2** `POST /api/email-summary` takes the header `x-api-key: $EMAIL_SUMMARY_SECRET` and the JSON body `{ subject?, text?, html? }`, where at least one of `text` or `html` is required. It always sends to `SUMMARY_RECIPIENT_EMAIL`; any `to` in the body is ignored. Sends are capped at 10 per hour.
 
@@ -161,7 +181,7 @@ published: true           # optional: only literal true publishes
 | Performance (target) | Mobile Lighthouse Performance ≥ 90 and LCP < 2.5 s on Home and a blog post | Not measured yet |
 | Accessibility (target) | WCAG 2.1 AA: labelled icon buttons, keyboard-operable menus and modals, visible focus, contrast ≥ 4.5:1 for body text | Partial; see DESIGN_SYSTEM.md §9 |
 | SEO | Every public route has a title and description, an OG image, and a sitemap entry; admin routes are not indexed | ✅ Admin routes are `noindex` |
-| Privacy | Analytics store no IPs or cookies. Data includes the page, the referrer **origin** (no path or query), the user agent, a random session id, screen width, and load time. | ⚠️ No retention policy and no privacy note (SECURITY.md S-5) |
+| Privacy | Analytics run only with explicit opt-in (server-enforced). For consenting visitors: page, referrer **origin**, user agent, IP address, language, timezone, screen width, load time, session and visitor ids. Policy at `/privacy`; self-service erasure. | ⚠️ A privacy notice now exists. **Still no retention policy** (SECURITY.md S-5); a job is ready but commented out in `security-hardening.sql`. |
 | Browser support | The Next 16 baseline: Chrome, Edge, and Firefox 111+, Safari 16.4+ | Inherited |
 
 ## 7. Roadmap: next best actions
@@ -174,7 +194,7 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 | **S-1** 🟡 | **Run `supabase/security-hardening.sql`** in the Supabase SQL editor. It enables RLS on `page_views` (confirmed readable with the anon key on 2026-10-19) and revokes unneeded grants (S-22). The schema files are already updated. | A query with the anon key returns no `page_views` rows; the verification queries at the end of the file pass; `/logistics` still works |
 | S-2 | Verify a sending domain in Resend and set `RESEND_FROM_EMAIL` | A digest reaches a non-owner address |
 | ~~S-3~~ ✅ | ~~Key rate limits on a client IP the platform sets~~. Done 2026-10-19: `x-nf-client-connection-ip` plus a global failure ceiling. **After deploy:** confirm `/logistics` shows your real IP even when you send a forged `X-Forwarded-For`. | |
-| Deploy | Commit and deploy the 2026-10-19 security pass, optionally set `SESSION_SECRET` in Netlify, and rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in works on production; SECURITY.md §7 items show ✅ live |
+| Deploy | Merge the `cookie-set-up` PR (security pass + docs + onboarding), run `supabase/consent-schema.sql`, optionally set `SESSION_SECRET` in Netlify, and rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in works on production; the intro modal appears in a private window; the Logistics Consent card shows numbers |
 
 ### P0: Quick correctness fixes (under 1 hour in total)
 | ID | Action | Acceptance |
@@ -195,7 +215,7 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 | P1-5 | **Remove duplication.** (The password gate and admin auth check were unified on 2026-10-19.) Remaining: shared `Post` and `Project` types (export them from `lib/`), the single `slugify` from `lib/validation`, one `ANALYTICS_SKIP_PREFIXES` constant, and one theme map (`lib/theme.ts`). | Each concept is defined once; tests are still green |
 | P1-6 | **Remove dead code:** `ComingSoon` and its barrel export, the default Next SVGs in `public/` (verify they're unused first), the PDF loader rules in `next.config.ts`, `pdf.d.ts`, and the stray `src/**/*` include in `tsconfig.json` | Build, test, and lint are all clean |
 | P1-7 | Make the Home stats real: derive "Projects Built" from the project count and drop or justify the other hard-coded numbers. Review the hero copy with the owner. | The numbers match the data |
-| P1-8 | Accessibility pass: add `aria-label` to the Navbar hamburger and close buttons, focus trap and focus return in `Modal`, visible `focus-visible` rings on interactive cards, `aria-pressed` on the filter pills, and an `aria-label` on the Logistics tracking switch. | Keyboard-only navigation works across all pages; axe shows no critical issues |
+| P1-8 | Accessibility pass. (Done 2026-10-20: Navbar menu labels, `aria-expanded`, an inert closed drawer, and the intro modal's focus trap. `useFocusTrap` in `components/onboarding/` can be reused.) Remaining: focus trap and focus return in `Modal`, visible `focus-visible` rings on interactive cards, `aria-pressed` on the filter pills, and an `aria-label` on the Logistics tracking switch. | Keyboard-only navigation works across all pages; axe shows no critical issues |
 | P1-9 | Surface failures from the Studio card quick actions: wrap the publish toggle and delete calls in `PostGridCard` and `ProjectGridCard` in `try/catch`, show an inline error (or a small toast), and disable the control while the request is in flight | Simulate a failure (devtools offline): the card shows an error and stays consistent |
 
 ### P2: Ops and security (some need external accounts)
@@ -242,7 +262,8 @@ Ask before acting on any of these:
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
 
-- 2026-10-19 (security pass 2, uncommitted): Next upgraded from 16.2.1 to 16.3.8 (critical advisories); gray-matter JS front-matter RCE closed; JSON-LD XSS closed; admin auth moved to an HttpOnly session cookie with CSRF checks and sign-out; IP spoofing past the lockout closed and a global ceiling added; UUID and object-body validation; analytics referrer reduced to origin; `noindex` on admin pages; header hardening; `rel` on external links; re-uploads no longer unpublish; Google Fonts link removed; `security-hardening.sql` written (S-1). Tests went from 218 to 315 and lint is clean. Details are in SECURITY.md §7 and §8.
+- 2026-10-20 (branch `cookie-set-up`): First-visit intro modal (welcome, privacy choice, live-component guide, tour offer); opt-in analytics enforced server-side, now recording IP, language, timezone, and visitor id for consenting visitors; `/api/consent` (receipts + self-service erasure); 10-step guided tour with navbar next-tab highlight, guide bar, and spotlight; site footer; `/privacy` page; Logistics Consent card plus IP and browser in recent activity; Navbar accessibility fixes; `supabase/consent-schema.sql`. Tests went from 315 to 406 (including a jsdom component suite); verified in headless Edge on desktop and mobile.
+- 2026-10-19 (security pass 2, commit `233b7dd`): Next upgraded from 16.2.1 to 16.3.8 (critical advisories); gray-matter JS front-matter RCE closed; JSON-LD XSS closed; admin auth moved to an HttpOnly session cookie with CSRF checks and sign-out; IP spoofing past the lockout closed and a global ceiling added; UUID and object-body validation; analytics referrer reduced to origin; `noindex` on admin pages; header hardening; `rel` on external links; re-uploads no longer unpublish; Google Fonts link removed; `security-hardening.sql` written (S-1). Tests went from 218 to 315 and lint is clean. Details are in SECURITY.md §7 and §8.
 - 2026-10-19: Docs split into AGENTS, PRD, ARCHITECTURE, DESIGN_SYSTEM, SECURITY, CODE_STYLE, TESTING, and README. Baseline at that point: 218 tests in 12 suites, tsc clean, 1 lint error.
 - 2026-08-05 (`5589a7d`): Added Supabase `projects` with `/api/projects` CRUD and tests; `/blog-editor` became `/studio` with Blogs and Projects tabs; added the project wizard; Home's project grid reads Supabase with the `ProjectList` overflow modal.
 - 2026-07-15 (`8ceab29`): Editor rewrite with search, filters, sort, bulk select, and per-post view counts; bulk delete (`{ids}`) API.

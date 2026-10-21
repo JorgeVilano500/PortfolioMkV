@@ -42,7 +42,8 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 | CSRF protection on cookie-authenticated writes | ✅ SameSite=Strict + Sec-Fetch-Site/Origin check |
 | Timing-safe secret comparison, fail closed when unset | ✅ |
 | Brute-force lockout — per IP (unspoofable on Netlify) + global per-route ceiling | ✅ (S-3) — in-memory, per instance (S-4) |
-| Public write endpoint rate-limited | ✅ 30/min/IP |
+| Public write endpoints rate-limited | ✅ track 30/min/IP · consent 20/min/IP |
+| Analytics only with explicit, server-enforced consent | ✅ (2026-10-20) |
 | Input validation, PATCH whitelists, UUID ids, object-only JSON bodies | ✅ |
 | Generic error responses | ✅ |
 | Stored-XSS: markdown sanitize allowlist + escaped JSON-LD + `script-src-attr 'none'` | ✅ |
@@ -65,6 +66,7 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 - [ ] **Bulk ops** capped (100) and validated element-by-element.
 - [ ] **Errors**: `console.error("[ROUTE] ctx:", err.message)`, generic `{error}` to the client.
 - [ ] **Public queries** add `.eq("published", true)` even though RLS enforces it.
+- [ ] **Visitor data** (anything about a visitor, their device, or their behavior) is stored only behind `allowsAnalytics(parseConsent(cookie))` on the server. Adding a data point means updating `ANALYTICS_DATA_POINTS` and bumping `CONSENT_VERSION`.
 - [ ] **New table**: RLS enabled, `REVOKE` everything anon/authenticated don't need, minimal SELECT policy only if anon must read; add it to `supabase/security-hardening.sql`.
 - [ ] **User-authored markdown/HTML** renders only via `MarkdownRenderer`. **JSON-LD** only via `serializeJsonLd()` (`lib/json-ld.ts`). Never `dangerouslySetInnerHTML` with `JSON.stringify` or raw content.
 - [ ] **Parsing untrusted formats**: never enable an `eval`-capable parser (e.g. gray-matter's JS engine, js-yaml `load` with JS types). Keep `MATTER_OPTIONS` in the upload route.
@@ -148,13 +150,20 @@ DB/provider errors logged server-side with a `[route]` prefix; clients get gener
 Recipient fixed to `SUMMARY_RECIPIENT_EMAIL` (no relay); 10 sends/hour, counted only for valid requests; the Resend client is created per request so a missing `RESEND_API_KEY` returns a 500 instead of crashing the module at import.
 
 ### 4.10 Analytics privacy
-No IPs stored (used only for limits/exclusion). No cookies (sessionStorage `_pv_sid`, localStorage `_pv_seen` / `_pv_exclude`). Stored: page path, **referrer origin only**, user agent, random session id, new-visitor flag, load time, screen width. Missing: retention policy and privacy notice (S-5).
+**Analytics are opt-in since 2026-10-20 (`lib/consent.ts`).**
+- **Enforcement:** `/api/analytics/track` stores nothing unless the request carries a current `java_consent` cookie with analytics on. That check is server-side and comes before any parsing, so a modified client can't bypass a "no". The browser tracker also stays idle (no `_pv_*` storage) until consent is given, and clears that storage when consent is withdrawn.
+- **What a consenting visitor's page view stores:** the page path, the **referrer origin only**, the user agent, the **IP address** (only if it parses as an IP), language, timezone, screen width, load time, the random session id, the **visitor id taken from the consent cookie** (never from the request body), and the policy version.
+- **What declining stores:** only a receipt in `consent_events` (random id, choice, policy version, time). **Never an IP or user agent.**
+- **Disclosure** happens in the intro modal and on `/privacy`. Both render `ANALYTICS_DATA_POINTS`, so the disclosure can't drift from the code.
+- **Withdrawal and erasure:** Cookie settings is on every public page. `DELETE /api/consent` erases the rows matching the caller's own visitor id (same-origin only and rate-limited, so a third-party site can't trigger erasure).
+- **Still open (S-5):** a retention window. A job is ready but commented out at the end of `security-hardening.sql`.
 
 ## 5. Endpoint matrix
 | Route | Methods | Auth | Rate limit / CSRF | Writes |
 |---|---|---|---|---|
 | `/api/auth` | GET, POST, DELETE | POST: password → session cookie | per-IP + global lockout; POST/DELETE same-origin only | session cookie |
-| `/api/analytics/track` | POST | none (public) | 30/min/IP | `page_views` insert |
+| `/api/analytics/track` | POST | none (public); **requires a `java_consent` analytics opt-in cookie** to store anything | 30/min/IP | `page_views` insert (with IP, language, timezone, and visitor id for consenting visitors) |
+| `/api/consent` | POST, DELETE | none (public); same-origin only | 20/min/IP | `consent_events` insert; DELETE removes the caller's own `page_views` rows |
 | `/api/analytics/stats` | GET | session cookie **or** `x-logistics-key` | lockout | — |
 | `/api/blog/posts` | GET, POST, PATCH, DELETE | session cookie **or** `x-logistics-key` | lockout; cookie writes same-origin only | `posts` (bulk delete ≤100) |
 | `/api/projects` | GET, POST, PATCH, DELETE | session cookie **or** `x-logistics-key` | lockout; cookie writes same-origin only | `projects` (bulk delete ≤100) |
@@ -201,7 +210,7 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 | S-2 | Resend sender domain unverified (sandbox sender) | 🔴 | DNS in Resend dashboard, then set `RESEND_FROM_EMAIL`. Low risk: the route only ever emails the owner. Code now fails closed if the key is missing. |
 | **S-3** | Rate-limit keys spoofable via `X-Forwarded-For` (verified live: forged XFF accepted as client IP) | ✅ | `getClientIp` prefers Netlify's `x-nf-client-connection-ip`; new global per-route failure ceiling caps guesses regardless of IP. **After deploy, verify**: `/logistics` "Your current IP" shows your real IP even if you send a forged `X-Forwarded-For`. |
 | S-4 | Rate limiting in-memory per serverless instance | 🔴 | Needs a shared store (Upstash Redis + `@upstash/ratelimit`) — external account (PRD P2-1). Global ceiling + memory cap reduce impact. |
-| S-5 | Analytics privacy / retention / notice | 🟠 | Done: referrer stored as origin only. Ready (commented) in hardening SQL: pg_cron retention job. Open: pick a window (PRD Q4) + add a privacy note. Not legal advice. |
+| S-5 | Analytics privacy / retention / notice | 🟠 | Done: referrer stored as origin only (2026-10-19); **opt-in consent enforced server-side, `/privacy` policy, Cookie settings, and self-service erasure (2026-10-20)**. Ready but commented out in the hardening SQL: a pg_cron retention job. Open: pick a retention window (PRD Q4). This matters more now that IPs are stored for consenting visitors. Not legal advice. |
 | S-6 | Single-factor static password, no server session, password in `sessionStorage` | 🟠 | Done: password exchanged once for an HttpOnly/SameSite=Strict/Secure 8 h session; sign-out; CSRF checks; password no longer readable by page scripts. Open: second factor (e.g. email OTP via Resend / Supabase Auth magic link — PRD P2-3). |
 | S-7 | CSP allows `'unsafe-inline'` scripts | 🟠 | Done: `script-src-attr 'none'` blocks inline handlers. Open: nonce-based CSP via `proxy.ts` (forces dynamic rendering — PRD P2-4). |
 | **S-8** | Admin pages indexable | ✅ | `noindex` metadata + `X-Robots-Tag` on `/studio`, `/logistics`, `/api`. |
@@ -230,6 +239,18 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 3. Load `/logistics` (after deploying) — stats still work (service role is unaffected).
 
 ## 8. History
+
+### 2026-10-20: Visitor consent and onboarding (branch `cookie-set-up`)
+The owner asked for tracking "no matter what" the visitor answers. It was built so that the answer is enforced instead: ignoring a consent choice would mislead visitors and break GDPR/ePrivacy for EU and UK visitors.
+- **Consent:** a server-enforced opt-in for analytics; consent receipts without IPs; self-service erasure; a `/privacy` policy; a Cookie settings link on every public page.
+- **New data, opt-in only:** IP address, language, timezone, and a visitor id.
+- **Hardening along the way:**
+  - The new endpoint is same-origin only and rate-limited.
+  - The visitor id comes from the cookie, never the body.
+  - IPs are validated with `net.isIP`, and language and timezone are validated by regex.
+  - Graceful handling of schema drift.
+  - Navbar accessibility: the closed mobile drawer is `inert`, and the menu buttons are labelled.
+- **Tests:** 315 → 406, including a jsdom suite for the modal, consent, and tour flows; verified in headless Edge.
 
 ### 2026-10-19 — Hardening pass 2
 Live verification found S-1 (analytics readable with the public anon key) and S-3 (production trusted a forged `X-Forwarded-For`). Fixed in code: S-3, S-8–S-11, S-13–S-21; SQL prepared for S-1/S-22; partial mitigations for S-5–S-7 (details in §7). New modules: `lib/session.ts`, `lib/admin-auth.ts`, `lib/json-ld.ts`, `app/api/auth/route.ts`, `components/features/AdminGate.tsx` (replaces both duplicated password gates), `supabase/security-hardening.sql`. Tests: 218 → **315** across 15 suites; tsc and lint clean; production build verified, plus 21 end-to-end checks against a local production server (cookie attributes, CSRF block, cookie-only admin reads, exploit rejection, lockout under forged XFF, headers).

@@ -25,7 +25,9 @@ npm run lint                               # ESLint (Next 16's `next build` does
 | Runner | Jest 30 | |
 | Transform | `babel-jest` with `@babel/preset-env` (targets current Node) and `@babel/preset-typescript`, **configured inline in `jest.config.js`** | A root `babel.config.js` would make Next.js drop SWC. **Never add one.** |
 | Environment | `testEnvironment: "node"` | Every test exercises server code (route handlers and pure libs) |
-| Test files | `testMatch: ["**/__tests__/**/*.test.ts"]` | ⚠️ **Only `.ts`.** A `.test.tsx` file will **not** run until you extend this pattern. |
+| Test files | `testMatch: ["**/__tests__/**/*.test.ts", "**/__tests__/**/*.test.tsx"]` | `.tsx` suites are component tests |
+| JSX | `@babel/preset-react` (automatic runtime) in the inline Babel config | Needed for `.tsx` suites |
+| DOM | `jest-environment-jsdom`, `@testing-library/react`, `@testing-library/dom` (dev only) | Opt in per file with `/** @jest-environment jsdom */` as the **first line**; everything else stays on `node` |
 | Path alias | `moduleNameMapper: { "^@/(.*)$": "<rootDir>/$1" }` | Matches the tsconfig `@/*` alias |
 | Mocks | `clearMocks: true` | Call history is reset between tests |
 | Type checking | Babel strips types without checking them | Run `npx tsc --noEmit` separately |
@@ -34,7 +36,18 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-10-19, after security pass 2): 315 tests, 15 suites, all passing, about 4 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-10-20, branch `cookie-set-up`): 406 tests, 20 suites, all passing, about 10 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Added on 2026-10-20:
+| Suite | Tests | Covers |
+|---|---|---|
+| `onboarding.test.tsx` (jsdom) | 23 | Intro opens on a first visit; can't be dismissed before a privacy choice; reject is as prominent as accept; analytics off by default; Accept / Necessary only / Save my choices set the cookie and POST a receipt; Skip intro; guide tabs (click and arrow keys); declining the tour; **returning visitors never see the intro**; a policy version bump re-asks only privacy; localStorage mirror restore; no auto-open on `/privacy`; Cookie settings change; two-step data erasure; tour bar, **next-tab highlight and advance on page change**, a full walk to Finish, resume after reload, the off-route "Back to" link, Esc to exit, replay from the footer |
+| `api-analytics-track.test.ts` (+8) | 30 | **Stores nothing** without a cookie, when declined, with an outdated version, or with a malformed cookie; opt-in fields (IP, language, timezone, visitor id, version); visitor id and IP come from the server, never the body; malformed values dropped; fallback when columns are missing |
+| `lib-consent.test.ts` | 18 | Round-trip; encoded and decoded forms; 11 malformed shapes rejected; version currency; `allowsAnalytics`; cookie attributes; Cookie-header parsing |
+| `api-consent.test.ts` | 15 | Receipt has no IP or UA; validation; cross-site 403; rate limit; missing table; error hiding; erasure scoped to the cookie's visitor id; cookie required; CSRF; missing column |
+| `lib-tour.test.ts` | 12 | Unique ids; every step's page exists; nav keys match; pages contiguous; **every spotlight target exists as a `data-tour` attribute in the source**; `resolveTourIndex` cases |
+| `lib-analytics-helpers.test.ts` | 11 | Skip prefixes; language and timezone validation; UA summaries (Chrome, Edge, Safari, iOS, Android, Firefox, bots); `randomId` without `crypto.randomUUID` |
+| `api-analytics-stats.test.ts` (+4) | 13 | Recent activity IP, browser, OS, and locale; latest-choice-per-visitor consent summary; null consent before the table exists; column fallback |
 
 | Suite | Tests | Covers |
 |---|---|---|
@@ -55,7 +68,7 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 | `lib-json-ld.test.ts` | 4 | No raw `<`, `>`, `&`, U+2028, or U+2029 in the output; exact round-trip; **both layouts use `serializeJsonLd`** (stored-XSS regression) |
 
 ### Not covered (known gaps)
-- **React components and pages.** There is no jsdom and no Testing Library. That leaves Studio CRUD flows, the password gates, the Modal, the Navbar drawer, and the MarkdownRenderer output untested.
+- **Most React components and pages.** jsdom and Testing Library now exist, but only the onboarding flow (provider, modal, Navbar tour states, footer, toast) has component tests. Studio CRUD flows, `AdminGate`, `Modal`, and the `MarkdownRenderer` output are still untested.
 - **`lib/blog.ts` and `lib/projects-data.ts`** (the anon-client query builders), and `formatDate`.
 - **End-to-end flows**, such as creating a post in Studio and seeing it on `/blog`.
 - **RLS policies**, which live in the database. Verify them manually (§7.4).
@@ -121,6 +134,15 @@ jest.mock("resend", () => {
 
 ### 4.5 Testing ESM-heavy or JSX modules without a DOM
 `markdown-sanitize.test.ts` reads `components/ui/MarkdownRenderer.tsx` **as text** and asserts the plugin order with a regex, which avoids loading ESM-only unified plugins under Babel. Use this technique sparingly, only for wiring invariants that matter for security.
+
+### 4.5b Component tests (jsdom) — see `__tests__/onboarding.test.tsx`
+- The first line must be `/** @jest-environment jsdom */`.
+- **Mock Next's client modules.** `next/navigation` returns a mutable `mockPathname` and a `mockPush` spy. `next/link` becomes a plain `<a>`, built with `jest.requireActual("react").createElement`. Jest forbids out-of-scope names in mock factories, which includes **TypeScript DOM type names** like `HTMLAnchorElement`, so keep the factory's types structural.
+- **Simulate navigation** by setting `mockPathname` and calling `rerender(<App page="/work" />)` on the **same** tree. The provider lives in the root layout and survives real navigations.
+- Stub `global.fetch` with a `jest.fn()` and assert on the URL, method, and JSON body.
+- Reset `document.cookie` (set `Max-Age=0`), `localStorage`, and `sessionStorage` in `beforeEach`.
+- Don't render `TourSpotlight` in jsdom: there's no layout, `CSS.escape`, or `ResizeObserver`. Covering it is what browser verification (§7.6) is for.
+- **Sanity-check new component tests with a quick mutation.** Break the behavior under test (for example, make the modal always closable) and confirm a test fails.
 
 ### 4.6 Config tests
 `security-headers.test.ts` calls `require("../next.config")` and awaits `headers()`. This is why `next.config.ts` ends with `module.exports = nextConfig`; keep it that way, or update the test.
@@ -226,6 +248,22 @@ Run `npm run dev` with a working `.env.local`. Use browser devtools device mode 
 ### 7.5 Production build
 - [ ] `npm run build` succeeds (it needs the Supabase env vars), then `npm start` and smoke-test `/`, `/blog`, `/sitemap.xml`, `/robots.txt`, and `/opengraph-image`
 
+### 7.6 Onboarding and tour (use a private window, or clear site data)
+- [ ] The first visit shows Welcome; the Privacy step can't be dismissed; Accept / Necessary only / Save my choices each work
+- [ ] DevTools → Application → Cookies shows `java_consent` with `"a":1` or `"a":0`. With `"a":0`, the Network tab shows **no** `/api/analytics/track` requests.
+- [ ] Reload: no modal. Footer → Cookie settings shows the current choice; Delete my data asks for confirmation.
+- [ ] The tour starts on Home, the spotlight outlines each target, and on step 3 the **Work tab shows a "Next" badge**. Clicking it advances. Scrolling down docks a compact bar at the top. Esc exits.
+- [ ] At 390 px: the modal is a bottom sheet with stacked buttons; during the tour the ☰ button is ringed, and in the drawer the next link has an inline "Next" pill.
+
+### 7.7 Headless-browser verification (how the 2026-10-20 run was done)
+There's no `chromium-cli` on the dev machine and no Chrome, but Microsoft Edge works through **`playwright-core`** (driver only, no browser download).
+1. Install `playwright-core@1.63.0` into a scratch directory outside the repo.
+2. Run `npx next build && npx next start -p 3999`.
+3. Run a Node script that does `createRequire(<scratch>/package.json)("playwright-core").chromium.launch({ executablePath: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" })` and walks the flow with `getByRole`.
+4. **Intercept `/api/analytics/track` and `/api/consent` with `page.route`.** The local server talks to the production Supabase, and test clicks must not create fake analytics.
+5. Capture `console` errors and `pageerror`, and check `document.documentElement.scrollWidth <= innerWidth` for horizontal overflow at 1366 px and 390 px.
+6. Stop the server by its port's PID. Stopping `npx` alone leaves the Node child holding the port.
+
 ## 8. CI (not set up yet; PRD P1-2)
 Proposed `.github/workflows/ci.yml`:
 ```yaml
@@ -251,7 +289,7 @@ jobs:
 Lint, tsc, and the tests are all clean as of 2026-10-19, so CI should start green. The tests mock Supabase and Resend, so CI needs **no secrets**. Consider adding `npm audit --omit=dev --audit-level=high` as a step. Don't add `npm run build` to CI unless you provide Supabase env vars as repository secrets, because the sitemap queries posts at build time. Once CI is green, add a status badge to the README.
 
 ## 9. Growing the suite (recommended next steps)
-1. **Component tests:** add `jest-environment-jsdom` and `@testing-library/react` (plus `@testing-library/jest-dom`). Extend `testMatch` to `**/__tests__/**/*.test.{ts,tsx}`, and put `/** @jest-environment jsdom */` at the top of component test files so the existing suites stay on `node`. Start with `Modal` (Esc, backdrop, scroll lock), `AdminGate` (session check, wrong password, the 429 message, sign-out), and `ProjectList` (status rendering).
+1. **More component tests** (the infrastructure exists as of 2026-10-20; see §4.5b): `Modal` (Esc, backdrop, scroll lock), `AdminGate` (session check, wrong password, the 429 message, sign-out), and `ProjectList` (status rendering).
 2. **Lib tests for `lib/blog.ts` and `lib/projects-data.ts`:** mock `@/lib/supabase` with `createChain`, and assert that the `published` filter and the ordering are always applied (PUB-4).
 3. **E2E:** Playwright (see the bundled `testing/playwright.md`), with a smoke flow per public page and one Studio CRUD flow against a dedicated Supabase test project. This needs secrets, so keep it out of the default CI job.
 4. **Accessibility:** `@axe-core/playwright` on each public page once E2E exists.

@@ -26,6 +26,7 @@ flowchart LR
         PROJ[("projects")]
         PV[("page_views")]
         DOCS[("project_documents")]
+        CE[("consent_events")]
     end
 
     RESEND["Resend<br/>email API"]
@@ -34,13 +35,15 @@ flowchart LR
     PUB -- "anon key · RLS: published only" --> POSTS
     PUB -- "anon key · RLS: published only" --> PROJ
     SRV -- "anon key" --> POSTS
-    PT -- "POST /api/analytics/track" --> API
+    PT -- "POST /api/analytics/track (only with java_consent opt-in)" --> API
+    PUB -- "POST/DELETE /api/consent (receipt, erasure)" --> API
     ADM -- "session cookie (POST /api/auth once)" --> API
     AUTO -- "x-api-key" --> API
     API -- "service-role key" --> POSTS
     API -- "service-role key" --> PROJ
     API -- "service-role key" --> PV
     API -- "service-role key" --> DOCS
+    API -- "service-role key" --> CE
     API --> RESEND
 ```
 
@@ -75,6 +78,7 @@ flowchart LR
 │   ├── page.tsx                   Home (Server Component shell → <Navbar/> + <HomeComponent/>)
 │   ├── opengraph-image.tsx        Site OG image (ImageResponse, 1200×630)
 │   ├── robots.ts, sitemap.ts      SEO (sitemap includes published posts)
+│   ├── privacy/ page.tsx (server): privacy & cookie policy, generated from lib/consent constants
 │   ├── about/   page.tsx (client) + layout.tsx (metadata only)
 │   ├── work/    page.tsx (client) + layout.tsx (metadata only)
 │   ├── contact/ page.tsx (client) + layout.tsx (metadata only)
@@ -87,6 +91,7 @@ flowchart LR
 │   └── api/
 │       ├── analytics/track/route.ts   POST (public)
 │       ├── auth/route.ts              GET (session?) / POST (sign in → cookie) / DELETE (sign out)
+│       ├── consent/route.ts           POST (consent receipt) / DELETE (erase this browser's analytics); same-origin only
 │       ├── analytics/stats/route.ts   GET  (admin); also exports StatsPayload type
 │       ├── blog/posts/route.ts        GET/POST/PATCH/DELETE (admin)
 │       ├── blog/upload/route.ts       POST (x-api-key = BLOG_UPLOAD_SECRET)
@@ -96,7 +101,10 @@ flowchart LR
 ├── components/
 │   ├── index.tsx                  Barrel: Navbar, HomeComponent, WorkComponent, ComingSoon, ProjectList, MarkdownRenderer, Modal
 │   ├── ui/                        Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, ComingSoon (dead)
-│   └── features/                  Modal.tsx (portal modal), AdminGate.tsx (session check, password form, SignOutButton)
+│   ├── features/                  Modal.tsx (portal modal), AdminGate.tsx (session check, password form, SignOutButton)
+│   └── onboarding/                OnboardingProvider (consent + modal + tour state, in the root layout), IntroModal,
+│                                  SitePreviews (live mini components), TourToolbar (rendered by Navbar), TourSpotlight,
+│                                  SiteFooter, Toast, PrivacyActions, useFocusTrap
 ├── lib/
 │   ├── supabase.ts                Anon client (browser-safe)
 │   ├── supabase-admin.ts          Service-role client (SERVER ONLY)
@@ -107,6 +115,13 @@ flowchart LR
 │   ├── session.ts                 Signed, expiring admin session tokens + cookie options
 │   ├── admin-auth.ts              checkAdminAuth: session cookie (+CSRF) or x-logistics-key, with lockout
 │   ├── json-ld.ts                 serializeJsonLd: XSS-safe JSON for <script type=ld+json>
+│   ├── consent.ts                 java_consent cookie model (parse/serialize, version, allowsAnalytics, data-point list)
+│   ├── tour.ts                    Tour steps + navigation rules (resolveTourIndex, upcomingPageChange)
+│   ├── analytics.ts               Shared skip-prefixes + language/timezone validators (tracker and route)
+│   ├── theme.ts                   Accent theme map (pure data; re-exported by lib/blog)
+│   ├── user-agent.ts              Coarse browser/OS summary for the dashboard
+│   ├── random-id.ts               UUID v4 that also works on plain-http origins
+│   ├── supabase-errors.ts         isMissingColumn / isMissingTable for graceful schema drift
 │   ├── rate-limit.ts              In-memory fixed-window limiter (10k-key cap) + per-IP and global auth lockout
 │   ├── validation.ts              LIMITS, type-guard validators, normalizers, slugify, estimateReadingTime
 │   └── markdown-sanitize.ts       rehype-sanitize allowlist schema
@@ -132,6 +147,8 @@ The app currently follows a **"client pages + server metadata"** pattern. Each p
 | `/blog/[slug]` | Client page; **server** layout | Layout: cached `getPostBySlug` for metadata and JSON-LD. Page: `getPostBySlug` again on the client. | anon | The post is fetched twice. See PRD P1-4. |
 | `/blog/[slug]/opengraph-image` | Server | `getPostBySlug` | anon | `await params` (Next 16) |
 | `/sitemap.xml` | Server | `getPosts()` | anon | **Static** (`○` in the 2026-10-19 build), so new posts appear only after a redeploy. |
+| `/privacy` | **Server** (static) with a client `PrivacyActions` child | `lib/consent` constants | none | The intro modal never auto-opens here, so the policy stays readable |
+| All pages | `OnboardingProvider` (client) wraps everything in the root layout | `document.cookie` / storage after hydration | none | The modal, tour bar, and footer render client-side only, so static pages stay static (`○`) |
 | `/studio`, `/logistics` | Client, wrapped in `<AdminGate>` | `fetch('/api/...')`; the browser attaches the HttpOnly session cookie | service role (server-side) | Renders nothing until `GET /api/auth` answers, then shows the password form or the page |
 
 There are no Server Actions, `use cache`, `revalidate*` calls, `proxy.ts`, or route-segment config anywhere. Every API route is a plain route handler.
@@ -150,6 +167,10 @@ There are no Server Actions, `use cache`, `revalidate*` calls, `proxy.ts`, or ro
 | `lib/session.ts` | Server | `createSessionToken`, `verifySessionToken`, `sessionCookieOptions`, `SESSION_COOKIE`, `SESSION_TTL_SECONDS` (8 h) | The HMAC key derives from `SESSION_SECRET` (or the service-role key) plus `LOGISTICS_PASSWORD`; fails closed |
 | `lib/admin-auth.ts` | Server | `checkAdminAuth(req, route)` returns a response to send, or null if allowed | The only auth check admin routes should use |
 | `lib/json-ld.ts` | Anywhere | `serializeJsonLd(data)` | Escapes `<`, `>`, `&`, and U+2028/2029 |
+| `lib/consent.ts` | Anywhere | `CONSENT_COOKIE`, `CONSENT_VERSION`, `parseConsent` (strict), `serializeConsent`, `allowsAnalytics`, `consentCookieString`, `readConsentFromCookieHeader`, `ANALYTICS_DATA_POINTS` | Cookie value `{"v","a":0/1,"t","id"}`, URI-encoded, 180 days, SameSite=Lax, readable by JS (it holds no secret) |
+| `lib/tour.ts` | Anywhere | `TOUR_STEPS`, `NAV_ITEMS`, `resolveTourIndex`, `upcomingPageChange`, `firstStepForPath`, `tourPages` | Pure, unit-tested; targets map to `data-tour` attributes |
+| `lib/analytics.ts` | Anywhere | `ANALYTICS_SKIP_PREFIXES`, `isTrackablePath`, `normalizeLanguage`, `normalizeTimezone` | Replaces the old duplicated skip lists |
+| `lib/supabase-errors.ts` | Server | `isMissingColumn` (42703/PGRST204), `isMissingTable` (42P01/PGRST205), `warnSchemaOnce` | Lets code deploy before `consent-schema.sql` runs |
 | `lib/rate-limit.ts` | Server | `rateLimit(name, key, limit, windowMs)`, `isAuthBlocked(route, ip)`, `recordAuthFailure(route, ip)`, `resetRateLimits()` (tests) | Module-level `Map`, so state is per process. Each limiter is capped at 10k keys (expired buckets go first, then the oldest 10%). Auth damping: 10 failures per 15 min per IP, plus 100 per route globally. |
 | `lib/markdown-sanitize.ts` | Anywhere | `markdownSanitizeSchema` | Type-only import, so it has no runtime dependencies |
 
@@ -167,7 +188,10 @@ All handlers live in `app/api/**/route.ts`. Errors are always `{"error": "<gener
 | DELETE | none | Clears the cookie. A cross-site request returns `403`. |
 
 ### 6.1 `POST /api/analytics/track` (public)
-- **Body** (`Content-Type: application/json` required): `{ page, session_id, referrer?, is_new_visitor?, load_time?, screen_width? }`
+- **Consent gate (first, after IP exclusion and the rate limit):** without a current `java_consent` cookie with analytics on, the route returns `200 {ok:true, tracked:false}` and writes nothing.
+- **Body** (`Content-Type: application/json` required): `{ page, session_id, referrer?, is_new_visitor?, load_time?, screen_width?, language?, timezone? }`
+- **Opt-in fields stored:** `ip_address` (the client IP, only if it parses as an IP), `language` and `timezone` (validated, else null), `visitor_id` (**from the consent cookie, never the body**), and `consent_version`. If those columns don't exist yet (code deployed before `consent-schema.sql`), the insert is retried with the original columns and a warning is logged once.
+- Success returns `200 {ok:true, tracked:true}`.
 - **Order of checks:**
   1. If the IP is in `ANALYTICS_EXCLUDED_IPS`, return `200 {ok:true}` without inserting.
   2. Rate limit of **30 per minute per IP**, otherwise `429` with a `Retry-After` header.
@@ -178,6 +202,8 @@ All handlers live in `app/api/**/route.ts`. Errors are always `{"error": "<gener
 - **Server-side normalization:** `referrer` is reduced to its **origin** (http/https only; anything else, or anything over 2,000 chars, becomes `""`); `user_agent` is read **from the request header** and cut to 500; `is_new_visitor` is stored only if it is strictly `true`; `load_time` must be 0 to 120,000 ms (rounded) or it becomes null; `screen_width` must be 1 to 10,000 (rounded) or it becomes null.
 
 ### 6.2 `GET /api/analytics/stats` (admin)
+Since 2026-10-20, `recentActivity[]` items also carry `ip`, `browser`, `os`, `language`, and `timezone` (null for rows recorded before opt-in existed). `consent` is `{accepted, declined, erased}` (latest choice per visitor), or `null` before `consent_events` exists. Missing new columns fall back to the original select.
+
 Returns `StatsPayload` (exported from the route file, and imported by `app/logistics/page.tsx` as a type):
 `totalViews, last30Views, uniqueVisitors, last30Unique, avgLoadTime, topPages[8], topReferrers[6], newVsReturning, devices, recentActivity[15], dailyViews[30], peakHours[24], bounceRate, yourIp, excludedIps`.
 It reads up to **50,000** newest rows and aggregates in memory. The metric definitions are in PRD.md LOG-2. A DB error returns `500 {error:"DB error"}`.
@@ -212,7 +238,14 @@ Same shape as 6.3, for the `projects` table.
   - `title` and `source` are at most 300 chars each.
 - Upserts on `(project_slug, filename)`, computes `content_hash` (SHA-256 hex), sets `updated_at`, and returns `201 {success:true, document:{id, project_slug, filename, content_hash, updated_at}}`.
 
-### 6.7 `POST /api/email-summary` (`x-api-key` = `EMAIL_SUMMARY_SECRET`)
+### 6.7 `/api/consent` (public, browser-only)
+Both methods require a same-origin request (otherwise `403`) and are rate-limited to 20/min per IP (`429`).
+| Method | Body | Result |
+|---|---|---|
+| POST | `{ id: uuid, analytics: boolean, version: CONSENT_VERSION }` | Inserts `{visitor_id, analytics, policy_version, action:"set"}` into `consent_events` (no IP, no user agent) and returns `200 {ok:true, logged:true}`. If the table is missing it returns `{ok:true, logged:false}`. Validation errors return `400`. |
+| DELETE | none (uses the visitor id from the caller's own `java_consent` cookie) | Deletes `page_views` rows with that `visitor_id`, logs `action:"erase"`, and returns `200 {ok:true, deleted:n}`. With no cookie it returns `400`. A missing column means `deleted:0`. |
+
+### 6.8 `POST /api/email-summary` (`x-api-key` = `EMAIL_SUMMARY_SECRET`)
 - After authentication there is a **global** cap of 10 sends per hour (`429` with `Retry-After`).
 - **Body (JSON):** `{ subject? ≤500, text? ≤500k, html? ≤500k }`, with at least one of `text` or `html`.
 - The email always goes to `SUMMARY_RECIPIENT_EMAIL` (`500` if that is unset). It is sent from `RESEND_FROM_EMAIL`, falling back to `Inbox Summary <onboarding@resend.dev>`. The subject falls back to `Inbox summary — <date>`.
@@ -247,11 +280,17 @@ RLS is **enabled**, with the policy "Public read published projects"; anon/authe
 id uuid, page (not null), referrer (`''`), user_agent (`''`), session_id (not null), is_new_visitor (`false`), load_time int (nullable, ms), screen_width int (nullable, px), created_at.
 Indexes are on `created_at DESC`, `session_id`, and `page`. The file now **enables RLS with no policies and revokes all anon/authenticated grants**. ⚠️ The **live** table had RLS disabled as of 2026-10-19 (SECURITY.md S-1) until `security-hardening.sql` is run. `referrer` holds only the referring origin (since 2026-10-19). The table is written by `/api/analytics/track` and read by `/api/analytics/stats` and `GET /api/blog/posts` (view counts).
 
+**Opt-in columns** (added by `supabase/consent-schema.sql`, populated only for consenting visitors): `ip_address inet`, `language text`, `timezone text`, `visitor_id uuid` (indexed), and `consent_version smallint`.
+
+### `consent_events` (from `supabase/consent-schema.sql`)
+id uuid, visitor_id uuid (not null, indexed), analytics boolean, policy_version smallint, action text (`set` | `erase`), created_at (indexed desc).
+RLS is **enabled with no policies**, and all anon/authenticated grants are revoked, so only the service role can use it. **It never stores IPs or user agents**: it's proof of consent, kept for audits.
+
 ### `project_documents` (from `supabase/documents-schema.sql`)
 id, project_slug, filename, title, content, content_hash, source, created_at, updated_at; **unique (project_slug, filename)**; index on project_slug.
 RLS is **enabled with no policies**, so only the service role can touch it. It is written only by `/api/docs/upload`; nothing in this app reads it yet (a future "aggregator" project will).
 
-**Setup order on a fresh project:** `schema.sql`, then `projects-schema.sql`, then `analytics-schema.sql`, then `documents-schema.sql`.
+**Setup order on a fresh project:** `schema.sql`, then `projects-schema.sql`, then `analytics-schema.sql`, then `consent-schema.sql`, then `documents-schema.sql`.
 **Existing database:** run `security-hardening.sql` once. It is idempotent: it enables RLS everywhere, revokes unneeded anon/authenticated grants, and pins the trigger function's `search_path`. It ends with two verification queries and a commented-out retention job.
 
 ## 8. Key flows
@@ -304,6 +343,31 @@ sequenceDiagram
 
 ### 8.4 Automation: docs sync and email digest
 The external daily-status task regenerates `PROJECT_OVERVIEW.md`, POSTs it to `/api/docs/upload` (project `portfoliomkv`, which upserts one row), and then POSTs the rendered summary to `/api/email-summary`. None of this runs inside the repo; only the endpoints do.
+
+### 8.5 First visit: intro, consent, tour
+```mermaid
+sequenceDiagram
+    participant V as Visitor (browser)
+    participant P as OnboardingProvider
+    participant C as /api/consent
+    participant T as /api/analytics/track
+    V->>P: first page load (no java_consent cookie)
+    P-->>V: IntroModal (Welcome, then Privacy; can't be dismissed yet)
+    V->>P: Accept all / Necessary only / Save my choices
+    P->>P: write java_consent cookie + localStorage mirror
+    P->>C: POST {id, analytics, version} (receipt, fire-and-forget)
+    alt analytics accepted
+        P->>T: PageTracker POSTs the current page (cookie attached)
+        T->>T: allowsAnalytics(cookie)? store IP, UA, language, timezone, visitor_id
+    else declined
+        Note over T: nothing is sent; the server would refuse anyway
+    end
+    P-->>V: Guide (live previews), then the tour offer
+    V->>P: Start the tour
+    P-->>V: TourToolbar under the Navbar, TourSpotlight on [data-tour] targets
+    Note over V,P: last step on a page: Navbar highlights the next tab, and the pathname change advances the step
+```
+On later visits, a cookie with the current `CONSENT_VERSION` means no modal and no tour offer. A cookie with an older version re-opens only the Privacy step.
 
 ## 9. Auth model (summary)
 - **Admin humans** share one secret, `LOGISTICS_PASSWORD`, sent once to `POST /api/auth` and exchanged for an HttpOnly, SameSite=Strict session cookie (`admin_session`, 8 h, HMAC-signed and stateless). The cookie guards `/api/blog/posts`, `/api/projects`, and `/api/analytics/stats` through `checkAdminAuth`. Cookie-authenticated writes must be same-origin. Changing the password signs everyone out. Scripts may still send the password as `x-logistics-key`.
@@ -376,6 +440,17 @@ To add a new variable, add it to this table **and** to the README env table, rea
 
 ### 14.3 Add a field to posts or projects
 Do all of the following together: add the SQL `alter table` (and update the schema file), add the `LIMITS` entry, add a `validateFields` branch **and** a POST default in the route, add tests (accept, reject, and that it can't be mass-assigned), update the TS types (both copies until P1-5 lands), add the Studio editor or wizard field, add it to the public `select(...)` column lists if public, and update the PRD model (BLOG-1 or PROJ-1).
+
+### 14.4 Add or change a tour step
+1. Edit `TOUR_STEPS` in `lib/tour.ts`. Keep each page's steps contiguous, in nav order.
+2. If the step spotlights something, put `data-tour="<target>"` on that element. `__tests__/lib-tour.test.ts` fails if the anchor is missing.
+3. Update the "Step 3 of 10" sample in `TourPreview` (`SitePreviews.tsx`) if the count matters there.
+
+### 14.5 Change what analytics collect
+1. Change the track route and the schema (a new SQL file, or `consent-schema.sql` with `ADD COLUMN IF NOT EXISTS`).
+2. Update `ANALYTICS_DATA_POINTS` in `lib/consent.ts`; the modal and `/privacy` both render it.
+3. **Bump `CONSENT_VERSION`** and `PRIVACY_POLICY_UPDATED`, so every visitor is asked again under the new terms.
+4. Update the tests in `api-analytics-track.test.ts` and SECURITY.md §4.10.
 
 ## 15. Architectural decisions (current)
 | Decision | Why | Revisit when |

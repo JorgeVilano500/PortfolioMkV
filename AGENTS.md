@@ -43,7 +43,7 @@ npm run build        # production build. Needs Supabase env vars (see §6)
 
 | Check | Result on 2026-10-19 |
 |---|---|
-| `npm test` | ✅ **315 tests, 15 suites**, about 4 s |
+| `npm test` | ✅ **406 tests, 20 suites** (incl. a jsdom component suite), about 10 s |
 | `npx tsc --noEmit` | ✅ clean |
 | `npm run lint` | ✅ clean |
 | `npm run build` | ✅ (Next 16.3.8) |
@@ -79,12 +79,18 @@ app/                      routes (App Router)
   studio/                 🔒 CMS: page.tsx (AdminGate + tabs), layout.tsx (noindex), BlogsPanel, ProjectsPanel, ProjectWizardModal, shared.tsx (icons)
   logistics/              🔒 analytics dashboard: page.tsx (AdminGate + Dashboard), layout.tsx (noindex)
   api/                    route handlers: auth (session sign-in/out), analytics/{track,stats}, blog/{posts,upload}, projects, docs/upload, email-summary
-  layout.tsx              root layout: Geist fonts, Person JSON-LD, <PageTracker/>
+  layout.tsx              root layout: Geist fonts, Person JSON-LD, <OnboardingProvider> wrapping PageTracker, pages,
+                          SiteFooter, IntroModal, TourSpotlight, Toast
+  privacy/page.tsx        privacy & cookie policy (server component; generated from lib/consent constants)
   robots.ts sitemap.ts opengraph-image.tsx
 components/               index.tsx barrel · ui/* (Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, ComingSoon†) · features/Modal, features/AdminGate (password gate + sign-out)
+  onboarding/             first-visit intro + consent + guided tour: OnboardingProvider (state), IntroModal, SitePreviews,
+                          TourToolbar, TourSpotlight, SiteFooter, Toast, PrivacyActions, useFocusTrap
 lib/                      supabase (anon) · supabase-admin (service role) · blog · projects-data (Supabase) · projects (hard-coded, used only by /work)
                           security · rate-limit · validation · markdown-sanitize · session · admin-auth · json-ld
-supabase/*.sql            schema for posts, projects, page_views, project_documents + security-hardening.sql (run once on an existing DB)
+                          consent (cookie model) · tour (steps) · analytics (shared rules) · theme · user-agent · random-id · supabase-errors
+supabase/*.sql            schema for posts, projects, page_views, project_documents, consent-schema.sql (consent_events + page_views
+                          opt-in columns) + security-hardening.sql (run once on an existing DB)
 __tests__/                Jest suites + helpers/test-utils.ts (Supabase chain mock)
 ```
 † `ComingSoon` is dead code.
@@ -93,6 +99,9 @@ __tests__/                Jest suites + helpers/test-utils.ts (Supabase chain mo
 
 - **Two project data sources.** Home reads the Supabase `projects` table, which Studio edits. `/work` reads the **hard-coded** `lib/projects.ts`, so projects edited in Studio **do not appear on `/work`**. Migrating `/work` is roadmap item P1-1 in PRD.md.
 - **The `font-syne` and `font-dm` classes compile to nothing.** `postcss.config.mjs` contains a Tailwind v3-style `theme.extend` that Tailwind 4 ignores, and `globals.css` never registers those fonts. As a result, most pages render in **Arial** and Home renders in **Geist**. The unused Google Fonts `<link>` was removed for privacy and CSP (SECURITY.md S-11), so the fix is `next/font` (DESIGN_SYSTEM.md §3).
+- **Analytics are opt-in, and the server enforces it.** `/api/analytics/track` stores nothing unless the request carries a current `java_consent` cookie with analytics on (`lib/consent.ts`). The browser's `PageTracker` also waits for consent. Never add tracking that bypasses `allowsAnalytics()`. If you change what is collected, bump `CONSENT_VERSION` (everyone is asked again) and update `ANALYTICS_DATA_POINTS`, which both the modal and `/privacy` render.
+- **Tour steps live in `lib/tour.ts`** and spotlight elements marked `data-tour="…"`. A test fails if a step's target anchor disappears from the source, so move the attribute when you restructure a page.
+- **Layering (z-index):** spotlight 45 · highlighted nav tab 46 · tour bar 47 · docked tour bar 48 · mobile drawer 55 · intro modal 60 · toast 70. Keep new overlays inside this scale.
 - **Admin auth is a session cookie.** `/studio` and `/logistics` share one password (`LOGISTICS_PASSWORD`), which `<AdminGate>` sends once to `POST /api/auth`. That returns an HttpOnly `admin_session` cookie (8 h) that the browser attaches to same-origin `fetch` calls automatically. **Don't** add `x-logistics-key` headers or store the password client-side. Changing `LOGISTICS_PASSWORD` signs everyone out.
 - **Cookie-authenticated writes must be same-origin.** `checkAdminAuth` returns 403 when `Sec-Fetch-Site`/`Origin` says the request came from another site, so call admin APIs only from this app's pages.
 - **The analytics skip-list is duplicated** in `components/ui/PageTracker.tsx` (`SKIP_PREFIXES`) and `app/api/analytics/track/route.ts` (`BLOCKED_PREFIXES`). Change both or neither.
@@ -110,7 +119,7 @@ __tests__/                Jest suites + helpers/test-utils.ts (Supabase chain mo
 
 The full prioritized list, with acceptance criteria, is in [PRD.md §7](PRD.md#7-roadmap-next-best-actions). The top items:
 
-1. **Owner actions, outside the repo:** deploy the 2026-10-19 security pass; run `supabase/security-hardening.sql` (S-1, S-22); rotate `LOGISTICS_PASSWORD` (S-12); optionally set `SESSION_SECRET` in Netlify. Then verify S-3 per SECURITY.md §7.
+1. **Owner actions, outside the repo:** merge the `cookie-set-up` PR and deploy; run `supabase/security-hardening.sql` (S-1, S-22) and `supabase/consent-schema.sql` (visitor consent); rotate `LOGISTICS_PASSWORD` (S-12); optionally set `SESSION_SECRET` in Netlify. Then verify S-3 per SECURITY.md §7. Decide an analytics retention window (S-5), since IP addresses are now stored for visitors who opt in.
 2. **P0 quick fixes still open:** the font registration (P0-2); the About page's `font-white/65` typo; the Contact page's Instagram `href="#"`.
 3. **P1-1:** move `/work` onto the Supabase `projects` table and retire `lib/projects.ts`.
 4. **P1-2:** add CI (GitHub Actions: lint, tsc, test). The baseline is now green, so CI can start green.
