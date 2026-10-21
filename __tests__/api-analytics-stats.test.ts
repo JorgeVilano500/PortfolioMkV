@@ -38,6 +38,7 @@ beforeEach(() => {
     process.env.LOGISTICS_PASSWORD = KEY
     resetRateLimits()
     mockDb.result = { data: [], error: null }
+    mockDb.queue = []
     mockDb.calls = []
     jest.spyOn(console, "error").mockImplementation(() => {})
 })
@@ -131,5 +132,65 @@ describe("aggregation", () => {
         const res = await req({ "x-logistics-key": KEY })
         expect(res.status).toBe(500)
         expect(JSON.stringify(await res.json())).not.toContain("secret schema info")
+    })
+})
+
+describe("consent-era fields", () => {
+    const auth = { "x-logistics-key": KEY }
+    const CHROME_WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
+
+    it("adds IP, browser/OS, language and timezone to recent activity", async () => {
+        mockDb.queue = [
+            { data: [view({ ip_address: "203.0.113.7", user_agent: CHROME_WIN, language: "en-US", timezone: "America/Los_Angeles" })], error: null },
+            { data: [], error: null },
+        ]
+        const stats = await (await req(auth)).json()
+        expect(stats.recentActivity[0]).toMatchObject({
+            ip: "203.0.113.7", browser: "Chrome", os: "Windows", language: "en-US", timezone: "America/Los_Angeles",
+        })
+    })
+
+    it("summarizes the latest consent choice per visitor", async () => {
+        const t = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
+        mockDb.queue = [
+            { data: [], error: null },
+            {
+                data: [ // newest first, as the route orders them
+                    { visitor_id: "a", analytics: false, action: "erase", created_at: t(1) },
+                    { visitor_id: "b", analytics: true,  action: "set",   created_at: t(2) },
+                    { visitor_id: "a", analytics: true,  action: "set",   created_at: t(3) },
+                    { visitor_id: "c", analytics: false, action: "set",   created_at: t(4) },
+                    { visitor_id: "b", analytics: false, action: "set",   created_at: t(5) },
+                ],
+                error: null,
+            },
+        ]
+        const stats = await (await req(auth)).json()
+        expect(stats.consent).toEqual({ accepted: 1, declined: 1, erased: 1 })
+    })
+
+    it("reports consent as null (not an error) before consent-schema.sql has run", async () => {
+        jest.spyOn(console, "warn").mockImplementation(() => {})
+        mockDb.queue = [
+            { data: [view()], error: null },
+            { data: null, error: { message: "relation does not exist", code: "PGRST205" } },
+        ]
+        const res = await req(auth)
+        expect(res.status).toBe(200)
+        expect((await res.json()).consent).toBeNull()
+    })
+
+    it("falls back to the original columns when the new ones don't exist yet", async () => {
+        jest.spyOn(console, "warn").mockImplementation(() => {})
+        mockDb.queue = [
+            { data: null, error: { message: "column page_views.ip_address does not exist", code: "42703" } },
+            { data: [view(), view({ session_id: "s2" })], error: null },
+            { data: [], error: null },
+        ]
+        const res = await req(auth)
+        expect(res.status).toBe(200)
+        const stats = await res.json()
+        expect(stats.totalViews).toBe(2)
+        expect(stats.recentActivity[0].ip).toBeNull()
     })
 })

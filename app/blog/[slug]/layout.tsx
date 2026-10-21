@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { cache } from "react"
 import { getPostBySlug } from "@/lib/blog"
+import { serializeJsonLd } from "@/lib/json-ld"
 
 // Deduplicate the DB call between generateMetadata and the layout render
 const fetchPost = cache((slug: string) => getPostBySlug(slug))
@@ -74,7 +75,7 @@ export default async function BlogPostLayout({ params, children }: Props) {
             {articleJsonLd && (
                 <script
                     type="application/ld+json"
-                    dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+                    dangerouslySetInnerHTML={{ __html: serializeJsonLd(articleJsonLd) }}
                 />
             )}
             {children}

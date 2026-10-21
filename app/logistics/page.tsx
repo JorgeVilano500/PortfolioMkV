@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Navbar } from "@/components"
+import { AdminGate, SignOutButton } from "@/components/features/AdminGate"
 import type { StatsPayload } from "@/app/api/analytics/stats/route"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -117,60 +118,50 @@ function HourHeatmap({ data }: { data: { hour: number; count: number }[] }) {
     )
 }
 
-// ─── Password gate ────────────────────────────────────────────────────────────
-
-function PasswordGate({ onAuth }: { onAuth: (key: string) => void }) {
-    const [value, setValue] = useState("")
-    const [error, setError]  = useState(false)
-    const [loading, setLoading] = useState(false)
-
-    const attempt = async () => {
-        if (!value) return
-        setLoading(true)
-        setError(false)
-        try {
-            const res = await fetch("/api/analytics/stats", {
-                headers: { "x-logistics-key": value },
-            })
-            if (res.ok) {
-                try { sessionStorage.setItem("_lk", value) } catch { /* ignore */ }
-                onAuth(value)
-            } else {
-                setError(true)
-            }
-        } catch {
-            // Network failure — surface as a failed attempt instead of
-            // leaving the button stuck on "Checking…"
-            setError(true)
-        } finally {
-            setLoading(false)
-        }
+// Visitor privacy choices from the consent log (latest choice per visitor).
+function ConsentCard({ consent }: { consent: StatsPayload["consent"] }) {
+    if (!consent) {
+        return (
+            <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-6">
+                <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium mb-2">Privacy Consent</p>
+                <p className="text-xs text-[#8a88a0]">
+                    No consent log yet. Run <code className="text-[#7c6dff]">supabase/consent-schema.sql</code> in the Supabase SQL editor to start recording visitor choices.
+                </p>
+            </div>
+        )
     }
 
+    const decided = consent.accepted + consent.declined
+    const rate    = decided > 0 ? Math.round((consent.accepted / decided) * 100) : 0
+
     return (
-        <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-6">
-            <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-8 w-full max-w-sm">
-                <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Restricted</p>
-                <h1 className="font-syne font-extrabold text-2xl text-[#f0eeff] mb-1">Logistics</h1>
-                <p className="text-sm text-[#555370] mb-6">Enter the access password to view site stats.</p>
-                <input
-                    type="password"
-                    placeholder="Password"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && attempt()}
-                    className="w-full bg-[#0a0a0f] border border-[#2a2840] rounded-xl px-4 py-3 text-sm text-[#f0eeff] placeholder-[#555370] outline-none focus:border-[#7c6dff] transition-colors mb-3"
-                />
-                {error && (
-                    <p className="text-xs text-pink-400 mb-3">Incorrect password.</p>
-                )}
-                <button
-                    onClick={attempt}
-                    disabled={loading || !value}
-                    className="w-full bg-[#7c6dff] hover:bg-[#6a5de8] disabled:opacity-40 text-white font-medium text-sm py-3 rounded-xl transition-colors cursor-pointer"
-                >
-                    {loading ? "Checking…" : "Enter"}
-                </button>
+        <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+                <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium">Privacy Consent</p>
+                <p className="text-[10px] text-[#555370]">Page-view stats only include visitors who accepted analytics.</p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
+                <div>
+                    <p className="font-syne font-extrabold text-3xl text-emerald-400 leading-none">{fmtNum(consent.accepted)}</p>
+                    <p className="text-xs text-[#8a88a0] mt-1">Accepted analytics</p>
+                </div>
+                <div>
+                    <p className="font-syne font-extrabold text-3xl text-[#c4c0d8] leading-none">{fmtNum(consent.declined)}</p>
+                    <p className="text-xs text-[#8a88a0] mt-1">Necessary only</p>
+                </div>
+                <div>
+                    <p className="font-syne font-extrabold text-3xl text-pink-400 leading-none">{fmtNum(consent.erased)}</p>
+                    <p className="text-xs text-[#8a88a0] mt-1">Deleted their data</p>
+                </div>
+                <div>
+                    <div className="flex justify-between text-xs mb-1">
+                        <span className="text-[#c4c0d8]">Acceptance rate</span>
+                        <span className="text-[#8a88a0]">{decided > 0 ? `${rate}%` : "—"}</span>
+                    </div>
+                    <div className="bg-[#1e1c2e] h-1.5 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-emerald-400" style={{ width: `${rate}%` }} />
+                    </div>
+                </div>
             </div>
         </div>
     )
@@ -178,8 +169,9 @@ function PasswordGate({ onAuth }: { onAuth: (key: string) => void }) {
 
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 
-function Dashboard({ authKey }: { authKey: string }) {
+function Dashboard() {
     const [stats, setStats]             = useState<StatsPayload | null>(null)
+    const [error, setError]             = useState<string | null>(null)
     const [loading, setLoading]         = useState(true)
     const [lastRefresh, setLast]        = useState<Date>(new Date())
     const [tick, setTick]               = useState(0)
@@ -195,14 +187,19 @@ function Dashboard({ authKey }: { authKey: string }) {
 
     // setState calls are inside .then()/.catch() callbacks — not synchronous in the effect body
     useEffect(() => {
-        fetch("/api/analytics/stats", { headers: { "x-logistics-key": authKey } })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((data: StatsPayload | null) => {
-                if (data) { setStats(data); setLast(new Date()) }
+        fetch("/api/analytics/stats")
+            .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+            .then((data: StatsPayload) => {
+                setStats(data)
+                setLast(new Date())
+                setError(null)
                 setLoading(false)
             })
-            .catch(() => setLoading(false))
-    }, [authKey, tick])
+            .catch((status) => {
+                setError(status === 401 ? "Your session expired. Reload the page to sign in again." : "Failed to load stats.")
+                setLoading(false)
+            })
+    }, [tick])
 
     const refresh = () => { setLoading(true); setTick((t) => t + 1) }
 
@@ -234,7 +231,11 @@ function Dashboard({ authKey }: { authKey: string }) {
         )
     }
 
-    if (!stats) return null
+    if (!stats) {
+        return error ? (
+            <div className="bg-[#1a1216] border border-[#2e1f28] rounded-2xl p-6 text-pink-300 text-sm">{error}</div>
+        ) : null
+    }
 
     const totalTraffic = stats.topPages.reduce((a, p) => a + p.count, 0) || 1
     const maxRef       = stats.topReferrers[0]?.count ?? 1
@@ -417,6 +418,9 @@ function Dashboard({ authKey }: { authKey: string }) {
                 </div>
             </div>
 
+            {/* Row 3b — privacy consent (analytics only count visitors who accepted) */}
+            <ConsentCard consent={stats.consent} />
+
             {/* Row 4 — peak hours + recent activity */}
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
 
@@ -440,14 +444,24 @@ function Dashboard({ authKey }: { authKey: string }) {
                     ) : (
                         <div className="space-y-2">
                             {stats.recentActivity.map((a, i) => (
-                                <div key={i} className="flex items-center justify-between py-1.5 border-b border-[#1e1c2e] last:border-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-sm">{a.is_new_visitor ? "🆕" : "👤"}</span>
-                                        <span className="text-sm text-[#c4c0d8] font-medium font-mono">
-                                            {pageLabel(a.page)}
-                                        </span>
+                                <div key={i} className="flex items-start justify-between gap-3 py-1.5 border-b border-[#1e1c2e] last:border-0">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm">{a.is_new_visitor ? "🆕" : "👤"}</span>
+                                            <span className="text-sm text-[#c4c0d8] font-medium font-mono truncate">
+                                                {pageLabel(a.page)}
+                                            </span>
+                                        </div>
+                                        {/* Only present for visitors who opted in to analytics */}
+                                        {(a.ip || a.browser || a.language) && (
+                                            <p className="text-[11px] text-[#8a88a0] mt-0.5 ml-7 truncate">
+                                                {[a.ip, a.browser && a.os ? `${a.browser} · ${a.os}` : a.browser, a.language, a.timezone]
+                                                    .filter(Boolean)
+                                                    .join("  ·  ")}
+                                            </p>
+                                        )}
                                     </div>
-                                    <span className="text-xs text-[#555370] shrink-0">{relTime(a.created_at)}</span>
+                                    <span className="text-xs text-[#555370] shrink-0 pt-0.5">{relTime(a.created_at)}</span>
                                 </div>
                             ))}
                         </div>
@@ -532,38 +546,26 @@ function Dashboard({ authKey }: { authKey: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Logistics() {
-    const [authKey, setAuthKey] = useState<string | null>(null)
-    const [hydrated, setHydrated] = useState(false)
-
-    // Restore saved key from sessionStorage — deferred into .then() so setState
-    // is never called synchronously inside the effect body
-    useEffect(() => {
-        Promise.resolve()
-            .then(() => { try { return sessionStorage.getItem("_lk") } catch { return null } })
-            .then((saved) => { if (saved) setAuthKey(saved); setHydrated(true) })
-    }, [])
-
-    if (!hydrated) return null
-
-    if (!authKey) {
-        return <PasswordGate onAuth={setAuthKey} />
-    }
-
     return (
-        <div className="min-h-screen font-dm p-6 md:p-8 bg-[#0a0a0f]">
-            <Navbar currentLink="logistics" />
+        <AdminGate title="Logistics" description="Enter the access password to view site stats.">
+            <div className="min-h-screen font-dm p-6 md:p-8 bg-[#0a0a0f]">
+                <Navbar currentLink="logistics" />
 
-            <section className="px-2 mb-8">
-                <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Internal</p>
-                <h1 className="font-syne font-extrabold text-3xl md:text-4xl text-[#f0eeff] tracking-tight mb-2">
-                    Site Logistics
-                </h1>
-                <p className="text-sm text-gray-500 max-w-sm leading-relaxed">
-                    Real-time analytics for JAVA.dev — visits, traffic sources, and load performance.
-                </p>
-            </section>
+                <section className="px-2 mb-8 flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                        <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Internal</p>
+                        <h1 className="font-syne font-extrabold text-3xl md:text-4xl text-[#f0eeff] tracking-tight mb-2">
+                            Site Logistics
+                        </h1>
+                        <p className="text-sm text-gray-500 max-w-sm leading-relaxed">
+                            Real-time analytics for JAVA.dev — visits, traffic sources, and load performance.
+                        </p>
+                    </div>
+                    <SignOutButton />
+                </section>
 
-            <Dashboard authKey={authKey} />
-        </div>
+                <Dashboard />
+            </div>
+        </AdminGate>
     )
 }

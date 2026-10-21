@@ -10,6 +10,8 @@ import {
     normalizeTheme,
     estimateReadingTime,
     slugify,
+    isUuid,
+    isJsonObject,
 } from "@/lib/validation"
 
 describe("isValidSlug", () => {
@@ -120,5 +122,25 @@ describe("estimateReadingTime", () => {
         expect(estimateReadingTime(Array(200).fill("word").join(" "))).toBe(1)
         expect(estimateReadingTime(Array(201).fill("word").join(" "))).toBe(2)
         expect(estimateReadingTime(Array(1000).fill("word").join(" "))).toBe(5)
+    })
+})
+
+describe("isUuid", () => {
+    it("accepts canonical uuids in either case", () => {
+        expect(isUuid("3f2b6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f")).toBe(true)
+        expect(isUuid("3F2B6C1E-8D4A-4F6B-9C2D-1A2B3C4D5E6F")).toBe(true)
+    })
+
+    it("rejects everything else", () => {
+        for (const v of ["", "1", "abc", "3f2b6c1e8d4a4f6b9c2d1a2b3c4d5e6f", "3f2b6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f,x", 42, null, undefined, {}]) {
+            expect(isUuid(v)).toBe(false)
+        }
+    })
+})
+
+describe("isJsonObject", () => {
+    it("accepts plain objects only", () => {
+        expect(isJsonObject({})).toBe(true)
+        for (const v of [null, [], "x", 1, true, undefined]) expect(isJsonObject(v)).toBe(false)
     })
 })

@@ -92,7 +92,7 @@ export default function About() {
 
     const hobbies : Hobbies[] =[
         {icon: "🎮", label: "Gaming", sub: "Nostalgic & Pirating" }, 
-        {icon: "📚", label: "Reading", sub: "Tech Blogs & Sci-Fi", link: "http://localhost:3000/blog"}, 
+        {icon: "📚", label: "Reading", sub: "Tech Blogs & Sci-Fi", link: "/blog"}, 
         {icon: "🎵", label: "Music", sub: "Phonk and House Music", link: "https://open.spotify.com/user/alejandrovilanova?si=b69b95de5ba44da3"}, 
         {icon: "🏃", label: "Running", sub: "Afternoon Runs", link: "https://strava.app.link/Cs3Xt6qMb2b"}, 
     ]
@@ -150,7 +150,7 @@ export default function About() {
 
 
             {/* Timeline card 8 / 12 slots */}
-            <div className="col-span-1 md:col-span-1 xl:col-span-8 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
+            <div data-tour="about-timeline" className="col-span-1 md:col-span-1 xl:col-span-8 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
                 <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium mb-5"> 
                     Journey
                 </p>
@@ -225,7 +225,7 @@ export default function About() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {
                         hobbies.map((hobby) => (
-                            <a key={hobby.label} target="_blank" href={hobby.link ? hobby.link : "#"} className="bg-[#13121c] cursor-pointer border border-[#2a2840] rounded-xl p-4 text-center hover:-translate-y-1 transition-transform duration-300 ">
+                            <a key={hobby.label} target="_blank" rel="noopener noreferrer" href={hobby.link ? hobby.link : "#"} className="bg-[#13121c] cursor-pointer border border-[#2a2840] rounded-xl p-4 text-center hover:-translate-y-1 transition-transform duration-300 ">
                                 <div className="text-xl mb-2">{hobby.icon}</div>
                                 <p className="text-xs text-[#c4c0d8] font-medium mb-1">{hobby.label}</p>
                                 <p className="text-[11px] text-[#555370]">{hobby.sub}</p>

@@ -37,10 +37,17 @@ export function jsonRequest(
  * Every method returns the chain; awaiting it resolves to `state.result`.
  * All calls are recorded in `state.calls` for assertions.
  */
+type MockResult = {
+    data: unknown
+    /** `code` mimics Postgres/PostgREST error codes (e.g. "42703", "PGRST204"). */
+    error: { message: string; code?: string } | null
+    count?: number | null
+}
+
 export type SupabaseMockState = {
-    result: { data: unknown; error: { message: string } | null }
+    result: MockResult
     /** Optional per-query results — consumed in order before falling back to `result`. */
-    queue?: { data: unknown; error: { message: string } | null }[]
+    queue?: MockResult[]
     calls: { method: string; args: unknown[] }[]
 }
 

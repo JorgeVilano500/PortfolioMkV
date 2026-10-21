@@ -96,7 +96,7 @@ export default function Contact() {
                 </div>
 
                 {/* Email card */}
-                <div className="col-span-1 md:col-span-1 xl:col-span-5 bg-[#1a1216] border border-[#2e1f28] rounded-2xl p-6 flex flex-col justify-between min-h-[220px] hover:-translate-y-1 transition-transform duration-300">
+                <div data-tour="contact-email" className="col-span-1 md:col-span-1 xl:col-span-5 bg-[#1a1216] border border-[#2e1f28] rounded-2xl p-6 flex flex-col justify-between min-h-[220px] hover:-translate-y-1 transition-transform duration-300">
                     <div className="flex items-center gap-2">
                         <MdEmail size={14} className="text-pink-400" />
                         <p className="text-xs tracking-widest uppercase text-gray-600">Direct Email</p>
@@ -123,6 +123,7 @@ export default function Contact() {
                                 key={platform}
                                 href={link}
                                 target="_blank"
+                                rel="noopener noreferrer"
                                 className={`${bg} border ${border} rounded-xl p-3 flex flex-col gap-2 hover:scale-105 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer`}
                             >
                                 <span className={iconColor}>{icon}</span>
@@ -136,7 +137,7 @@ export default function Contact() {
                 </div>
 
                 {/* Contact form */}
-                <div className="col-span-1 md:col-span-1 xl:col-span-8 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300">
+                <div data-tour="contact-form" className="col-span-1 md:col-span-1 xl:col-span-8 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300">
                     <p className="text-xs tracking-widest uppercase text-gray-600 mb-5">Send a Message</p>
                     <form action={handleSubmit} className="flex flex-col gap-4">
                         <input

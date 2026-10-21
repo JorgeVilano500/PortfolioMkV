@@ -168,7 +168,6 @@ function PostActionMenu({
 
 function PostGridCard({
     post,
-    authKey,
     onSaved,
     onDeleted,
     onOpen,
@@ -178,7 +177,6 @@ function PostGridCard({
     onToggleSelect,
 }: {
     post: Post
-    authKey: string
     onSaved: (updated: Post) => void
     onDeleted: (id: string) => void
     onOpen: () => void
@@ -191,7 +189,7 @@ function PostGridCard({
         e.stopPropagation()
         const res = await fetch("/api/blog/posts", {
             method: "PATCH",
-            headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: post.id, published: !post.published }),
         })
         if (res.ok) onSaved(await res.json())
@@ -200,7 +198,7 @@ function PostGridCard({
     const deletePost = async () => {
         const res = await fetch("/api/blog/posts", {
             method: "DELETE",
-            headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: post.id }),
         })
         if (res.ok) onDeleted(post.id)
@@ -293,13 +291,11 @@ function PostGridCard({
 
 function PostModal({
     post,
-    authKey,
     initialEditing,
     onSaved,
     onClose,
 }: {
     post: Post
-    authKey: string
     initialEditing: boolean
     onSaved: (updated: Post) => void
     onClose: () => void
@@ -355,7 +351,7 @@ function PostModal({
         try {
             const res = await fetch("/api/blog/posts", {
                 method: "PATCH",
-                headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ id: post.id, title, slug, content, excerpt, cover_emoji: coverEmoji, tags, theme }),
             })
             if (!res.ok) { setError((await res.json()).error ?? "Save failed"); return }
@@ -636,7 +632,7 @@ function PostModal({
 
 // ─── New Post Form ────────────────────────────────────────────────────────────
 
-function NewPostForm({ authKey, onCreated }: { authKey: string; onCreated: (p: Post) => void }) {
+function NewPostForm({ onCreated }: { onCreated: (p: Post) => void }) {
     const [open, setOpen]           = useState(false)
     const [title, setTitle]         = useState("")
     const [slug, setSlug]           = useState("")
@@ -654,7 +650,7 @@ function NewPostForm({ authKey, onCreated }: { authKey: string; onCreated: (p: P
         try {
             const res = await fetch("/api/blog/posts", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ title, slug, content }),
             })
             if (!res.ok) { setError((await res.json()).error ?? "Create failed"); return }
@@ -739,7 +735,7 @@ function NewPostForm({ authKey, onCreated }: { authKey: string; onCreated: (p: P
 
 // ─── Blogs panel ──────────────────────────────────────────────────────────────
 
-export function BlogsPanel({ authKey }: { authKey: string }) {
+export function BlogsPanel() {
     const [posts, setPosts]  = useState<Post[]>([])
     const [loading, setLoad] = useState(true)
     const [error, setError]  = useState<string | null>(null)
@@ -760,11 +756,14 @@ export function BlogsPanel({ authKey }: { authKey: string }) {
     const [modal, setModal] = useState<{ id: string; editing: boolean } | null>(null)
 
     useEffect(() => {
-        fetch("/api/blog/posts", { headers: { "x-logistics-key": authKey } })
-            .then((r) => (r.ok ? r.json() : Promise.reject()))
+        fetch("/api/blog/posts")
+            .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
             .then((data: Post[]) => { setPosts(data); setLoad(false) })
-            .catch(() => { setError("Failed to load posts."); setLoad(false) })
-    }, [authKey])
+            .catch((status) => {
+                setError(status === 401 ? "Your session expired. Reload the page to sign in again." : "Failed to load posts.")
+                setLoad(false)
+            })
+    }, [])
 
     const handleSaved   = (updated: Post) => setPosts((p) => p.map((x) => x.id === updated.id ? { ...x, ...updated } : x))
     const handleDeleted = (id: string)    => {
@@ -832,7 +831,7 @@ export function BlogsPanel({ authKey }: { authKey: string }) {
         try {
             const res = await fetch("/api/blog/posts", {
                 method: "DELETE",
-                headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ids }),
             })
             if (!res.ok) { setBulkError((await res.json()).error ?? "Delete failed"); return }
@@ -855,7 +854,7 @@ export function BlogsPanel({ authKey }: { authKey: string }) {
                 targets.map((p) =>
                     fetch("/api/blog/posts", {
                         method: "PATCH",
-                        headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ id: p.id, published }),
                     }).then((r) => (r.ok ? r.json() as Promise<Post> : null)).catch(() => null)
                 )
@@ -891,7 +890,7 @@ export function BlogsPanel({ authKey }: { authKey: string }) {
                 </div>
             )}
 
-            <NewPostForm authKey={authKey} onCreated={handleCreated} />
+            <NewPostForm onCreated={handleCreated} />
 
             {/* Toolbar */}
             {!loading && !error && posts.length > 0 && (
@@ -1043,7 +1042,6 @@ export function BlogsPanel({ authKey }: { authKey: string }) {
                         <PostGridCard
                             key={post.id}
                             post={post}
-                            authKey={authKey}
                             onSaved={handleSaved}
                             onDeleted={handleDeleted}
                             onOpen={() => setModal({ id: post.id, editing: false })}
@@ -1060,7 +1058,6 @@ export function BlogsPanel({ authKey }: { authKey: string }) {
                 <PostModal
                     key={modalPost.id}
                     post={modalPost}
-                    authKey={authKey}
                     initialEditing={modal?.editing ?? false}
                     onSaved={handleSaved}
                     onClose={() => setModal(null)}

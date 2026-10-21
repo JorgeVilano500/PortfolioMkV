@@ -4,6 +4,7 @@
  * input validation, no DB error leakage. Mirrors __tests__/api-blog-posts.test.ts.
  */
 import { resetRateLimits } from "@/lib/rate-limit"
+import { SESSION_COOKIE, createSessionToken } from "@/lib/session"
 import {
     makeRequest,
     jsonRequest,
@@ -23,6 +24,8 @@ const mockDb = (jest.requireMock("@/lib/supabase-admin") as { __state: SupabaseM
 
 const URL = "http://localhost/api/projects"
 const KEY = "test-logistics-password"
+const ID = "3f2b6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f"
+const IDS = [ID, "9a8b7c6d-5e4f-4a3b-8c2d-0f1e2d3c4b5a", "00000000-0000-4000-8000-000000000001"]
 
 beforeEach(() => {
     process.env.LOGISTICS_PASSWORD = KEY
@@ -179,7 +182,7 @@ describe("PATCH", () => {
     const auth = { "x-logistics-key": KEY }
 
     it("updates whitelisted fields", async () => {
-        const res = await PATCH(jsonRequest(URL, "PATCH", { id: "abc", title: "New", featured: true }, auth))
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, title: "New", featured: true }, auth))
         expect(res.status).toBe(200)
         const fields = firstCallArg(mockDb, "update") as Record<string, unknown>
         expect(fields).toEqual({ title: "New", featured: true })
@@ -187,7 +190,7 @@ describe("PATCH", () => {
 
     it("blocks mass assignment — id/created_at/arbitrary columns never reach the DB", async () => {
         await PATCH(jsonRequest(URL, "PATCH", {
-            id: "abc",
+            id: ID,
             title: "ok",
             created_at: "1970-01-01",       // spoof post date
             user_role: "admin",             // arbitrary column
@@ -204,17 +207,17 @@ describe("PATCH", () => {
     })
 
     it("rejects a body with no updatable fields", async () => {
-        const res = await PATCH(jsonRequest(URL, "PATCH", { id: "abc", bogus: 1 }, auth))
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, bogus: 1 }, auth))
         expect(res.status).toBe(400)
     })
 
     it("rejects invalid published type", async () => {
-        const res = await PATCH(jsonRequest(URL, "PATCH", { id: "abc", published: "yes" }, auth))
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, published: "yes" }, auth))
         expect(res.status).toBe(400)
     })
 
     it("rejects an invalid link on update", async () => {
-        const res = await PATCH(jsonRequest(URL, "PATCH", { id: "abc", link: "not-a-url" }, auth))
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, link: "not-a-url" }, auth))
         expect(res.status).toBe(400)
     })
 })
@@ -225,7 +228,7 @@ describe("DELETE", () => {
     const auth = { "x-logistics-key": KEY }
 
     it("deletes by id", async () => {
-        const res = await DELETE(jsonRequest(URL, "DELETE", { id: "abc" }, auth))
+        const res = await DELETE(jsonRequest(URL, "DELETE", { id: ID }, auth))
         expect(res.status).toBe(200)
         expect(await res.json()).toEqual({ success: true })
         expect(firstCallArg(mockDb, "eq")).toBe("id")
@@ -237,11 +240,11 @@ describe("DELETE", () => {
     })
 
     it("group-deletes by ids", async () => {
-        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: ["a", "b", "c"] }, auth))
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: IDS }, auth))
         expect(res.status).toBe(200)
         expect(await res.json()).toEqual({ success: true, deleted: 3 })
         const inCall = mockDb.calls.find((c) => c.method === "in")
-        expect(inCall?.args).toEqual(["id", ["a", "b", "c"]])
+        expect(inCall?.args).toEqual(["id", IDS])
     })
 
     it("rejects an empty ids array", async () => {
@@ -250,13 +253,83 @@ describe("DELETE", () => {
     })
 
     it("rejects ids containing non-strings", async () => {
-        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: ["a", 5] }, auth))
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: [ID, 5] }, auth))
         expect(res.status).toBe(400)
     })
 
     it("rejects more than 100 ids", async () => {
-        const ids = Array.from({ length: 101 }, (_, i) => `id-${i}`)
+        const ids = Array.from({ length: 101 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`)
         const res = await DELETE(jsonRequest(URL, "DELETE", { ids }, auth))
         expect(res.status).toBe(400)
+    })
+})
+
+describe("id validation", () => {
+    const auth = { "x-logistics-key": KEY }
+
+    it.each(["abc", "1", "'; drop table projects; --", "a,b)", ""])("rejects non-uuid id %p", async (id) => {
+        expect((await PATCH(jsonRequest(URL, "PATCH", { id, title: "T" }, auth))).status).toBe(400)
+        expect((await DELETE(jsonRequest(URL, "DELETE", { id }, auth))).status).toBe(400)
+        expect(mockDb.calls.some((c) => c.method === "update" || c.method === "delete")).toBe(false)
+    })
+
+    it("rejects a bulk delete containing any non-uuid", async () => {
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: [ID, "x\",\"y"] }, auth))
+        expect(res.status).toBe(400)
+    })
+})
+
+describe("session cookie auth", () => {
+    let token: string
+
+    beforeEach(() => {
+        process.env.SESSION_SECRET = "test-session-secret"
+        token = createSessionToken()!
+    })
+    afterEach(() => { delete process.env.SESSION_SECRET })
+
+    const withCookie = (value: string, extra: Record<string, string> = {}) =>
+        ({ cookie: `${SESSION_COOKIE}=${value}`, ...extra })
+
+    it("accepts a valid session cookie without the password header", async () => {
+        mockDb.result = { data: [], error: null }
+        const res = await GET(makeRequest(URL, { headers: withCookie(token) }))
+        expect(res.status).toBe(200)
+    })
+
+    it("allows same-origin mutations with a session cookie", async () => {
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, title: "T" }, withCookie(token, { "sec-fetch-site": "same-origin" })))
+        expect(res.status).toBe(200)
+    })
+
+    it("blocks cross-site mutations even with a valid cookie (CSRF)", async () => {
+        const res = await DELETE(jsonRequest(URL, "DELETE", { id: ID }, withCookie(token, { "sec-fetch-site": "cross-site" })))
+        expect(res.status).toBe(403)
+        expect(mockDb.calls.some((c) => c.method === "delete")).toBe(false)
+    })
+
+    it("blocks a mismatched Origin when Sec-Fetch-Site is absent", async () => {
+        const res = await DELETE(jsonRequest(URL, "DELETE", { id: ID }, withCookie(token, { origin: "https://evil.example", host: "localhost" })))
+        expect(res.status).toBe(403)
+    })
+
+    it("rejects a tampered or expired cookie", async () => {
+        const tampered = token.slice(0, -2) + (token.endsWith("AA") ? "BB" : "AA")
+        expect((await GET(makeRequest(URL, { headers: withCookie(tampered) }))).status).toBe(401)
+        const expired = createSessionToken(Date.now() - 9 * 60 * 60 * 1000)!
+        expect((await GET(makeRequest(URL, { headers: withCookie(expired) }))).status).toBe(401)
+    })
+
+    it("signs every session out when the password rotates", async () => {
+        process.env.LOGISTICS_PASSWORD = "rotated-password"
+        expect((await GET(makeRequest(URL, { headers: withCookie(token) }))).status).toBe(401)
+    })
+
+    it("still works for a signed-in admin while the IP is locked out", async () => {
+        const headers = { "x-logistics-key": "wrong", "x-forwarded-for": "6.6.6.6" }
+        for (let i = 0; i < 10; i++) await GET(makeRequest(URL, { headers }))
+        mockDb.result = { data: [], error: null }
+        const res = await GET(makeRequest(URL, { headers: withCookie(token, { "x-forwarded-for": "6.6.6.6" }) }))
+        expect(res.status).toBe(200)
     })
 })

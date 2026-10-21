@@ -71,12 +71,10 @@ const STEPS = ["Basics", "Details", "Links", "Review"] as const
 
 export function ProjectWizardModal({
     project,
-    authKey,
     onSaved,
     onClose,
 }: {
     project: Project | null
-    authKey: string
     onSaved: (project: Project) => void
     onClose: () => void
 }) {
@@ -117,7 +115,7 @@ export function ProjectWizardModal({
         try {
             const res = await fetch("/api/projects", {
                 method: isEdit ? "PATCH" : "POST",
-                headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(isEdit ? { id: project!.id, ...draft } : draft),
             })
             if (!res.ok) { setError((await res.json()).error ?? "Save failed"); return }
@@ -417,7 +415,7 @@ export function ProjectWizardModal({
 
                     {step === 3 && (
                         <div className="space-y-4">
-                            <p className="text-xs text-[#555370]">Here's how this project will look. Go back to any step to make changes.</p>
+                            <p className="text-xs text-[#555370]">Here&apos;s how this project will look. Go back to any step to make changes.</p>
                             <div className="bg-[#0a0a0f] border border-[#2a2840] rounded-2xl p-5">
                                 <div className="flex items-start justify-between gap-2 mb-3">
                                     <span className="text-3xl leading-none">{draft.icon || "🚀"}</span>

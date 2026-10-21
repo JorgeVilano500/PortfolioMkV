@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
-import { safeEqual, getClientIp } from "@/lib/security"
-import { isAuthBlocked, recordAuthFailure } from "@/lib/rate-limit"
+import { checkAdminAuth } from "@/lib/admin-auth"
 import {
     LIMITS,
     isValidSlug,
     isNonEmptyString,
     isStringMax,
+    isUuid,
+    isJsonObject,
     normalizeTags,
     normalizeTheme,
     estimateReadingTime,
@@ -14,30 +15,12 @@ import {
 
 const ROUTE = "blog/posts"
 
-/**
- * Auth with brute-force damping: constant-time compare, and after 10 failed
- * attempts in 15 min an IP gets 429 instead of more oracle queries.
- * Returns a response to send, or null if authenticated.
- */
-function checkAuth(req: NextRequest): NextResponse | null {
-    const ip = getClientIp(req)
-    if (isAuthBlocked(ROUTE, ip)) {
-        return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 })
-    }
-    const key = req.headers.get("x-logistics-key")
-    const secret = process.env.LOGISTICS_PASSWORD
-    if (!secret || !safeEqual(key, secret)) {
-        recordAuthFailure(ROUTE, ip)
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    return null
-}
+const checkAuth = (req: NextRequest) => checkAdminAuth(req, ROUTE)
 
 async function readJson(req: NextRequest): Promise<Record<string, unknown> | null> {
     try {
-        const body = await req.json()
-        if (!body || typeof body !== "object" || Array.isArray(body)) return null
-        return body as Record<string, unknown>
+        const body: unknown = await req.json()
+        return isJsonObject(body) ? body : null
     } catch {
         return null
     }
@@ -180,7 +163,7 @@ export async function PATCH(req: NextRequest) {
     if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
 
     const { id } = body
-    if (!isNonEmptyString(id, 100)) return NextResponse.json({ error: "Missing id" }, { status: 400 })
+    if (!isUuid(id)) return NextResponse.json({ error: "Missing or invalid id" }, { status: 400 })
 
     // Whitelist — only explicitly validated fields ever reach the DB
     // (prevents mass-assignment of id / created_at / arbitrary columns).
@@ -217,10 +200,10 @@ export async function DELETE(req: NextRequest) {
         if (
             ids.length === 0 ||
             ids.length > MAX_BULK_DELETE ||
-            !ids.every((v) => isNonEmptyString(v, 100))
+            !ids.every(isUuid)
         ) {
             return NextResponse.json(
-                { error: `ids must be 1–${MAX_BULK_DELETE} non-empty strings` },
+                { error: `ids must be 1–${MAX_BULK_DELETE} uuids` },
                 { status: 400 }
             )
         }
@@ -232,7 +215,7 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ success: true, deleted: ids.length })
     }
 
-    if (!isNonEmptyString(id, 100)) return NextResponse.json({ error: "Missing id" }, { status: 400 })
+    if (!isUuid(id)) return NextResponse.json({ error: "Missing or invalid id" }, { status: 400 })
 
     const { error } = await supabaseAdmin
         .from("posts")

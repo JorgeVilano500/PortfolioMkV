@@ -1,17 +1,21 @@
 /**
- * next.config.ts — security headers applied to every route.
+ * next.config.ts — security headers applied to every route, plus the extra
+ * rules for API responses and admin pages.
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
 const config = require("../next.config")
 
 type Header = { key: string; value: string }
+type Rule = { source: string; headers: Header[] }
 
-async function getHeaders(): Promise<Header[]> {
-    const rules = await config.headers()
-    expect(rules).toHaveLength(1)
-    expect(rules[0].source).toBe("/:path*")
-    return rules[0].headers
+async function getRule(source: string): Promise<Header[]> {
+    const rules: Rule[] = await config.headers()
+    const rule = rules.find((r) => r.source === source)
+    expect(rule).toBeDefined()
+    return rule!.headers
 }
+
+const getHeaders = () => getRule("/:path*")
 
 function find(headers: Header[], key: string): string {
     return headers.find((h) => h.key.toLowerCase() === key.toLowerCase())?.value ?? ""
@@ -27,6 +31,7 @@ describe("security headers", () => {
             "Referrer-Policy",
             "Permissions-Policy",
             "Strict-Transport-Security",
+            "Cross-Origin-Opener-Policy",
         ]) {
             expect(find(headers, key)).toBeTruthy()
         }
@@ -42,6 +47,10 @@ describe("security headers", () => {
         expect(find(await getHeaders(), "X-Content-Type-Options")).toBe("nosniff")
     })
 
+    it("isolates the browsing context from cross-origin openers", async () => {
+        expect(find(await getHeaders(), "Cross-Origin-Opener-Policy")).toBe("same-origin")
+    })
+
     it("CSP locks down objects and base URIs", async () => {
         const csp = find(await getHeaders(), "Content-Security-Policy")
         expect(csp).toContain("default-src 'self'")
@@ -50,11 +59,16 @@ describe("security headers", () => {
         expect(csp).toContain("form-action 'self'")
     })
 
-    it("CSP allows the origins the app actually uses", async () => {
+    it("CSP blocks inline event-handler attributes", async () => {
+        expect(find(await getHeaders(), "Content-Security-Policy")).toContain("script-src-attr 'none'")
+    })
+
+    it("CSP allows only the origins the app actually uses", async () => {
         const csp = find(await getHeaders(), "Content-Security-Policy")
         expect(csp).toContain("https://*.supabase.co")       // browser Supabase client
-        expect(csp).toContain("https://fonts.googleapis.com") // layout font <link>
-        expect(csp).toContain("https://fonts.gstatic.com")
+        // Fonts are self-hosted via next/font — no third-party font origins
+        expect(csp).not.toContain("fonts.googleapis.com")
+        expect(csp).not.toContain("fonts.gstatic.com")
     })
 
     it("does not allow unsafe-eval outside development", async () => {
@@ -67,5 +81,21 @@ describe("security headers", () => {
         const hsts = find(await getHeaders(), "Strict-Transport-Security")
         const maxAge = Number(/max-age=(\d+)/.exec(hsts)?.[1] ?? 0)
         expect(maxAge).toBeGreaterThanOrEqual(31536000)
+    })
+
+    it("does not advertise the framework (X-Powered-By)", () => {
+        expect(config.poweredByHeader).toBe(false)
+    })
+})
+
+describe("API and admin rules", () => {
+    it("API responses are never cached and never indexed", async () => {
+        const headers = await getRule("/api/:path*")
+        expect(find(headers, "Cache-Control")).toContain("no-store")
+        expect(find(headers, "X-Robots-Tag")).toContain("noindex")
+    })
+
+    it.each(["/studio/:path*", "/logistics/:path*"])("%s is marked noindex", async (source) => {
+        expect(find(await getRule(source), "X-Robots-Tag")).toContain("noindex")
     })
 })

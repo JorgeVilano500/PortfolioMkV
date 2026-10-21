@@ -19,6 +19,10 @@ CREATE INDEX IF NOT EXISTS idx_pv_session_id  ON page_views (session_id);
 CREATE INDEX IF NOT EXISTS idx_pv_page        ON page_views (page);
 
 -- This table is never read or written by the browser anon key.
--- All access goes through the service-role API routes.
--- Disable RLS (or leave it enabled with no policies — no anon access either way).
-ALTER TABLE page_views DISABLE ROW LEVEL SECURITY;
+-- All access goes through the service-role API routes (which bypass RLS).
+-- RLS MUST stay enabled with no policies: Supabase grants the public anon key
+-- access to tables in `public` by default, so with RLS disabled anyone could
+-- read every row and insert/edit/delete analytics directly via the REST API
+-- (confirmed against production on 2026-10-19 — see SECURITY.md S-1).
+ALTER TABLE page_views ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON page_views FROM anon, authenticated;

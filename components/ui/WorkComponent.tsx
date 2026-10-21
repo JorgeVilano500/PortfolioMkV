@@ -31,7 +31,7 @@ export function WorkComponent() {
 
             {/* need to make filter still  */}
 
-            <div className="flex flex-wrap gap-2 mb-8">
+            <div data-tour="work-filters" className="flex flex-wrap gap-2 mb-8">
                 {
                     filters.map((f) => (
                         <button
@@ -49,7 +49,7 @@ export function WorkComponent() {
 
             {/* Big project displayed */}
             {/* Bento grid first */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+            <div data-tour="work-grid" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
                 {
                     featured && (
                         <div className={`col-span-1 md:col-span-2 xl:col-span-8 min-h-[240px] ${featured.cardBg} rounded-2xl p-6 relative overflow-hidden hover:-translate-y-1 transition-transform duration-300 cursor-pointer`}>
@@ -87,7 +87,7 @@ export function WorkComponent() {
                                                     Live
                                                 </span>
                                             </div>
-                                                <a target="_blank" href={featured.link ? featured.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline "> 
+                                                <a target="_blank" rel="noopener noreferrer" href={featured.link ? featured.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline "> 
                                                     View Project  →
                                                </a>
 
@@ -130,7 +130,7 @@ export function WorkComponent() {
                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                                             <span className="text-xs text-emerald-400 font-medium">Live</span>
                                         </div>
-                                        <a target="_blank" href={sideCard.link ? sideCard.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline">
+                                        <a target="_blank" rel="noopener noreferrer" href={sideCard.link ? sideCard.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline">
                                             View →
                                         </a>
                                     </div>
@@ -194,7 +194,7 @@ export function WorkComponent() {
                                         </div>
                                        {
                                         card.link ? (
-                                             <a target="_blank" href={card.link ? card.link : "#"} className={`text-xs font-medium hover:underline ${card.catColor}`}>
+                                             <a target="_blank" rel="noopener noreferrer" href={card.link ? card.link : "#"} className={`text-xs font-medium hover:underline ${card.catColor}`}>
                                             View →
                                         </a>
                                         ) : (

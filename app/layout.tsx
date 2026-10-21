@@ -2,6 +2,12 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { PageTracker } from "@/components/ui/PageTracker";
+import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
+import { IntroModal } from "@/components/onboarding/IntroModal";
+import { TourSpotlight } from "@/components/onboarding/TourSpotlight";
+import { SiteFooter } from "@/components/onboarding/SiteFooter";
+import { Toast } from "@/components/onboarding/Toast";
+import { serializeJsonLd } from "@/lib/json-ld";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -98,19 +104,21 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap"
-          rel="stylesheet"
-        />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(personJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(personJsonLd) }}
         />
       </head>
       <body className="min-h-full flex flex-col">
-        <PageTracker />
-        {children}
+        {/* First-visit intro, consent, and guided tour (consent gates PageTracker) */}
+        <OnboardingProvider>
+          <PageTracker />
+          {children}
+          <SiteFooter />
+          <IntroModal />
+          <TourSpotlight />
+          <Toast />
+        </OnboardingProvider>
       </body>
     </html>
   );

@@ -24,13 +24,19 @@ begin
 end;
 $$;
 
+alter function update_updated_at() set search_path = '';
+
+drop trigger if exists posts_updated_at on posts;
 create trigger posts_updated_at
   before update on posts
   for each row execute procedure update_updated_at();
 
--- Row Level Security: anyone can read published posts
+-- Row Level Security: anyone can read published posts. Writes only happen
+-- through the service-role key, so anon/authenticated get SELECT and nothing else.
 alter table posts enable row level security;
+revoke insert, update, delete, truncate, references, trigger on posts from anon, authenticated;
 
+drop policy if exists "Public read published posts" on posts;
 create policy "Public read published posts"
   on posts for select
   using (published = true);
