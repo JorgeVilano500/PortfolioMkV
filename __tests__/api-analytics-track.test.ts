@@ -82,10 +82,23 @@ describe("validation", () => {
         expect((await track({ page: "/", session_id: "" })).status).toBe(400)
     })
 
-    it("truncates an oversized referrer instead of storing megabytes", async () => {
-        await track({ ...validBody, referrer: "r".repeat(10_000) })
+    it("drops an oversized or non-URL referrer instead of storing it", async () => {
+        await track({ ...validBody, referrer: "https://x.com/" + "r".repeat(10_000) })
+        await track({ ...validBody, referrer: "not a url" })
+        await track({ ...validBody, referrer: "javascript:alert(1)" })
+        const rows = mockDb.calls.filter((c) => c.method === "insert").map((c) => c.args[0] as Record<string, string>)
+        expect(rows.map((r) => r.referrer)).toEqual(["", "", ""])
+    })
+
+    it("stores only the referring origin (no path, query, or fragment)", async () => {
+        await track({ ...validBody, referrer: "https://www.google.com/search?q=private+stuff&email=me@x.com#frag" })
         const row = firstCallArg(mockDb, "insert") as Record<string, string>
-        expect(row.referrer.length).toBeLessThanOrEqual(2_000)
+        expect(row.referrer).toBe("https://www.google.com")
+    })
+
+    it.each(["null", "[]", "\"x\"", "7"])("rejects a non-object JSON body %s without throwing", async (raw) => {
+        const res = await POST(makeRequest(URL, { method: "POST", headers: { "content-type": "application/json" }, body: raw }))
+        expect(res.status).toBe(400)
     })
 
     it("truncates an oversized user-agent", async () => {

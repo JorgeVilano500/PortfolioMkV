@@ -29,6 +29,8 @@ begin
 end;
 $$;
 
+alter function update_updated_at() set search_path = '';
+
 drop trigger if exists projects_updated_at on projects;
 create trigger projects_updated_at
   before update on projects
@@ -38,6 +40,7 @@ create trigger projects_updated_at
 -- Writes only ever go through the service-role key from /api/projects, which
 -- bypasses RLS entirely, so this policy only governs public/anon reads.
 alter table projects enable row level security;
+revoke insert, update, delete, truncate, references, trigger on projects from anon, authenticated;
 
 drop policy if exists "Public read published projects" on projects;
 create policy "Public read published projects"

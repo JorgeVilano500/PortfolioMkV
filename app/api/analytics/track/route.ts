@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { getClientIp } from "@/lib/security"
 import { rateLimit } from "@/lib/rate-limit"
-import { LIMITS } from "@/lib/validation"
+import { LIMITS, isJsonObject } from "@/lib/validation"
 
 const BLOCKED_PREFIXES = ["/logistics", "/studio", "/api"]
 
@@ -16,6 +16,21 @@ function getExcludedIps(): string[] {
         .split(",")
         .map((ip) => ip.trim())
         .filter(Boolean)
+}
+
+/**
+ * Store only the referring origin. Full referrer URLs can carry search terms,
+ * emails, or tokens in their path/query, and the dashboard only ever shows
+ * the hostname — so keeping more is collecting data we don't use.
+ */
+function referrerOrigin(raw: unknown): string {
+    if (typeof raw !== "string" || raw.length === 0 || raw.length > LIMITS.referrer) return ""
+    try {
+        const url = new URL(raw)
+        return url.protocol === "http:" || url.protocol === "https:" ? url.origin : ""
+    } catch {
+        return ""
+    }
 }
 
 export async function POST(req: NextRequest) {
@@ -42,11 +57,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Bad request" }, { status: 400 })
     }
 
-    let body: Record<string, unknown>
+    let body: unknown
     try {
         body = await req.json()
     } catch {
         return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+    }
+    if (!isJsonObject(body)) {
+        return NextResponse.json({ error: "Bad request" }, { status: 400 })
     }
 
     const { page, referrer, session_id, is_new_visitor, load_time, screen_width } = body as {
@@ -73,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     const { error } = await supabaseAdmin.from("page_views").insert({
         page,
-        referrer:        typeof referrer === "string" ? referrer.slice(0, LIMITS.referrer) : "",
+        referrer:        referrerOrigin(referrer),
         user_agent:      (req.headers.get("user-agent") ?? "").slice(0, LIMITS.userAgent),
         session_id,
         is_new_visitor:  is_new_visitor === true,

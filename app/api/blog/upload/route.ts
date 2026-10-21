@@ -14,6 +14,15 @@ import {
 
 const ROUTE = "blog/upload"
 
+// gray-matter ships a JavaScript front-matter engine that eval()s `---js`
+// blocks. Overriding it means a leaked upload secret can publish posts but can
+// never run code on the server. (Passing options also disables gray-matter's
+// unbounded per-process cache of every parsed input.)
+function refuseEngine(): never {
+    throw new Error("front-matter language not allowed")
+}
+const MATTER_OPTIONS = { engines: { js: refuseEngine, javascript: refuseEngine } }
+
 // ─── Route handler ───────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -41,7 +50,7 @@ export async function POST(request: NextRequest) {
     // 3. Parse YAML frontmatter + markdown body
     let parsed: ReturnType<typeof matter>
     try {
-        parsed = matter(raw)
+        parsed = matter(raw, MATTER_OPTIONS)
     } catch {
         return Response.json({ error: "Could not parse frontmatter" }, { status: 400 })
     }
@@ -79,7 +88,10 @@ export async function POST(request: NextRequest) {
         reading_time: typeof meta.reading_time === "number" && meta.reading_time > 0 && meta.reading_time < 1000
                           ? Math.round(meta.reading_time)
                           : estimateReadingTime(content),
-        published:    meta.published === true,
+        // Only touch `published` when the file says so: a re-upload without the
+        // key must not silently unpublish a live post (new posts default to
+        // false in the DB).
+        ...("published" in meta ? { published: meta.published === true } : {}),
     }
 
     // 6. Upsert — re-sending the same file (same slug) updates the existing post

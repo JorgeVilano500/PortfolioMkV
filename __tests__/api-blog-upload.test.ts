@@ -59,6 +59,30 @@ describe("auth", () => {
     })
 })
 
+describe("front-matter engines", () => {
+    // gray-matter's built-in JavaScript engine eval()s `---js` front matter,
+    // which would turn a leaked upload secret into server-side code execution
+    // (and access to every env var, including the service-role key).
+    afterEach(() => { delete (globalThis as Record<string, unknown>).__pwned })
+
+    it.each(["js", "javascript", "JS", "JavaScript"])("refuses ---%s front matter without executing it", async (lang) => {
+        const raw = `---${lang}\n{ title: (globalThis.__pwned = true, "T") }\n---\nbody\n`
+        const res = await upload(raw)
+        expect((globalThis as Record<string, unknown>).__pwned).toBeUndefined()
+        expect(res.status).toBe(400)
+        expect(mockDb.calls.some((c) => c.method === "upsert")).toBe(false)
+    })
+
+    it("refuses unregistered front-matter languages", async () => {
+        expect((await upload("---coffee\ntitle: 'T'\n---\nbody\n")).status).toBe(400)
+    })
+
+    it("still accepts YAML and JSON front matter", async () => {
+        expect((await upload(md('title: "T"'))).status).toBe(201)
+        expect((await upload('---json\n{ "title": "T" }\n---\nbody\n')).status).toBe(201)
+    })
+})
+
 describe("validation & parsing", () => {
     it("rejects an empty body", async () => {
         expect((await upload("   ")).status).toBe(400)
@@ -106,6 +130,17 @@ describe("validation & parsing", () => {
         await upload(md('title: "T"\npublished: "yes"'))
         const row = firstCallArg(mockDb, "upsert") as Record<string, unknown>
         expect(row.published).toBe(false)
+    })
+
+    it("leaves published untouched when the front matter omits it (re-upload must not unpublish)", async () => {
+        await upload(md('title: "T"'))
+        const row = firstCallArg(mockDb, "upsert") as Record<string, unknown>
+        expect("published" in row).toBe(false)
+    })
+
+    it("publishes only on a literal true", async () => {
+        await upload(md('title: "T"\npublished: true'))
+        expect((firstCallArg(mockDb, "upsert") as Record<string, unknown>).published).toBe(true)
     })
 
     it("ignores absurd reading_time overrides", async () => {

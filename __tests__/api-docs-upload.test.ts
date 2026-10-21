@@ -77,6 +77,10 @@ describe("validation", () => {
         expect((await upload({ ...validDoc, content: "a".repeat(1_000_001) })).status).toBe(413)
     })
 
+    it.each(["null", "[]", "\"x\"", "7"])("rejects a non-object JSON body %s without throwing", async (raw) => {
+        expect((await upload(raw)).status).toBe(400)
+    })
+
     it("rejects a missing project", async () => {
         expect((await upload({ ...validDoc, project: undefined })).status).toBe(400)
     })

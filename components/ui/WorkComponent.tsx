@@ -87,7 +87,7 @@ export function WorkComponent() {
                                                     Live
                                                 </span>
                                             </div>
-                                                <a target="_blank" href={featured.link ? featured.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline "> 
+                                                <a target="_blank" rel="noopener noreferrer" href={featured.link ? featured.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline "> 
                                                     View Project  →
                                                </a>
 
@@ -130,7 +130,7 @@ export function WorkComponent() {
                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                                             <span className="text-xs text-emerald-400 font-medium">Live</span>
                                         </div>
-                                        <a target="_blank" href={sideCard.link ? sideCard.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline">
+                                        <a target="_blank" rel="noopener noreferrer" href={sideCard.link ? sideCard.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline">
                                             View →
                                         </a>
                                     </div>
@@ -194,7 +194,7 @@ export function WorkComponent() {
                                         </div>
                                        {
                                         card.link ? (
-                                             <a target="_blank" href={card.link ? card.link : "#"} className={`text-xs font-medium hover:underline ${card.catColor}`}>
+                                             <a target="_blank" rel="noopener noreferrer" href={card.link ? card.link : "#"} className={`text-xs font-medium hover:underline ${card.catColor}`}>
                                             View →
                                         </a>
                                         ) : (

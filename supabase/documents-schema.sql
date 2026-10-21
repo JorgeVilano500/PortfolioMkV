@@ -26,3 +26,4 @@ CREATE INDEX IF NOT EXISTS idx_pd_project ON project_documents (project_slug);
 -- aggregator project needs public/anon reads, add an explicit SELECT policy
 -- then — don't disable RLS.
 ALTER TABLE project_documents ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON project_documents FROM anon, authenticated;

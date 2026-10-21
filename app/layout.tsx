@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { PageTracker } from "@/components/ui/PageTracker";
+import { serializeJsonLd } from "@/lib/json-ld";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -98,14 +99,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap"
-          rel="stylesheet"
-        />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(personJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(personJsonLd) }}
         />
       </head>
       <body className="min-h-full flex flex-col">

@@ -29,6 +29,18 @@ export function isValidSlug(slug: unknown): slug is string {
     return typeof slug === "string" && slug.length <= LIMITS.slug && SLUG_RE.test(slug)
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Row ids are Postgres uuids; anything else is rejected before reaching the DB. */
+export function isUuid(v: unknown): v is string {
+    return typeof v === "string" && UUID_RE.test(v)
+}
+
+/** Plain JSON object (not null, not an array) — the only body shape routes accept. */
+export function isJsonObject(v: unknown): v is Record<string, unknown> {
+    return typeof v === "object" && v !== null && !Array.isArray(v)
+}
+
 export function isNonEmptyString(v: unknown, max: number): v is string {
     return typeof v === "string" && v.trim().length > 0 && v.length <= max
 }

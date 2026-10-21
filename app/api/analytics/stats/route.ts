@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
-import { safeEqual, getClientIp } from "@/lib/security"
-import { isAuthBlocked, recordAuthFailure } from "@/lib/rate-limit"
+import { getClientIp } from "@/lib/security"
+import { checkAdminAuth } from "@/lib/admin-auth"
 
 const ROUTE = "analytics/stats"
 
@@ -59,18 +59,9 @@ function cleanReferrer(raw: string): string {
 }
 
 export async function GET(req: NextRequest) {
-    // Auth: constant-time compare + brute-force damping (this endpoint is
-    // the oracle the /logistics password gate checks against).
-    const ip = getClientIp(req)
-    if (isAuthBlocked(ROUTE, ip)) {
-        return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 })
-    }
-    const key = req.headers.get("x-logistics-key")
-    const secret = process.env.LOGISTICS_PASSWORD
-    if (!secret || !safeEqual(key, secret)) {
-        recordAuthFailure(ROUTE, ip)
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    // Auth: admin session cookie, or the password header with brute-force damping
+    const denied = checkAdminAuth(req, ROUTE)
+    if (denied) return denied
 
     // Single fetch of all rows (reasonable for a personal portfolio)
     const { data, error } = await supabaseAdmin

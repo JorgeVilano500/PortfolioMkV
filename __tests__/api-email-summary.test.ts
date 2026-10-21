@@ -33,6 +33,7 @@ beforeEach(() => {
     process.env.EMAIL_SUMMARY_SECRET = KEY
     process.env.SUMMARY_RECIPIENT_EMAIL = "me@example.com"
     process.env.RESEND_FROM_EMAIL = "Site <noreply@example.com>"
+    process.env.RESEND_API_KEY = "re_test_key"
     resetRateLimits()
     mockSend.mockReset()
     mockSend.mockResolvedValue({ data: { id: "email-123" }, error: null })
@@ -93,6 +94,14 @@ describe("sending", () => {
         expect(mockSend).not.toHaveBeenCalled()
     })
 
+    it("fails closed with a 500 (instead of crashing at import) when RESEND_API_KEY is missing", async () => {
+        delete process.env.RESEND_API_KEY
+        const res = await send({ text: "hi" })
+        expect(res.status).toBe(500)
+        expect(JSON.stringify(await res.json())).not.toContain("RESEND")
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
     it("hides provider error details behind a 502", async () => {
         mockSend.mockResolvedValue({ data: null, error: { message: "api key resend_XYZ invalid" } })
         const res = await send({ text: "hi" })
@@ -109,6 +118,20 @@ describe("validation", () => {
             body: "{nope",
         }))
         expect(res.status).toBe(400)
+    })
+
+    it.each(["null", "[]", "\"text\"", "42"])("rejects a non-object JSON body %s without throwing", async (raw) => {
+        const res = await POST(makeRequest(URL, {
+            method: "POST",
+            headers: { "x-api-key": KEY, "content-type": "application/json" },
+            body: raw,
+        }))
+        expect(res.status).toBe(400)
+    })
+
+    it("does not count invalid requests against the send cap", async () => {
+        for (let i = 0; i < 12; i++) await send({ subject: "no body" })
+        expect((await send({ text: "hi" })).status).toBe(200)
     })
 
     it("requires at least one of text/html", async () => {

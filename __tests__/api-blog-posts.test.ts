@@ -4,6 +4,7 @@
  * input validation, no DB error leakage.
  */
 import { resetRateLimits } from "@/lib/rate-limit"
+import { SESSION_COOKIE, createSessionToken } from "@/lib/session"
 import {
     makeRequest,
     jsonRequest,
@@ -23,6 +24,8 @@ const mockDb = (jest.requireMock("@/lib/supabase-admin") as { __state: SupabaseM
 
 const URL = "http://localhost/api/blog/posts"
 const KEY = "test-logistics-password"
+const ID = "3f2b6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f"
+const IDS = [ID, "9a8b7c6d-5e4f-4a3b-8c2d-0f1e2d3c4b5a", "00000000-0000-4000-8000-000000000001"]
 
 beforeEach(() => {
     process.env.LOGISTICS_PASSWORD = KEY
@@ -171,7 +174,7 @@ describe("PATCH", () => {
     const auth = { "x-logistics-key": KEY }
 
     it("updates whitelisted fields", async () => {
-        const res = await PATCH(jsonRequest(URL, "PATCH", { id: "abc", title: "New", published: true }, auth))
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, title: "New", published: true }, auth))
         expect(res.status).toBe(200)
         const fields = firstCallArg(mockDb, "update") as Record<string, unknown>
         expect(fields).toEqual({ title: "New", published: true })
@@ -179,7 +182,7 @@ describe("PATCH", () => {
 
     it("blocks mass assignment — id/created_at/arbitrary columns never reach the DB", async () => {
         await PATCH(jsonRequest(URL, "PATCH", {
-            id: "abc",
+            id: ID,
             title: "ok",
             created_at: "1970-01-01",       // spoof post date
             reading_time: 9999,             // spoof computed field
@@ -192,7 +195,7 @@ describe("PATCH", () => {
     })
 
     it("recomputes reading_time when content changes", async () => {
-        await PATCH(jsonRequest(URL, "PATCH", { id: "abc", content: Array(400).fill("w").join(" ") }, auth))
+        await PATCH(jsonRequest(URL, "PATCH", { id: ID, content: Array(400).fill("w").join(" ") }, auth))
         const fields = firstCallArg(mockDb, "update") as Record<string, unknown>
         expect(fields.reading_time).toBe(2)
     })
@@ -203,12 +206,12 @@ describe("PATCH", () => {
     })
 
     it("rejects a body with no updatable fields", async () => {
-        const res = await PATCH(jsonRequest(URL, "PATCH", { id: "abc", bogus: 1 }, auth))
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, bogus: 1 }, auth))
         expect(res.status).toBe(400)
     })
 
     it("rejects invalid published type", async () => {
-        const res = await PATCH(jsonRequest(URL, "PATCH", { id: "abc", published: "yes" }, auth))
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, published: "yes" }, auth))
         expect(res.status).toBe(400)
     })
 })
@@ -219,7 +222,7 @@ describe("DELETE", () => {
     const auth = { "x-logistics-key": KEY }
 
     it("deletes by id", async () => {
-        const res = await DELETE(jsonRequest(URL, "DELETE", { id: "abc" }, auth))
+        const res = await DELETE(jsonRequest(URL, "DELETE", { id: ID }, auth))
         expect(res.status).toBe(200)
         expect(await res.json()).toEqual({ success: true })
         expect(firstCallArg(mockDb, "eq")).toBe("id")
@@ -231,11 +234,11 @@ describe("DELETE", () => {
     })
 
     it("group-deletes by ids", async () => {
-        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: ["a", "b", "c"] }, auth))
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: IDS }, auth))
         expect(res.status).toBe(200)
         expect(await res.json()).toEqual({ success: true, deleted: 3 })
         const inCall = mockDb.calls.find((c) => c.method === "in")
-        expect(inCall?.args).toEqual(["id", ["a", "b", "c"]])
+        expect(inCall?.args).toEqual(["id", IDS])
     })
 
     it("rejects an empty ids array", async () => {
@@ -244,13 +247,35 @@ describe("DELETE", () => {
     })
 
     it("rejects ids containing non-strings", async () => {
-        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: ["a", 5] }, auth))
+        const res = await DELETE(jsonRequest(URL, "DELETE", { ids: [ID, 5] }, auth))
         expect(res.status).toBe(400)
     })
 
     it("rejects more than 100 ids", async () => {
-        const ids = Array.from({ length: 101 }, (_, i) => `id-${i}`)
+        const ids = Array.from({ length: 101 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`)
         const res = await DELETE(jsonRequest(URL, "DELETE", { ids }, auth))
         expect(res.status).toBe(400)
+    })
+})
+
+describe("id validation", () => {
+    const auth = { "x-logistics-key": KEY }
+
+    it.each(["abc", "1", "x\",\"y", ""])("rejects non-uuid id %p", async (id) => {
+        expect((await PATCH(jsonRequest(URL, "PATCH", { id, title: "T" }, auth))).status).toBe(400)
+        expect((await DELETE(jsonRequest(URL, "DELETE", { id }, auth))).status).toBe(400)
+    })
+})
+
+describe("session cookie auth", () => {
+    beforeEach(() => { process.env.SESSION_SECRET = "test-session-secret" })
+    afterEach(() => { delete process.env.SESSION_SECRET })
+
+    it("accepts a valid cookie and blocks cross-site mutations", async () => {
+        const cookie = `${SESSION_COOKIE}=${createSessionToken()!}`
+        mockDb.queue = [{ data: [], error: null }, { data: [], error: null }]
+        expect((await GET(makeRequest(URL, { headers: { cookie } }))).status).toBe(200)
+        const res = await POST(jsonRequest(URL, "POST", { title: "T", slug: "t" }, { cookie, "sec-fetch-site": "cross-site" }))
+        expect(res.status).toBe(403)
     })
 })

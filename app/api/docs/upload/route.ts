@@ -3,7 +3,7 @@ import { createHash } from "crypto"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { safeEqual, getClientIp } from "@/lib/security"
 import { isAuthBlocked, recordAuthFailure } from "@/lib/rate-limit"
-import { LIMITS, isValidSlug, isNonEmptyString, isStringMax } from "@/lib/validation"
+import { LIMITS, isValidSlug, isNonEmptyString, isStringMax, isJsonObject } from "@/lib/validation"
 
 const ROUTE = "docs/upload"
 
@@ -30,11 +30,14 @@ export async function POST(request: NextRequest) {
     if (raw.length > LIMITS.uploadBody) {
         return Response.json({ error: "Request body too large" }, { status: 413 })
     }
-    let body: Record<string, unknown>
+    let body: unknown
     try {
         body = JSON.parse(raw)
     } catch {
         return Response.json({ error: "Invalid JSON" }, { status: 400 })
+    }
+    if (!isJsonObject(body)) {
+        return Response.json({ error: "Body must be a JSON object" }, { status: 400 })
     }
 
     // 3. Validate fields — nothing is trusted raw

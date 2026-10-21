@@ -81,7 +81,6 @@ function DangerDeleteButton({ onConfirm }: { onConfirm: () => void }) {
 
 function ProjectGridCard({
     project,
-    authKey,
     onSaved,
     onDeleted,
     onEdit,
@@ -90,7 +89,6 @@ function ProjectGridCard({
     onToggleSelect,
 }: {
     project: Project
-    authKey: string
     onSaved: (updated: Project) => void
     onDeleted: (id: string) => void
     onEdit: () => void
@@ -102,7 +100,7 @@ function ProjectGridCard({
         e.stopPropagation()
         const res = await fetch("/api/projects", {
             method: "PATCH",
-            headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: project.id, published: !project.published }),
         })
         if (res.ok) onSaved(await res.json())
@@ -111,7 +109,7 @@ function ProjectGridCard({
     const deleteProject = async () => {
         const res = await fetch("/api/projects", {
             method: "DELETE",
-            headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: project.id }),
         })
         if (res.ok) onDeleted(project.id)
@@ -252,7 +250,7 @@ function ProjectGridCard({
 
 // ─── Projects panel ───────────────────────────────────────────────────────────
 
-export function ProjectsPanel({ authKey }: { authKey: string }) {
+export function ProjectsPanel() {
     const [projects, setProjects] = useState<Project[]>([])
     const [loading, setLoad]      = useState(true)
     const [error, setError]       = useState<string | null>(null)
@@ -273,11 +271,14 @@ export function ProjectsPanel({ authKey }: { authKey: string }) {
     const [wizard, setWizard] = useState<{ id: string | null } | null>(null)
 
     useEffect(() => {
-        fetch("/api/projects", { headers: { "x-logistics-key": authKey } })
-            .then((r) => (r.ok ? r.json() : Promise.reject()))
+        fetch("/api/projects")
+            .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
             .then((data: Project[]) => { setProjects(data); setLoad(false) })
-            .catch(() => { setError("Failed to load projects."); setLoad(false) })
-    }, [authKey])
+            .catch((status) => {
+                setError(status === 401 ? "Your session expired. Reload the page to sign in again." : "Failed to load projects.")
+                setLoad(false)
+            })
+    }, [])
 
     const handleSaved = (saved: Project) =>
         setProjects((p) => (p.some((x) => x.id === saved.id) ? p.map((x) => (x.id === saved.id ? saved : x)) : [saved, ...p]))
@@ -341,7 +342,7 @@ export function ProjectsPanel({ authKey }: { authKey: string }) {
         try {
             const res = await fetch("/api/projects", {
                 method: "DELETE",
-                headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ids }),
             })
             if (!res.ok) { setBulkError((await res.json()).error ?? "Delete failed"); return }
@@ -364,7 +365,7 @@ export function ProjectsPanel({ authKey }: { authKey: string }) {
                 targets.map((p) =>
                     fetch("/api/projects", {
                         method: "PATCH",
-                        headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ id: p.id, published }),
                     }).then((r) => (r.ok ? r.json() as Promise<Project> : null)).catch(() => null)
                 )
@@ -555,7 +556,6 @@ export function ProjectsPanel({ authKey }: { authKey: string }) {
                         <ProjectGridCard
                             key={project.id}
                             project={project}
-                            authKey={authKey}
                             onSaved={handleSaved}
                             onDeleted={handleDeleted}
                             onEdit={() => setWizard({ id: project.id })}
@@ -571,7 +571,6 @@ export function ProjectsPanel({ authKey }: { authKey: string }) {
                 <ProjectWizardModal
                     key={wizard.id ?? "new"}
                     project={wizardProject}
-                    authKey={authKey}
                     onSaved={handleSaved}
                     onClose={() => setWizard(null)}
                 />

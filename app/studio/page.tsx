@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Navbar } from "@/components"
-import { PasswordGate } from "./shared"
+import { AdminGate, SignOutButton } from "@/components/features/AdminGate"
 import { BlogsPanel } from "./BlogsPanel"
 import { ProjectsPanel } from "./ProjectsPanel"
 
@@ -13,7 +13,7 @@ const TABS: { value: Tab; label: string }[] = [
     { value: "projects", label: "Projects" },
 ]
 
-function Hub({ authKey }: { authKey: string }) {
+function Hub() {
     const [tab, setTab] = useState<Tab>("blogs")
 
     return (
@@ -30,7 +30,7 @@ function Hub({ authKey }: { authKey: string }) {
                 </p>
             </section>
 
-            <div className="px-2 mb-6">
+            <div className="px-2 mb-6 flex items-center justify-between gap-3">
                 <div className="flex gap-1 bg-[#13121c] p-1 rounded-xl border border-[#2a2840] w-fit">
                     {TABS.map((t) => (
                         <button
@@ -42,9 +42,10 @@ function Hub({ authKey }: { authKey: string }) {
                         >{t.label}</button>
                     ))}
                 </div>
+                <SignOutButton />
             </div>
 
-            {tab === "blogs" ? <BlogsPanel authKey={authKey} /> : <ProjectsPanel authKey={authKey} />}
+            {tab === "blogs" ? <BlogsPanel /> : <ProjectsPanel />}
         </div>
     )
 }
@@ -52,16 +53,9 @@ function Hub({ authKey }: { authKey: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StudioPage() {
-    const [authKey, setAuthKey]   = useState<string | null>(null)
-    const [hydrated, setHydrated] = useState(false)
-
-    useEffect(() => {
-        Promise.resolve()
-            .then(() => { try { return sessionStorage.getItem("_lk") } catch { return null } })
-            .then((saved) => { if (saved) setAuthKey(saved); setHydrated(true) })
-    }, [])
-
-    if (!hydrated) return null
-    if (!authKey)  return <PasswordGate onAuth={setAuthKey} />
-    return <Hub authKey={authKey} />
+    return (
+        <AdminGate title="Studio" description="Enter the access password to manage your content.">
+            <Hub />
+        </AdminGate>
+    )
 }

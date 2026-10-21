@@ -123,6 +123,7 @@ export default function Contact() {
                                 key={platform}
                                 href={link}
                                 target="_blank"
+                                rel="noopener noreferrer"
                                 className={`${bg} border ${border} rounded-xl p-3 flex flex-col gap-2 hover:scale-105 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer`}
                             >
                                 <span className={iconColor}>{icon}</span>
