@@ -43,7 +43,7 @@ npm run build        # production build. Needs Supabase env vars (see §6)
 
 | Check | Result on 2026-10-19 |
 |---|---|
-| `npm test` | ✅ **406 tests, 20 suites** (incl. a jsdom component suite), about 10 s |
+| `npm test` | ✅ **407 tests, 20 suites** (incl. a jsdom component suite), about 10 s |
 | `npx tsc --noEmit` | ✅ clean |
 | `npm run lint` | ✅ clean |
 | `npm run build` | ✅ (Next 16.3.8) |
@@ -111,6 +111,7 @@ __tests__/                Jest suites + helpers/test-utils.ts (Supabase chain mo
 - **Rate limiting is in-memory per serverless instance** (best-effort). It is keyed on Netlify's `x-nf-client-connection-ip`, falling back to `x-forwarded-for` off-Netlify, and has a global per-route failure ceiling. See SECURITY.md §4.3.
 - **The live DB may lag the schema files.** As of 2026-10-19, production `page_views` was readable with the public anon key (SECURITY.md S-1). The fix, `supabase/security-hardening.sql`, must be run by the owner in the Supabase SQL editor; agents can't run DDL.
 - **`/sitemap.xml` is static** (build output `○`), so new posts appear in it only after a redeploy.
+- **Keep `turbopackFileSystemCacheForBuild: false`** in `next.config.ts`. Next 16.3+ would otherwise cache env var values in `.next/cache/turbopack`, and Netlify's secrets scan fails the deploy ("RESEND_API_KEY exposed"). If a deploy ever fails a secrets scan, find the file the Netlify log names before changing any setting. Don't add secret names to `SECRETS_SCAN_OMIT_KEYS`.
 - There are no `error.tsx`, `not-found.tsx`, or `loading.tsx` files anywhere, so unknown routes get the default Next 404.
 - `next.config.ts` has Turbopack and webpack rules for `*.pdf` that reference `file-loader`, which is **not installed**. Nothing imports a PDF (`/resume.pdf` is served from `public/`), so the rules and `pdf.d.ts` are vestigial.
 - **`PROJECT_OVERVIEW.md` is maintained by an external daily-status automation**, the same one that calls `/api/docs/upload` and `/api/email-summary`. It still mentions `/blog-editor` (since renamed to `/studio`) and calls `ProjectList` dead (Home now uses it). Don't treat it as current.

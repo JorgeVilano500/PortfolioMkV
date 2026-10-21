@@ -36,7 +36,7 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-10-20, branch `cookie-set-up`): 406 tests, 20 suites, all passing, about 10 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-10-21): 407 tests, 20 suites, all passing, about 10 s.** Update these numbers when they change, and update AGENTS.md §3 too.
 
 Added on 2026-10-20:
 | Suite | Tests | Covers |
@@ -63,7 +63,7 @@ Added on 2026-10-20:
 | `api-auth.test.ts` | 16 | Sign-in sets an HttpOnly, SameSite=Strict cookie that doesn't contain the password; wrong, empty, non-string, and oversized passwords return 401; invalid JSON; fails closed (no password, no signing secret); per-IP lockout; **global ceiling across 100 IPs**; login CSRF returns 403; session status (valid, absent, forged); sign-out clears the cookie; cross-site sign-out returns 403 |
 | `lib-security.test.ts` | 16 | `safeEqual` cases; `getClientIp` **prefers `x-nf-client-connection-ip` and can't be reset by rotating XFF**, plus the XFF and x-real-ip fallbacks; `isSameOriginRequest` (Sec-Fetch-Site same-origin, cross-site, and same-site; Origin vs Host; a `null` origin; non-browser clients) |
 | `lib-rate-limit.test.ts` | 13 | Limits, isolation, window reset (fake timers), per-IP lockout threshold, isolation, and expiry, **global ceiling**, **10k-key memory bound under a key flood** |
-| `security-headers.test.ts` | 13 | All headers present, including COOP; DENY framing; nosniff; CSP `object-src`, `base-uri`, and `form-action`; **`script-src-attr 'none'`**; Supabase is the only third-party origin (no Google Fonts); no `unsafe-eval` outside dev; HSTS of at least a year; `poweredByHeader: false`; `/api` gets no-store and noindex; admin pages get noindex |
+| `security-headers.test.ts` | 14 | Turbopack build cache stays off (keeps env values out of build artifacts); all headers present, including COOP; DENY framing; nosniff; CSP `object-src`, `base-uri`, and `form-action`; **`script-src-attr 'none'`**; Supabase is the only third-party origin (no Google Fonts); no `unsafe-eval` outside dev; HSTS of at least a year; `poweredByHeader: false`; `/api` gets no-store and noindex; admin pages get noindex |
 | `api-analytics-stats.test.ts` | 9 | Auth and lockout; aggregation (counts, uniques, devices, bounce); positive-only load average; referrer cleaning; 30 and 24 zero-filled buckets; error hiding |
 | `lib-json-ld.test.ts` | 4 | No raw `<`, `>`, `&`, U+2028, or U+2029 in the output; exact round-trip; **both layouts use `serializeJsonLd`** (stored-XSS regression) |
 

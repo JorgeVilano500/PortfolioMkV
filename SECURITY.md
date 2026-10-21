@@ -240,6 +240,17 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 
 ## 8. History
 
+### 2026-10-21: Netlify deploy blocked: secrets in the Turbopack build cache
+**Symptom:** the first deploy after merging PR #1 failed Netlify's secrets scan with `RESEND_API_KEY` reported as exposed.
+
+**Investigation:** no Resend-shaped key exists in any commit, branch, or `.env` file ever committed, nor in compiled output. The cause is Next **16.3.0 enabling Turbopack's persistent build cache by default**, introduced here by the 16.2.1 → 16.3.8 security upgrade. That cache (`.next/cache/turbopack/*.sst`) stores the values of env vars read during the build. A local build with fake secrets reproduced it: a fake `EMAIL_SUMMARY_SECRET` appeared in a cache file.
+
+**Fix:** `experimental.turbopackFileSystemCacheForBuild: false` in `next.config.ts`. With it, a rebuild with six fake secrets wrote nothing to the cache, and none of them appeared anywhere in `.next`.
+
+**Why not the alternative:** exempting the cache path via `SECRETS_SCAN_OMIT_PATHS` was rejected. It would leave secret values persisted in Netlify's stored build cache. Never add secret names to `SECRETS_SCAN_OMIT_KEYS`, which would hide real leaks. A test guards the setting.
+
+**After deploying the fix:** use **"Clear cache and deploy site"** once, so no cache saved by the failed build is restored.
+
 ### 2026-10-20: Visitor consent and onboarding (branch `cookie-set-up`)
 The owner asked for tracking "no matter what" the visitor answers. It was built so that the answer is enforced instead: ignoring a consent choice would mislead visitors and break GDPR/ePrivacy for EU and UK visitors.
 - **Consent:** a server-enforced opt-in for analytics; consent receipts without IPs; self-service erasure; a `/privacy` policy; a Cookie settings link on every public page.
