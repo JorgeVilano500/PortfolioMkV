@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
+import { isIP } from "net"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { getClientIp } from "@/lib/security"
 import { rateLimit } from "@/lib/rate-limit"
 import { LIMITS, isJsonObject } from "@/lib/validation"
+import { isTrackablePath, normalizeLanguage, normalizeTimezone } from "@/lib/analytics"
+import { CONSENT_COOKIE, CONSENT_VERSION, allowsAnalytics, parseConsent } from "@/lib/consent"
+import { isMissingColumn, warnSchemaOnce } from "@/lib/supabase-errors"
 
-const BLOCKED_PREFIXES = ["/logistics", "/studio", "/api"]
+const ROUTE = "analytics/track"
 
 // Unauthenticated public endpoint → strictest limiter in the app.
 // A normal visitor generates a handful of page views per minute at most.
@@ -33,12 +37,14 @@ function referrerOrigin(raw: unknown): string {
     }
 }
 
+const notTracked = () => NextResponse.json({ ok: true, tracked: false })
+
 export async function POST(req: NextRequest) {
     // IP-level exclusion — checked before anything else
     const clientIp    = getClientIp(req)
     const excludedIps = getExcludedIps()
     if (excludedIps.length > 0 && excludedIps.includes(clientIp)) {
-        return NextResponse.json({ ok: true }) // silently drop
+        return notTracked() // silently drop
     }
 
     // Rate limit per IP — this endpoint writes to the DB with no auth,
@@ -50,6 +56,12 @@ export async function POST(req: NextRequest) {
             { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
         )
     }
+
+    // Consent is enforced HERE, not just in the browser: without a current
+    // analytics opt-in in the java_consent cookie nothing is stored — no
+    // matter what the client sends.
+    const consent = parseConsent(req.cookies.get(CONSENT_COOKIE)?.value)
+    if (!consent || !allowsAnalytics(consent)) return notTracked()
 
     // Reject requests that aren't JSON
     const contentType = req.headers.get("content-type") ?? ""
@@ -67,14 +79,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Bad request" }, { status: 400 })
     }
 
-    const { page, referrer, session_id, is_new_visitor, load_time, screen_width } = body as {
-        page?: string
-        referrer?: string
-        session_id?: string
-        is_new_visitor?: boolean
-        load_time?: number | null
-        screen_width?: number | null
-    }
+    const { page, referrer, session_id, is_new_visitor, load_time, screen_width, language, timezone } = body
 
     // Strict shape validation — everything here is attacker-controlled.
     if (
@@ -85,11 +90,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Skip internal / admin pages
-    if (BLOCKED_PREFIXES.some((prefix) => page.startsWith(prefix))) {
-        return NextResponse.json({ ok: true })
-    }
+    if (!isTrackablePath(page)) return notTracked()
 
-    const { error } = await supabaseAdmin.from("page_views").insert({
+    const baseRow = {
         page,
         referrer:        referrerOrigin(referrer),
         user_agent:      (req.headers.get("user-agent") ?? "").slice(0, LIMITS.userAgent),
@@ -99,12 +102,32 @@ export async function POST(req: NextRequest) {
                              ? Math.round(load_time) : null,
         screen_width:    typeof screen_width === "number" && Number.isFinite(screen_width) && screen_width > 0 && screen_width <= 10_000
                              ? Math.round(screen_width) : null,
-    })
+    }
+
+    // Opt-in fields (disclosed in the consent modal and on /privacy). The IP and
+    // visitor id come from the server side (request + consent cookie), never the body.
+    const consentRow = {
+        ip_address:      isIP(clientIp) ? clientIp : null,
+        language:        normalizeLanguage(language),
+        timezone:        normalizeTimezone(timezone),
+        visitor_id:      consent.id,
+        consent_version: CONSENT_VERSION,
+    }
+
+    let { error } = await supabaseAdmin.from("page_views").insert({ ...baseRow, ...consentRow })
+
+    // Code deployed before supabase/consent-schema.sql ran: keep counting views
+    // with the original columns instead of failing every request.
+    if (error && isMissingColumn(error)) {
+        warnSchemaOnce(ROUTE, "run supabase/consent-schema.sql to store IP/language/timezone/visitor id")
+        const retry = await supabaseAdmin.from("page_views").insert(baseRow)
+        error = retry.error
+    }
 
     if (error) {
-        console.error("[analytics/track]", error.message)
+        console.error(`[${ROUTE}]`, error.message)
         return NextResponse.json({ error: "DB error" }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, tracked: true })
 }

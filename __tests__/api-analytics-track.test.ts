@@ -17,15 +17,22 @@ jest.mock("@/lib/supabase-admin", () => {
 })
 
 import { POST } from "@/app/api/analytics/track/route"
+import { CONSENT_COOKIE, CONSENT_VERSION, serializeConsent } from "@/lib/consent"
 
 const mockDb = (jest.requireMock("@/lib/supabase-admin") as { __state: SupabaseMockState }).__state
 
 const URL = "http://localhost/api/analytics/track"
 
+const VISITOR_ID = "7d3f4b2a-1c9e-4f60-8a1b-2c3d4e5f6a7b"
+const consentCookie = (analytics: boolean, version = CONSENT_VERSION) =>
+    `${CONSENT_COOKIE}=${serializeConsent({ version, analytics, decidedAt: Date.now(), id: VISITOR_ID })}`
+// Every request below opts in unless a test overrides the cookie.
+const OPT_IN = consentCookie(true)
+
 function track(body: unknown, headers: Record<string, string> = {}) {
     return POST(makeRequest(URL, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-forwarded-for": "1.2.3.4", ...headers },
+        headers: { "content-type": "application/json", "x-forwarded-for": "1.2.3.4", cookie: OPT_IN, ...headers },
         body: JSON.stringify(body),
     }))
 }
@@ -43,13 +50,17 @@ beforeEach(() => {
     resetRateLimits()
     delete process.env.ANALYTICS_EXCLUDED_IPS
     mockDb.result = { data: null, error: null }
+    mockDb.queue = []
     mockDb.calls = []
 })
+
+afterEach(() => jest.restoreAllMocks())
 
 describe("happy path", () => {
     it("records a valid page view", async () => {
         const res = await track(validBody)
         expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true, tracked: true })
         const row = firstCallArg(mockDb, "insert") as Record<string, unknown>
         expect(row.page).toBe("/blog")
         expect(row.session_id).toBe(validBody.session_id)
@@ -57,14 +68,68 @@ describe("happy path", () => {
     })
 })
 
+describe("consent enforcement (server-side)", () => {
+    const inserted = () => mockDb.calls.some((c) => c.method === "insert")
+
+    it.each([
+        ["no consent cookie",            ""],
+        ["analytics declined",           consentCookie(false)],
+        ["an outdated policy version",   consentCookie(true, CONSENT_VERSION + 1)],
+        ["a forged/malformed cookie",    `${CONSENT_COOKIE}=%7B%22v%22%3A1%2C%22a%22%3A1%7D`],
+    ])("stores nothing with %s", async (_label, cookie) => {
+        const res = await track(validBody, { cookie })
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true, tracked: false })
+        expect(inserted()).toBe(false)
+    })
+
+    it("records the opt-in fields: IP, language, timezone, visitor id, policy version", async () => {
+        await track({ ...validBody, language: "en-US", timezone: "America/Los_Angeles" }, { "x-forwarded-for": "203.0.113.7" })
+        const row = firstCallArg(mockDb, "insert") as Record<string, unknown>
+        expect(row.ip_address).toBe("203.0.113.7")
+        expect(row.language).toBe("en-US")
+        expect(row.timezone).toBe("America/Los_Angeles")
+        expect(row.visitor_id).toBe(VISITOR_ID)
+        expect(row.consent_version).toBe(CONSENT_VERSION)
+    })
+
+    it("takes the visitor id from the consent cookie, never the body", async () => {
+        await track({ ...validBody, visitor_id: "00000000-0000-4000-8000-000000000000", ip_address: "6.6.6.6" })
+        const row = firstCallArg(mockDb, "insert") as Record<string, unknown>
+        expect(row.visitor_id).toBe(VISITOR_ID)
+        expect(row.ip_address).toBe("1.2.3.4")
+    })
+
+    it("drops malformed language/timezone values and non-IP addresses", async () => {
+        await track({ ...validBody, language: "<script>", timezone: "../../etc/passwd" }, { "x-forwarded-for": "not-an-ip" })
+        const row = firstCallArg(mockDb, "insert") as Record<string, unknown>
+        expect(row.language).toBeNull()
+        expect(row.timezone).toBeNull()
+        expect(row.ip_address).toBeNull()
+    })
+
+    it("still records the view if the database is missing the new columns", async () => {
+        mockDb.queue = [
+            { data: null, error: { message: "Could not find the 'ip_address' column", code: "PGRST204" } },
+            { data: null, error: null },
+        ]
+        jest.spyOn(console, "warn").mockImplementation(() => {})
+        const res = await track(validBody)
+        expect(res.status).toBe(200)
+        const inserts = mockDb.calls.filter((c) => c.method === "insert")
+        expect(inserts).toHaveLength(2)
+        expect(inserts[1].args[0]).not.toHaveProperty("ip_address")
+    })
+})
+
 describe("validation", () => {
     it("rejects non-JSON content type", async () => {
-        const res = await POST(makeRequest(URL, { method: "POST", headers: { "content-type": "text/plain" }, body: "x" }))
+        const res = await POST(makeRequest(URL, { method: "POST", headers: { "content-type": "text/plain", cookie: OPT_IN }, body: "x" }))
         expect(res.status).toBe(400)
     })
 
     it("rejects invalid JSON", async () => {
-        const res = await POST(makeRequest(URL, { method: "POST", headers: { "content-type": "application/json" }, body: "{oops" }))
+        const res = await POST(makeRequest(URL, { method: "POST", headers: { "content-type": "application/json", cookie: OPT_IN }, body: "{oops" }))
         expect(res.status).toBe(400)
     })
 
@@ -97,7 +162,7 @@ describe("validation", () => {
     })
 
     it.each(["null", "[]", "\"x\"", "7"])("rejects a non-object JSON body %s without throwing", async (raw) => {
-        const res = await POST(makeRequest(URL, { method: "POST", headers: { "content-type": "application/json" }, body: raw }))
+        const res = await POST(makeRequest(URL, { method: "POST", headers: { "content-type": "application/json", cookie: OPT_IN }, body: raw }))
         expect(res.status).toBe(400)
     })
 

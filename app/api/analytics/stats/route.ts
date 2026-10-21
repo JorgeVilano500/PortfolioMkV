@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { getClientIp } from "@/lib/security"
 import { checkAdminAuth } from "@/lib/admin-auth"
+import { isMissingColumn, isMissingTable, warnSchemaOnce } from "@/lib/supabase-errors"
+import { summarizeUserAgent } from "@/lib/user-agent"
 
 const ROUTE = "analytics/stats"
+
+const BASE_COLUMNS = "page, session_id, is_new_visitor, load_time, screen_width, referrer, created_at"
+// Added by supabase/consent-schema.sql; only populated for visitors who opted in.
+const CONSENT_COLUMNS = "ip_address, user_agent, language, timezone"
 
 export type PageViewRow = {
     page:           string
@@ -13,7 +19,24 @@ export type PageViewRow = {
     screen_width:   number | null
     referrer:       string
     created_at:     string
+    ip_address?:    string | null
+    user_agent?:    string | null
+    language?:      string | null
+    timezone?:      string | null
 }
+
+export type RecentActivity = {
+    page:           string
+    created_at:     string
+    is_new_visitor: boolean
+    ip:             string | null
+    browser:        string | null
+    os:             string | null
+    language:       string | null
+    timezone:       string | null
+}
+
+export type ConsentSummary = { accepted: number; declined: number; erased: number }
 
 export type StatsPayload = {
     totalViews:        number
@@ -25,7 +48,8 @@ export type StatsPayload = {
     topReferrers:      { referrer: string; count: number }[]
     newVsReturning:    { new: number; returning: number }
     devices:           { mobile: number; tablet: number; desktop: number }
-    recentActivity:    { page: string; created_at: string; is_new_visitor: boolean }[]
+    recentActivity:    RecentActivity[]
+    consent:           ConsentSummary | null // null until supabase/consent-schema.sql has run
     dailyViews:        { date: string; count: number }[]
     peakHours:         { hour: number; count: number }[]
     bounceRate:        number  // % of sessions with only 1 page view
@@ -47,6 +71,34 @@ function getExcludedIps(): string[] {
         .filter(Boolean)
 }
 
+/** Latest choice per visitor, summed. Null when the consent log doesn't exist yet. */
+async function getConsentSummary(): Promise<ConsentSummary | null> {
+    const { data, error } = await supabaseAdmin
+        .from("consent_events")
+        .select("visitor_id, analytics, action, created_at")
+        .order("created_at", { ascending: false })
+        .limit(50000)
+
+    if (error) {
+        if (isMissingTable(error)) warnSchemaOnce(`${ROUTE}/consent`, "run supabase/consent-schema.sql to see consent stats")
+        else console.error(`[${ROUTE}] consent:`, error.message)
+        return null
+    }
+
+    // Rows are newest-first, so the first row seen per visitor is their current choice.
+    const latest = new Map<string, { analytics: boolean; action: string }>()
+    for (const row of (data ?? []) as { visitor_id: string; analytics: boolean; action: string }[]) {
+        if (!latest.has(row.visitor_id)) latest.set(row.visitor_id, row)
+    }
+    const summary: ConsentSummary = { accepted: 0, declined: 0, erased: 0 }
+    for (const choice of latest.values()) {
+        if (choice.action === "erase") summary.erased++
+        else if (choice.analytics) summary.accepted++
+        else summary.declined++
+    }
+    return summary
+}
+
 function cleanReferrer(raw: string): string {
     if (!raw) return "Direct"
     try {
@@ -64,18 +116,27 @@ export async function GET(req: NextRequest) {
     if (denied) return denied
 
     // Single fetch of all rows (reasonable for a personal portfolio)
-    const { data, error } = await supabaseAdmin
+    const fetchViews = (columns: string) => supabaseAdmin
         .from("page_views")
-        .select("page, session_id, is_new_visitor, load_time, screen_width, referrer, created_at")
+        .select(columns)
         .order("created_at", { ascending: false })
         .limit(50000)
 
+    let { data, error } = await fetchViews(`${BASE_COLUMNS}, ${CONSENT_COLUMNS}`)
+    if (error && isMissingColumn(error)) {
+        warnSchemaOnce(ROUTE, "run supabase/consent-schema.sql to show IP/browser/language in recent activity")
+        const retry = await fetchViews(BASE_COLUMNS)
+        data = retry.data
+        error = retry.error
+    }
+
     if (error) {
-        console.error("[analytics/stats]", error.message)
+        console.error(`[${ROUTE}]`, error.message)
         return NextResponse.json({ error: "DB error" }, { status: 500 })
     }
 
-    const views = (data ?? []) as PageViewRow[]
+    const views = (data ?? []) as unknown as PageViewRow[]
+    const consent = await getConsentSummary()
 
     const now = Date.now()
     const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000
@@ -136,11 +197,20 @@ export async function GET(req: NextRequest) {
     }
 
     // ── Recent activity (latest 15) ──────────────────────────────────────────
-    const recentActivity = views.slice(0, 15).map((v) => ({
-        page:           v.page,
-        created_at:     v.created_at,
-        is_new_visitor: v.is_new_visitor,
-    }))
+    // IP/browser/language exist only for visitors who opted in to analytics.
+    const recentActivity: RecentActivity[] = views.slice(0, 15).map((v) => {
+        const ua = v.user_agent ? summarizeUserAgent(v.user_agent) : null
+        return {
+            page:           v.page,
+            created_at:     v.created_at,
+            is_new_visitor: v.is_new_visitor,
+            ip:             v.ip_address ?? null,
+            browser:        ua?.browser ?? null,
+            os:             ua?.os ?? null,
+            language:       v.language ?? null,
+            timezone:       v.timezone ?? null,
+        }
+    })
 
     // ── Daily views — last 30 days ────────────────────────────────────────────
     const dailyMap = new Map<string, number>()
@@ -186,6 +256,7 @@ export async function GET(req: NextRequest) {
         newVsReturning,
         devices,
         recentActivity,
+        consent,
         dailyViews,
         peakHours,
         bounceRate,

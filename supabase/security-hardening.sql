@@ -23,6 +23,15 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.projects 
 ALTER TABLE public.project_documents ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.project_documents FROM anon, authenticated;
 
+-- consent_events (created by consent-schema.sql): service role only.
+DO $$
+BEGIN
+    IF to_regclass('public.consent_events') IS NOT NULL THEN
+        EXECUTE 'ALTER TABLE public.consent_events ENABLE ROW LEVEL SECURITY';
+        EXECUTE 'REVOKE ALL ON public.consent_events FROM anon, authenticated';
+    END IF;
+END $$;
+
 -- ─── Supabase security advisor "function_search_path_mutable": pin the
 -- trigger function's search_path so it can't be hijacked by objects created
 -- in another schema. now() lives in pg_catalog, which is always searched.
@@ -33,7 +42,7 @@ ALTER FUNCTION public.update_updated_at() SET search_path = '';
 SELECT tablename, rowsecurity
 FROM pg_tables
 WHERE schemaname = 'public'
-  AND tablename IN ('posts', 'projects', 'page_views', 'project_documents');
+  AND tablename IN ('posts', 'projects', 'page_views', 'project_documents', 'consent_events');
 
 -- Remaining anon/authenticated privileges → only SELECT on posts and projects
 SELECT table_name, grantee, privilege_type
