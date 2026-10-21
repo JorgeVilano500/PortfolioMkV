@@ -86,6 +86,12 @@ describe("security headers", () => {
     it("does not advertise the framework (X-Powered-By)", () => {
         expect(config.poweredByHeader).toBe(false)
     })
+
+    it("keeps env var values out of the build cache (Netlify secrets scan)", () => {
+        // Turbopack's persistent build cache stores env values; re-enabling it
+        // makes Netlify fail every deploy with "secret value detected".
+        expect(config.experimental?.turbopackFileSystemCacheForBuild).toBe(false)
+    })
 })
 
 describe("API and admin rules", () => {

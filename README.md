@@ -74,7 +74,7 @@ Sign in at `/studio` with your `LOGISTICS_PASSWORD` to add your first post or pr
 |---|---|
 | `npm run dev` | Dev server (Turbopack) |
 | `npm run build` / `npm start` | Production build and serve (needs the Supabase env vars) |
-| `npm test` / `npm run test:watch` | Jest suite (406 tests, including jsdom component tests; Supabase and Resend are mocked, so no secrets are needed) |
+| `npm test` / `npm run test:watch` | Jest suite (407 tests, including jsdom component tests; Supabase and Resend are mocked, so no secrets are needed) |
 | `npm run lint` | ESLint (in Next 16, `next build` no longer lints) |
 | `npx tsc --noEmit` | Type-check |
 

@@ -47,6 +47,14 @@ const noIndexHeaders = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
 
 const nextConfig: NextConfig = {
     poweredByHeader: false,
+    experimental: {
+        // Next 16.3 caches Turbopack's build work in .next/cache/turbopack by
+        // default, and that cache stores the values of env vars read during the
+        // build (RESEND_API_KEY, secrets…). Netlify's secrets scan then finds them
+        // and fails the deploy. Keep secrets off disk instead of exempting the
+        // cache from scanning; builds behave as they did before 16.3.
+        turbopackFileSystemCacheForBuild: false,
+    },
     turbopack: {
         rules: {
             "*.pdf": {
