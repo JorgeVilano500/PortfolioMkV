@@ -71,13 +71,13 @@ export default function Blog() {
 
             {/* States */}
             {error && (
-                <div className="bg-[#1a1216] border border-[#2e1f28] rounded-2xl p-6 text-pink-300 text-sm">
+                <div data-tour="blog-posts" className="bg-[#1a1216] border border-[#2e1f28] rounded-2xl p-6 text-pink-300 text-sm">
                     {error}
                 </div>
             )}
 
             {!error && loading && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+                <div data-tour="blog-posts" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
                     <SkeletonCard cols="col-span-1 md:col-span-2 xl:col-span-8" />
                     <SkeletonCard cols="col-span-1 xl:col-span-4" />
                     <SkeletonCard cols="col-span-1 xl:col-span-4" />
@@ -87,7 +87,7 @@ export default function Blog() {
             )}
 
             {!error && !loading && posts.length === 0 && (
-                <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-12 flex flex-col items-center justify-center text-center gap-3">
+                <div data-tour="blog-posts" className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-12 flex flex-col items-center justify-center text-center gap-3">
                     <span className="text-4xl">📝</span>
                     <p className="text-[#c4c0d8] font-medium">No posts yet</p>
                     <p className="text-xs text-[#555370]">Add your first post in Supabase and it will appear here.</p>
@@ -95,7 +95,7 @@ export default function Blog() {
             )}
 
             {!error && !loading && posts.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+                <div data-tour="blog-posts" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
 
                     {/* Featured post */}
                     {featured && (() => {

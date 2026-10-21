@@ -57,7 +57,7 @@ export function HomeComponent() {
     return (
         <main className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
             {/* first stack */}
-        <div className="col-span-1 md:col-span-1 xl:col-span-7 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 flex flex-col justify-end min-h-[200px] hover:-translate-y-1 transition-transform duration-300">
+        <div data-tour="home-hero" className="col-span-1 md:col-span-1 xl:col-span-7 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 flex flex-col justify-end min-h-[200px] hover:-translate-y-1 transition-transform duration-300">
           <p className="text tracking-widest uppercase text-violet-400 mb-2">
             Full Stack Developer
           </p>
@@ -70,7 +70,7 @@ export function HomeComponent() {
         </div>
 
         {/* Second stack */}
-        <div className="col-span-1 md:col-span-1 xl:col-span-5 bg-violet-600 rounded-2xl p-6 flex flex-col justify-between min-h-[200px] hover:-translate-y-1 transition-transform duration-300 ">
+        <div data-tour="home-resume" className="col-span-1 md:col-span-1 xl:col-span-5 bg-violet-600 rounded-2xl p-6 flex flex-col justify-between min-h-[200px] hover:-translate-y-1 transition-transform duration-300 ">
             <div >
                 <div className="flex items-center gap-2 mb-3">
                     <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
@@ -108,7 +108,7 @@ export function HomeComponent() {
 
         </div>
         {/* Projects */}
-        <div className="col-span-1 md:col-span-1 xl:col-span-5 bg-[#0f1a14] border border-[#1a2e20] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
+        <div data-tour="home-projects" className="col-span-1 md:col-span-1 xl:col-span-5 bg-[#0f1a14] border border-[#1a2e20] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
             <p>Projects</p>
             <div className="grid grid-cols-3 gap-3">
                     {visibleProjects.map((p) => (

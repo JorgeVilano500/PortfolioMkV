@@ -2,6 +2,11 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { PageTracker } from "@/components/ui/PageTracker";
+import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
+import { IntroModal } from "@/components/onboarding/IntroModal";
+import { TourSpotlight } from "@/components/onboarding/TourSpotlight";
+import { SiteFooter } from "@/components/onboarding/SiteFooter";
+import { Toast } from "@/components/onboarding/Toast";
 import { serializeJsonLd } from "@/lib/json-ld";
 
 const geistSans = Geist({
@@ -105,8 +110,15 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col">
-        <PageTracker />
-        {children}
+        {/* First-visit intro, consent, and guided tour (consent gates PageTracker) */}
+        <OnboardingProvider>
+          <PageTracker />
+          {children}
+          <SiteFooter />
+          <IntroModal />
+          <TourSpotlight />
+          <Toast />
+        </OnboardingProvider>
       </body>
     </html>
   );

@@ -31,7 +31,7 @@ export function WorkComponent() {
 
             {/* need to make filter still  */}
 
-            <div className="flex flex-wrap gap-2 mb-8">
+            <div data-tour="work-filters" className="flex flex-wrap gap-2 mb-8">
                 {
                     filters.map((f) => (
                         <button
@@ -49,7 +49,7 @@ export function WorkComponent() {
 
             {/* Big project displayed */}
             {/* Bento grid first */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+            <div data-tour="work-grid" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
                 {
                     featured && (
                         <div className={`col-span-1 md:col-span-2 xl:col-span-8 min-h-[240px] ${featured.cardBg} rounded-2xl p-6 relative overflow-hidden hover:-translate-y-1 transition-transform duration-300 cursor-pointer`}>

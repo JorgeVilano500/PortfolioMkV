@@ -150,7 +150,7 @@ export default function About() {
 
 
             {/* Timeline card 8 / 12 slots */}
-            <div className="col-span-1 md:col-span-1 xl:col-span-8 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
+            <div data-tour="about-timeline" className="col-span-1 md:col-span-1 xl:col-span-8 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300 ">
                 <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium mb-5"> 
                     Journey
                 </p>

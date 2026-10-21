@@ -2,19 +2,20 @@
 
 import { usePathname } from "next/navigation"
 import { useEffect, useRef } from "react"
-
-const SKIP_PREFIXES = ["/logistics", "/studio", "/api"]
+import { useOnboarding } from "@/components/onboarding/OnboardingProvider"
+import { isTrackablePath } from "@/lib/analytics"
+import { randomId } from "@/lib/random-id"
 
 function getOrCreateSessionId(): string {
     try {
         let id = sessionStorage.getItem("_pv_sid")
         if (!id) {
-            id = crypto.randomUUID()
+            id = randomId()
             sessionStorage.setItem("_pv_sid", id)
         }
         return id
     } catch {
-        return crypto.randomUUID()
+        return randomId()
     }
 }
 
@@ -31,15 +32,26 @@ function checkIsNewVisitor(): boolean {
     }
 }
 
+/**
+ * Records page views — but only after the visitor opted in to analytics in
+ * the intro modal / Cookie settings. Nothing (not even the session/visitor
+ * storage below) is written before that. The server enforces the same rule
+ * via the consent cookie, so this is the polite half of a two-sided check.
+ */
 export function PageTracker() {
     const pathname = usePathname()
-    const prevPathname = useRef<string | null>(null)
+    const { analyticsAllowed } = useOnboarding()
+    const lastTracked = useRef<string | null>(null)
 
     useEffect(() => {
-        if (pathname === prevPathname.current) return
-        prevPathname.current = pathname
+        if (!analyticsAllowed) {
+            lastTracked.current = null // re-track the current page if consent is given later
+            return
+        }
+        if (!pathname || pathname === lastTracked.current) return
+        lastTracked.current = pathname
 
-        if (SKIP_PREFIXES.some((p) => pathname.startsWith(p))) return
+        if (!isTrackablePath(pathname)) return
 
         // Device-level opt-out — set from the /logistics dashboard
         try { if (localStorage.getItem("_pv_exclude") === "1") return } catch { /* ignore */ }
@@ -59,6 +71,9 @@ export function PageTracker() {
             // ignore
         }
 
+        let timezone: string | null = null
+        try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? null } catch { /* ignore */ }
+
         fetch("/api/analytics/track", {
             method:    "POST",
             headers:   { "Content-Type": "application/json" },
@@ -70,11 +85,13 @@ export function PageTracker() {
                 is_new_visitor: isNewVisitor,
                 load_time:      loadTime,
                 screen_width:   window.screen?.width ?? null,
+                language:       navigator.language ?? null,
+                timezone,
             }),
         }).catch(() => {
             // Silently swallow — analytics must never break the page
         })
-    }, [pathname])
+    }, [pathname, analyticsAllowed])
 
     return null
 }

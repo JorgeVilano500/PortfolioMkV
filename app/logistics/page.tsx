@@ -118,6 +118,55 @@ function HourHeatmap({ data }: { data: { hour: number; count: number }[] }) {
     )
 }
 
+// Visitor privacy choices from the consent log (latest choice per visitor).
+function ConsentCard({ consent }: { consent: StatsPayload["consent"] }) {
+    if (!consent) {
+        return (
+            <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-6">
+                <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium mb-2">Privacy Consent</p>
+                <p className="text-xs text-[#8a88a0]">
+                    No consent log yet. Run <code className="text-[#7c6dff]">supabase/consent-schema.sql</code> in the Supabase SQL editor to start recording visitor choices.
+                </p>
+            </div>
+        )
+    }
+
+    const decided = consent.accepted + consent.declined
+    const rate    = decided > 0 ? Math.round((consent.accepted / decided) * 100) : 0
+
+    return (
+        <div className="bg-[#13121c] border border-[#2a2840] rounded-2xl p-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+                <p className="text-[11px] tracking-widest uppercase text-[#555370] font-medium">Privacy Consent</p>
+                <p className="text-[10px] text-[#555370]">Page-view stats only include visitors who accepted analytics.</p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
+                <div>
+                    <p className="font-syne font-extrabold text-3xl text-emerald-400 leading-none">{fmtNum(consent.accepted)}</p>
+                    <p className="text-xs text-[#8a88a0] mt-1">Accepted analytics</p>
+                </div>
+                <div>
+                    <p className="font-syne font-extrabold text-3xl text-[#c4c0d8] leading-none">{fmtNum(consent.declined)}</p>
+                    <p className="text-xs text-[#8a88a0] mt-1">Necessary only</p>
+                </div>
+                <div>
+                    <p className="font-syne font-extrabold text-3xl text-pink-400 leading-none">{fmtNum(consent.erased)}</p>
+                    <p className="text-xs text-[#8a88a0] mt-1">Deleted their data</p>
+                </div>
+                <div>
+                    <div className="flex justify-between text-xs mb-1">
+                        <span className="text-[#c4c0d8]">Acceptance rate</span>
+                        <span className="text-[#8a88a0]">{decided > 0 ? `${rate}%` : "—"}</span>
+                    </div>
+                    <div className="bg-[#1e1c2e] h-1.5 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-emerald-400" style={{ width: `${rate}%` }} />
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 
 function Dashboard() {
@@ -369,6 +418,9 @@ function Dashboard() {
                 </div>
             </div>
 
+            {/* Row 3b — privacy consent (analytics only count visitors who accepted) */}
+            <ConsentCard consent={stats.consent} />
+
             {/* Row 4 — peak hours + recent activity */}
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
 
@@ -392,14 +444,24 @@ function Dashboard() {
                     ) : (
                         <div className="space-y-2">
                             {stats.recentActivity.map((a, i) => (
-                                <div key={i} className="flex items-center justify-between py-1.5 border-b border-[#1e1c2e] last:border-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-sm">{a.is_new_visitor ? "🆕" : "👤"}</span>
-                                        <span className="text-sm text-[#c4c0d8] font-medium font-mono">
-                                            {pageLabel(a.page)}
-                                        </span>
+                                <div key={i} className="flex items-start justify-between gap-3 py-1.5 border-b border-[#1e1c2e] last:border-0">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm">{a.is_new_visitor ? "🆕" : "👤"}</span>
+                                            <span className="text-sm text-[#c4c0d8] font-medium font-mono truncate">
+                                                {pageLabel(a.page)}
+                                            </span>
+                                        </div>
+                                        {/* Only present for visitors who opted in to analytics */}
+                                        {(a.ip || a.browser || a.language) && (
+                                            <p className="text-[11px] text-[#8a88a0] mt-0.5 ml-7 truncate">
+                                                {[a.ip, a.browser && a.os ? `${a.browser} · ${a.os}` : a.browser, a.language, a.timezone]
+                                                    .filter(Boolean)
+                                                    .join("  ·  ")}
+                                            </p>
+                                        )}
                                     </div>
-                                    <span className="text-xs text-[#555370] shrink-0">{relTime(a.created_at)}</span>
+                                    <span className="text-xs text-[#555370] shrink-0 pt-0.5">{relTime(a.created_at)}</span>
                                 </div>
                             ))}
                         </div>
