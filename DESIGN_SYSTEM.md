@@ -1,6 +1,6 @@
 # Design System
 
-_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-10-19**._
+_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-10-30**._
 
 **Read this before building or restyling any UI.** When you introduce a new pattern, add it here.
 
@@ -183,7 +183,7 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 | Mobile nav drawer | `-translate-x-full` to `translate-x-0`, `duration-400 ease-in-out` | Navbar |
 | Bars | `transition-all duration-700` on width | Logistics |
 
-⚠️ No `prefers-reduced-motion` handling exists yet. In new code, wrap non-essential motion in `motion-safe:` (for example `motion-safe:hover:-translate-y-1`), and retrofit it during the P1-8 accessibility pass.
+⚠️ `prefers-reduced-motion` is handled only in newer UI so far: `TourSpotlight`, and `/laptop`, where the camera jumps instead of gliding and pulses are `motion-safe:`. In new code, wrap non-essential motion in `motion-safe:` (for example `motion-safe:hover:-translate-y-1`). For JS-driven motion, read the preference with `useSyncExternalStore` over `matchMedia("(prefers-reduced-motion: reduce)")` (see `usePrefersReducedMotion` in `app/laptop/LaptopExperience.tsx`). Retrofit the rest during the P1-8 accessibility pass.
 
 ## 7. Component catalogue
 
@@ -214,6 +214,17 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 | `SiteFooter` | `border-t border-[#1e1c2e]`, `text-xs text-[#8a88a0]`, with links for Privacy · Cookie settings · Take the tour. Hidden on admin pages. |
 
 **Z-index scale** (keep new overlays inside it): spotlight `z-45` · highlighted nav tab `z-46` · tour bar `z-47` · docked tour bar `z-48` · mobile drawer `z-55` · modal `z-60` · toast `z-70`. Use Tailwind's canonical integer classes (`z-46`, not `z-[46]`).
+
+### 7.1c 3D laptop (`app/laptop/`, added 2026-10-30)
+| Element | Pattern |
+|---|---|
+| Viewer card | A standard card at `p-3 sm:p-4`, wrapping a **canvas well**: `relative h-80 sm:h-105 xl:h-130 rounded-xl overflow-hidden bg-[#0a0a0f]` with the violet top glow (`radial-gradient(circle at 50% 0%, rgba(124,109,255,.12) 0%, transparent 60%)`, `pointer-events-none`). The well is `role="img"` with a text description; the canvas inside is `aria-hidden`. |
+| Viewer status line | Below the well: `role="status"`, `text-xs text-[#8a88a0]`. Fallback titles are in `text-[#c4c0d8] font-medium`. Secondary buttons (Reset view, Try again) sit on the right. |
+| Loading | A lid-shaped skeleton (`aspect-[30.41/21.24]`, `bg-[#1e1c2e] motion-safe:animate-pulse`) centred in the well |
+| 2D fallback | A flat lid drawing (`bg-linear-to-b from-[#3a3850] to-[#2a2840]`, hinge bar at the bottom). The four spots are drawn as tag-style chips, with a `ring-4 ring-[#7c6dff]` on the selected one and a dashed violet border on the open one. It's `aria-hidden`, because the picker is the accessible control. |
+| Spot picker | `role="radiogroup"` of four 2×2 tiles. Unchecked: `bg-[#0a0a0f] border-[#2a2840]`. Checked: `bg-[#7c6dff] border-[#7c6dff] text-white`. Roving tabindex, arrows/Home/End. The eyebrow is the position; the label is the sponsor or "Open spot". |
+| Details card | Inset panel (`bg-[#0d0c14] border-[#2a2840] rounded-xl p-4`, `aria-live="polite"`). Sponsor: theme `catColor` eyebrow, a **"Sample sponsor" pill** (`border-[#3a3850] text-[#c4c0d8]`), Syne title, tagline in `catColor`. Open spot: the emerald "Available" status. It always ends with the primary pill "Sponsor a spot →" linking to `/contact`. |
+| Sticker artwork (canvas) | Rounded square with a `#f0eeff` die-cut edge. purple `#7c6dff` fill with white ink, green `#97C459` with `#0f1a14` ink, pink `#ED93B1` with `#1a1216` ink. Open spot: `#13121c` at 88% opacity, a dashed `#7c6dff` border, and "YOUR LOGO" in `#AFA9EC`. The selected sticker gets a violet frame (halo). |
 
 ### 7.2 Studio-local primitives (`app/studio/shared.tsx`)
 - The admin gate now lives in `components/features/AdminGate.tsx`, shared by `/studio` and `/logistics`. `<AdminGate title description>` checks the session and otherwise shows a centred card with the "Restricted" eyebrow, a password input, an inline error, and a primary button. `<SignOutButton/>` is a secondary-style button for admin page headers.

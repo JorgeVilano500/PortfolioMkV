@@ -37,7 +37,7 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 ## 2. Posture at a glance
 | Area | Status |
 |---|---|
-| Framework & dependencies free of known critical/high runtime advisories | ✅ Next 16.3.8; `npm audit --omit=dev`: 0 critical/high (S-13, S-16) |
+| Framework & dependencies free of known critical/high runtime advisories | ❌ **Next 16.3.8 is in a critical advisory range (16.0.0–16.4.0) published after the pin**; upgrade to ≥16.4.1 (S-38). Plus a low-severity `deepmerge` via `resend` (S-39). |
 | Admin auth: password exchanged once for a `__Host-` HttpOnly/SameSite=Strict/Secure session cookie | ✅ |
 | Second factor for admin sign-in | 🟡 built, off by default — set `ADMIN_2FA=email` (S-6) |
 | CSRF protection on cookie-authenticated writes | ✅ SameSite=Strict + Sec-Fetch-Site/Origin check |
@@ -159,6 +159,10 @@ All routes (`/:path*`):
 | Cross-Origin-Opener-Policy | `same-origin` |
 | X-Permitted-Cross-Domain-Policies | `none` |
 | X-DNS-Prefetch-Control | `on` |
+
+**3D assets (`/laptop`).** No header changes were needed for Three.js. WebGL needs no CSP source. The GLB is a same-origin `fetch`. Sticker artwork is drawn on canvases, so it makes no requests.
+- **Embedded textures:** `GLTFLoader` normally decodes them by `fetch()`ing a `blob:` URL, which `connect-src 'self'` blocks. The viewer swaps it to `TextureLoader`, which uses an `<img>` that `img-src blob:` already allows. This was verified with a textured QA model: no CSP violations.
+- **Compressed geometry:** Draco, meshopt and KTX2 decoders need WebAssembly and workers, which the CSP doesn't allow (`script-src` has no `wasm-unsafe-eval`, and there is no `worker-src`). LAPTOP_MODEL.md requires uncompressed exports, so **don't loosen the CSP to load a model; re-export it instead.**
 
 **`connect-src`** is built from `NEXT_PUBLIC_SUPABASE_URL` at build time: exactly that origin, https only (http allowed in dev). It used to be `https://*.supabase.co`, which let script that slipped past sanitization send data to *any* Supabase project, including an attacker's. If the variable is unset or malformed, `connect-src` is just `'self'` (fails closed).
 
@@ -320,12 +324,24 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 | **S-36** | Info | No `/.well-known/security.txt` (§9 promised one) | ✅ | RFC 9116 route; contact overridable with `SECURITY_CONTACT`. |
 | S-37 | Info | The GitHub repository is public, so this file's open-issue queue tells anyone which weaknesses are still open | 🔴 | Your decision: make the repo private, or keep open items out of the public copy and use GitHub's private vulnerability reporting. |
 
+### Found after the sweep (2026-10-30)
+| ID | Severity | Issue | Status | Fix |
+|---|---|---|---|---|
+| **S-38** | **Critical** (per advisory) | **`next` 16.0.0–16.4.0**: unauthenticated RCE in the Image Optimization API when SVGs are used (GHSA-2464-fhr4-w9xw); DoS in the App Router via Server Actions (GHSA-p3m5-59mp-jv5r); RCE in `use cache` functions returning typed arrays (GHSA-673q-mjm6-r5xr). Published after the 16.3.8 pin. **Exposure here looks limited:** no `next/image`, Server Actions, or `use cache` in the code, and Netlify serves `/_next/image` through its own image CDN. But `public/` holds SVGs, and the endpoints exist regardless. | 🔴 | Upgrade `next` and `eslint-config-next` together to **16.4.1** (released 2026-10-14; the first release outside the advisory range) or later, in its own PR; run tests, lint, build and a browser smoke test. Until then, `images: { unoptimized: true }` in `next.config.ts` would switch the optimizer off, since nothing uses it. |
+| S-39 | Low | `deepmerge` prototype poisoning (GHSA-gcqx-w48m-w2h4), reached through `resend` → `@react-email/render` → `html-to-text`. Only the React-email rendering path uses it; `/api/email-summary` and the 2FA email send plain text/HTML. | 🔴 | `resend` 6.35+ drops it, but it's a breaking major; upgrade with the email routes' tests. |
+
 ### How to finish the 🟡 items (≈3 minutes)
 1. **S-4:** Supabase dashboard → **SQL Editor** → New query → paste `supabase/auth-lockout-schema.sql` → **Run**. Its last two result sets should show `rowsecurity = true`, with only `postgres` and `service_role` able to execute the two functions.
 2. **S-6 (optional, recommended):** Netlify → Site configuration → Environment variables → add `ADMIN_2FA` = `email` → redeploy. The next sign-in asks for the emailed code. Scripts using `x-logistics-key` stop working while it's on.
 3. **S-23:** paste `supabase/audit-exposure.sql` the same way and read each result tab. It changes nothing.
 
 ## 8. History
+
+### 2026-10-30: `/laptop` 3D sponsor stickers (branch `laptop-stickers`)
+- **No new attack surface:** no database, payment, upload, or write API.
+- **Sponsor data** is static sample data rendered as text (no HTML injection path). The only call to action links to `/contact`.
+- **Three.js** is a new exact-pinned runtime dependency (`three` 0.186.1). It loads only on `/laptop`, and the CSP is unchanged (§4.5).
+- **`npm audit`** at install time surfaced S-38 and S-39. Neither comes from `three`.
 
 ### 2026-10-21: Security sweep (branch `security-sweep`)
 A whole-app pass covering code, configuration, headers, the live deployment, and the Supabase project as seen from outside. Of 8 open queue items, 2 were confirmed fixed and 2 moved to "ready, needs you". 15 new issues were found; 13 are fixed in code and 2 need your decision (§7).

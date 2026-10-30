@@ -1,6 +1,6 @@
 # Testing
 
-_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-10-21**._
+_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-10-30**._
 
 ---
 
@@ -38,7 +38,13 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-10-21, security sweep): 554 tests, 29 suites, all passing, about 7 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-10-30, `/laptop`): 590 tests, 31 suites, all passing, about 7 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Added on 2026-10-30 (`/laptop` sponsor stickers):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-laptop-stickers.test.ts` | 20 | Four slots with unique ids and **contract node names** (`Sticker_Slot_1–4`, GLTFLoader-safe); the corner layout; site themes only; **honest sample data** (short marks, no URLs, at least one open spot); CTA is `/contact`; GLB URL and real 13-inch dimensions; `missingModelNodes` (including Blender's `.001` suffix trap); raycast name → slot; screen-reader descriptions; the WAI-ARIA radio keys (wrap, Home/End, nothing selected yet) |
+| `laptop-experience.test.tsx` (jsdom) | 16 | `next/dynamic` stubbed to play the viewer. Radio group with roving tabindex; click, keyboard and 3D-pick selection update the details; the open spot; the CTA links to `/contact` and **never claims payment**; samples labelled; loading → ready + Reset view; missing, unsupported and invalid fallbacks (no internals leaked); **error + Try again remounts the viewer**; the scene label tracks the selection; reduced motion reaches the viewer; `/work` links to `/laptop` |
 
 Added or extended on 2026-10-21 (security sweep):
 | Suite | Tests | Covers |
@@ -90,6 +96,7 @@ Added on 2026-10-20:
 ### Not covered (known gaps)
 - **Most React components and pages.** jsdom and Testing Library now exist, but only the onboarding flow (provider, modal, Navbar tour states, footer, toast) and `AdminGate` have component tests. Studio CRUD flows, `Modal`, and the `MarkdownRenderer` output are still untested.
 - **`lib/blog.ts` and `lib/projects-data.ts`** (the anon-client query builders), and `formatDate`. The slug guard and explicit columns in `getPostBySlug` were verified in a browser, not by a unit test.
+- **`app/laptop/LaptopViewer.tsx` (Three.js).** jsdom has no WebGL. The rendering, raycasting, camera and disposal were verified in headless Edge against a QA stand-in GLB (§7.8). The real model still needs that pass once it exists.
 - **The real 2FA email** (Resend is mocked in tests) and **the Postgres lockout functions** (the RPCs are mocked). Check both by hand after running `auth-lockout-schema.sql` / setting `ADMIN_2FA` (§7.3).
 - **End-to-end flows**, such as creating a post in Studio and seeing it on `/blog`.
 - **RLS policies**, which live in the database. Verify them manually (§7.4).
@@ -290,6 +297,23 @@ There's no `chromium-cli` on the dev machine and no Chrome, but Microsoft Edge w
 4. **Intercept `/api/analytics/track` and `/api/consent` with `page.route`.** The local server talks to the production Supabase, and test clicks must not create fake analytics.
 5. Capture `console` errors and `pageerror`, and check `document.documentElement.scrollWidth <= innerWidth` for horizontal overflow at 1366 px and 390 px.
 6. Stop the server by its port's PID. Stopping `npx` alone leaves the Node child holding the port.
+7. **WebGL in headless Edge** (for `/laptop`): launch with `args: ["--enable-unsafe-swiftshader"]`. It renders in software, so frames are slow. Wait about 1.5 s after a camera move before you click or assert; the 450 ms tween is time-based but its last frame lands late. Add `--disable-3d-apis --disable-webgl` to test the no-WebGL fallback.
+
+### 7.8 `/laptop` (3D sponsor stickers)
+**Without the model** (`public/models/macbook-pro-13-2019.glb` absent):
+- [ ] "3D model coming soon" shows over the 2D lid drawing, with no "Try again".
+- [ ] The only console entry is the GLB's 404. No WebGL context is created.
+- [ ] Tab reaches the spot picker. Arrows, Home and End move the selection and wrap. The details card updates. "Sponsor a spot" goes to `/contact`.
+
+**With the model**, or a QA stand-in served by `page.route`:
+- [ ] The status reads "Drag to rotate…". Drag rotates, scroll or pinch zooms, and a drag never selects anything.
+- [ ] Clicking each sticker selects the matching corner. Choosing a spot in the list moves the camera to it, with a violet frame around the sticker. Reset view returns to the overview.
+- [ ] Sticker artwork reads normally (not mirrored or upside down) from the default view.
+- [ ] Reduced motion (emulate `prefers-reduced-motion: reduce`): the camera jumps instead of gliding, and nothing pulses.
+- [ ] A 500 on the GLB shows "didn't load" with Try again, which recovers. A GLB without a `Sticker_Slot_N` shows "needs an update", and the console names the missing node.
+- [ ] No horizontal overflow at 360 px and 768 px. `/work` downloads no Three.js chunk; it loads only on `/laptop`.
+
+**QA stand-in, not an asset:** the 2026-10-30 run exercised the 3D path with a box-level GLB that follows LAPTOP_MODEL.md. It was generated with three's `GLTFExporter` in a scratch directory and served only through `page.route`. Never commit a stand-in to `public/`. A stand-in built from three's `PlaneGeometry` needs its V flipped (`v → 1 − v`) and each sticker plane turned 180° to match a real Blender export, or the artwork shows mirrored.
 
 ## 8. CI (not set up yet; PRD P1-2)
 Proposed `.github/workflows/ci.yml`:

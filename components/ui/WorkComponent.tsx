@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import Link from "next/link"
 import { projects } from "@/lib/projects"
 
 export function WorkComponent() {
@@ -215,6 +216,21 @@ export function WorkComponent() {
 
 
             </div>
+
+            {/* 3D experiment: lives outside the filtered grid so it's always visible */}
+            <Link
+                href="/laptop"
+                className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#13121c] border border-[#2a2840] rounded-2xl p-6 motion-safe:hover:-translate-y-1 transition-transform duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c6dff]/60"
+            >
+                <div>
+                    <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-1">3D experiment</p>
+                    <h2 className="font-syne font-bold text-xl text-[#f0eeff] leading-snug mb-1">Sticker the laptop</h2>
+                    <p className="text-sm text-[#8a88a0] leading-relaxed">
+                        A Three.js 2019 MacBook Pro with four sponsor-sticker spots on the lid.
+                    </p>
+                </div>
+                <span className="text-xs text-[#7c6dff] font-medium whitespace-nowrap">Explore in 3D →</span>
+            </Link>
         </div>
     )
 }

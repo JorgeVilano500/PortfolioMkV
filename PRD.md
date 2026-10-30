@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-10-21** (branch `security-sweep`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-10-30** (branch `laptop-stickers`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -71,6 +71,7 @@ Legend: ✅ working · ⚠️ working but has a known gap · ❌ missing or brok
 | **Site footer** | `components/onboarding/SiteFooter.tsx` | ✅ | Privacy · Cookie settings · Take the tour, on every public page |
 | **Privacy page** | `/privacy` | ✅ | Plain-language policy covering every storage key and data point (generated from the same constants as the modal), plus a "Manage cookie settings" button |
 | **Cookie settings / erasure** | footer → settings dialog, `DELETE /api/consent` | ✅ | Change the choice any time; "Delete my data" erases this browser's analytics rows |
+| **3D sponsor-sticker laptop** | `/laptop` (`app/laptop/*`, `lib/laptop-stickers.ts`), linked from `/work` | ⚠️ | v1 shipped in code, but **the GLB isn't in `public/` yet**, so visitors see the 2D lid fallback (LAPTOP_MODEL.md). Three.js viewer of a 13-inch 2019 MacBook Pro with four spots on the lid, **sample** sponsors, a spot picker (radio group), a details card, and "Sponsor a spot" → `/contact`. No database, payments, uploads, or write API. |
 | Error and 404 pages | none | ❌ | Uses Next.js defaults |
 
 ### 4.2 Admin 🔒
@@ -168,6 +169,14 @@ published: true           # optional: only literal true publishes
 - **TOUR-2** Navigating elsewhere mid-tour is handled: another tour page jumps to that page's first step, and a non-tour page shows "You've stepped off the tour" with a way back. Tour progress survives a reload (sessionStorage) and ends with Esc, ✕, or Finish.
 - **TOUR-3** Spotlights never block clicks, and every target is a `data-tour` anchor that a test verifies exists.
 
+### 5.6b 3D laptop stickers (LAP)
+- **LAP-1** `/laptop` shows a Three.js model of a **13-inch 2019 MacBook Pro**, loaded from `public/models/macbook-pro-13-2019.glb`. The lid's outside is the distinct part `Lid_Outer`, carrying four sticker planes, `Sticker_Slot_1–4` (contract: LAPTOP_MODEL.md).
+- **LAP-2** Selecting a spot, by clicking the sticker in 3D or using the spot list (mouse or keyboard), shows its sponsor details. The two stay in sync, and the camera moves to the chosen sticker.
+- **LAP-3** Sponsor data is curated sample data, labelled as samples. "Sponsor a spot" links to `/contact` and the page says nothing is sold or paid for on the site. No database, payment provider, uploads, or public write API in v1.
+- **LAP-4** States: loading skeleton; a 2D fallback when the model is missing, invalid, WebGL is unavailable, or loading fails (with Try again for failures). The spot picker works in every state.
+- **LAP-5** Keyboard: the spot list is a WAI-ARIA radio group. Reduced motion: the camera jumps instead of gliding, and nothing pulses. Responsive at 360/768/1280+.
+- **LAP-6** Three.js loads only on `/laptop` (client-only dynamic import); the model stays under 1 MB with no Draco, meshopt or KTX2 (CSP).
+
 ### 5.7 Automation endpoints (AUTO)
 - **AUTO-1** `POST /api/docs/upload` takes the header `x-api-key: $DOCS_UPLOAD_SECRET` and the JSON body `{ project: slug, filename: "X.md", content, title?, source? }`. It upserts on `(project_slug, filename)`, stores the SHA-256 `content_hash`, and returns `201 { success, document }`.
 - **AUTO-2** `POST /api/email-summary` takes the header `x-api-key: $EMAIL_SUMMARY_SECRET` and the JSON body `{ subject?, text?, html? }`, where at least one of `text` or `html` is required. It always sends to `SUMMARY_RECIPIENT_EMAIL`; any `to` in the body is ignored. Sends are capped at 10 per hour.
@@ -192,7 +201,8 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 | ID | Action | Acceptance |
 |---|---|---|
 | ~~S-1~~ ✅ | ~~Run `supabase/security-hardening.sql`~~. Done; verified live 2026-10-21 (anon gets `permission denied` on `page_views`). | |
-| **Deploy** | Merge the `security-sweep` PR, then: run `supabase/auth-lockout-schema.sql` (S-4); set `ADMIN_2FA=email` in Netlify (S-6); rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in asks for an emailed code; `auth_failures` fills with hashed keys after a wrong password; `/.well-known/security.txt` loads |
+| **S-38** | **Upgrade `next` + `eslint-config-next` to ≥16.4.1** (critical advisory for 16.0.0–16.4.0, published after the 16.3.8 pin), as its own PR | `npm audit --omit=dev` shows no critical; tests, lint and build pass |
+| **Deploy** | The `security-sweep` PR is merged (2026-10-29); still to do: run `supabase/auth-lockout-schema.sql` (S-4); set `ADMIN_2FA=email` in Netlify (S-6); rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in asks for an emailed code; `auth_failures` fills with hashed keys after a wrong password; `/.well-known/security.txt` loads |
 | S-23 | Run the read-only `supabase/audit-exposure.sql`. Then decide per app whether to disable open Supabase sign-ups and set size/MIME limits on the public storage buckets | Every section matches its "Expect" comment, or the difference is intentional |
 | S-37 | Decide whether the GitHub repo stays public (SECURITY.md lists open issues) | Repo private, or open items kept out of the public copy |
 | S-2 | Verify a sending domain in Resend and set `RESEND_FROM_EMAIL` | A digest reaches a non-owner address |
@@ -263,6 +273,12 @@ Ask before acting on any of these:
 
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
+
+- 2026-10-30 (branch `laptop-stickers`): `/laptop` 3D sponsor-sticker experience (LAP-1–6), linked from `/work`.
+  - **Viewer:** plain Three.js (`three` 0.186.1, client-only via `next/dynamic`), with sticker artwork drawn on canvases from sample data, raycast picking, OrbitControls, render-on-demand, and a GLTFLoader texture path that works under the CSP.
+  - **Page:** a spot-picker radio group, a details card, and "Sponsor a spot" → `/contact`; loading, missing, invalid, no-WebGL and error fallbacks; reduced motion.
+  - **Model:** asset contract and Blender workflow in LAPTOP_MODEL.md. **The GLB itself isn't committed yet.**
+  - **Tests:** 554 → 590. Verified in headless Edge against a QA stand-in model.
 
 - 2026-10-21 (branch `security-sweep`):
   - **Admin sign-in:** optional emailed 2FA code (`ADMIN_2FA=email`), with a code step in the sign-in screen; one brute-force lockout shared by every admin-password route and, once its SQL runs, by every server instance; `__Host-` session cookies.

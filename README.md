@@ -18,6 +18,7 @@ Built with **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind
 | Blog | `/blog`, `/blog/[slug]` | Markdown posts stored in Supabase, with themed cards, callouts, syntax highlighting, and per-post OG images |
 | Contact | `/contact` | Email, socials, quick message form |
 | Privacy | `/privacy` | Plain-language privacy and cookie policy, with cookie settings |
+| Laptop stickers | `/laptop` | A Three.js 13-inch 2019 MacBook Pro with four sponsor-sticker spots on the lid (sample sponsors; "Sponsor a spot" goes to Contact). Needs `public/models/macbook-pro-13-2019.glb`, built per [LAPTOP_MODEL.md](LAPTOP_MODEL.md); shows a 2D fallback until then. |
 | First-visit intro | every page | Welcome → privacy choice (analytics off by default, enforced server-side) → how-to guide with live previews → optional guided tour that highlights the next navbar tab on each page |
 | Studio 🔒 | `/studio` | Password-gated CMS: create, edit, publish, and bulk-manage blog posts and projects |
 | Logistics 🔒 | `/logistics` | Password-gated, first-party visitor analytics |
@@ -95,7 +96,7 @@ components/     Shared UI: Navbar, Modal, MarkdownRenderer, ProjectList, PageTra
 lib/            Supabase clients, data helpers, validation, security, rate limiting, sanitize schema
 supabase/       SQL schema files (run in the Supabase SQL editor)
 __tests__/      Jest suites
-public/         resume.pdf and static assets
+public/         resume.pdf and static assets (models/ for the /laptop GLB)
 ```
 
 ## Documentation
@@ -109,6 +110,7 @@ public/         resume.pdf and static assets
 | [SECURITY.md](SECURITY.md) | Threat model, controls, open issues, secrets |
 | [CODE_STYLE.md](CODE_STYLE.md) | Conventions for TypeScript, React, API routes, and styling |
 | [TESTING.md](TESTING.md) | Test setup, patterns, coverage, manual QA, CI |
+| [LAPTOP_MODEL.md](LAPTOP_MODEL.md) | The 3D laptop asset: contract, Blender workflow, export settings |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Historical status log kept by an external automation (may be out of date) |
 
 ## Deployment

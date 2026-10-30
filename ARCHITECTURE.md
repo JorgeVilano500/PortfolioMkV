@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-10-21** (branch `security-sweep`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-10-30** (branch `laptop-stickers`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -61,6 +61,7 @@ flowchart LR
 | Markdown | `react-markdown` 10, `remark-gfm` 4, `rehype-raw` 7, `rehype-sanitize` 6, `rehype-highlight` 7 (highlight.js 11) | | Used only in `components/ui/MarkdownRenderer.tsx` |
 | Frontmatter | `gray-matter` | ^4 | Used only by `/api/blog/upload` |
 | Email | `resend` | 4.8 | Used only by `/api/email-summary` |
+| 3D | `three` (WebGLRenderer, GLTFLoader, OrbitControls, RoomEnvironment) | 0.186.1 (exact pin; `@types/three` 0.186.0) | Used only by `app/laptop/LaptopViewer.tsx`, which loads through `next/dynamic` with `ssr: false`, so it ships only on `/laptop` (~635 KB uncompressed). Three.js breaks APIs between minor versions, so upgrade deliberately. |
 | Icons | `react-icons` (`rx`, `fa6`, `md`, `io5`), plus inline SVG paths in `app/studio/shared.tsx` | ^5.6 | |
 | Tests | Jest 30 with `babel-jest` (inline config) | | See TESTING.md |
 | Lint | ESLint 9 flat config + `eslint-config-next` 16.3.8 | | `npm run lint` |
@@ -79,6 +80,8 @@ flowchart LR
 │   ├── opengraph-image.tsx        Site OG image (ImageResponse, 1200×630)
 │   ├── robots.ts, sitemap.ts      SEO (sitemap includes published posts)
 │   ├── privacy/ page.tsx (server): privacy & cookie policy, generated from lib/consent constants
+│   ├── laptop/  page.tsx (server + metadata) → LaptopExperience.tsx (client boundary: spot picker,
+│   │               details, loading/fallbacks) → LaptopViewer.tsx (Three.js; next/dynamic, ssr: false)
 │   ├── about/   page.tsx (client) + layout.tsx (metadata only)
 │   ├── work/    page.tsx (client) + layout.tsx (metadata only)
 │   ├── contact/ page.tsx (client) + layout.tsx (metadata only)
@@ -127,10 +130,11 @@ flowchart LR
 │   ├── supabase-errors.ts         isMissingColumn / isMissingTable / isMissingFunction for graceful schema drift
 │   ├── rate-limit.ts              In-memory fixed-window limiter (10k-key cap) + per-IP and global auth lockout
 │   ├── validation.ts              LIMITS, type-guard validators, normalizers, slugify, estimateReadingTime
-│   └── markdown-sanitize.ts       rehype-sanitize allowlist schema
+│   ├── markdown-sanitize.ts       rehype-sanitize allowlist schema
+│   └── laptop-stickers.ts         /laptop: sample sponsors, sticker slots, GLB contract, radio-key helper (no three import)
 ├── supabase/                      SQL to run in the Supabase SQL editor (no migration tool)
 ├── __tests__/                     Jest suites + helpers/test-utils.ts
-├── public/                        resume.pdf + default Next SVGs (unused)
+├── public/                        resume.pdf + default Next SVGs (unused); models/macbook-pro-13-2019.glb expected (LAPTOP_MODEL.md)
 ├── next.config.ts                 Security headers/CSP, vestigial PDF loader rules, allowedDevOrigins
 ├── jest.config.js, eslint.config.mjs, postcss.config.mjs, tsconfig.json, pdf.d.ts
 └── *.md                           AGENTS, PRD, ARCHITECTURE, DESIGN_SYSTEM, SECURITY, CODE_STYLE, TESTING, README,
@@ -151,6 +155,7 @@ The app currently follows a **"client pages + server metadata"** pattern. Each p
 | `/blog/[slug]/opengraph-image` | Server | `getPostBySlug` | anon | `await params` (Next 16) |
 | `/sitemap.xml` | Server | `getPosts()` | anon | **Static** (`○` in the 2026-10-19 build), so new posts appear only after a redeploy. |
 | `/privacy` | **Server** (static) with a client `PrivacyActions` child | `lib/consent` constants | none | The intro modal never auto-opens here, so the policy stays readable |
+| `/laptop` | **Server** (static) shell with a client `LaptopExperience` child; the Three.js viewer is client-only (`next/dynamic`, `ssr: false`) | Sample stickers in `lib/laptop-stickers.ts`; the GLB is fetched from `/models/macbook-pro-13-2019.glb` | none | **Download first, WebGL second:** a 404 shows the 2D fallback without creating a WebGL context. Render on demand (no animation loop). Statuses: loading, ready, missing, invalid, unsupported, error. No database, payments, uploads or write API: "Sponsor a spot" links to `/contact`. |
 | All pages | `OnboardingProvider` (client) wraps everything in the root layout | `document.cookie` / storage after hydration | none | The modal, tour bar, and footer render client-side only, so static pages stay static (`○`) |
 | `/studio`, `/logistics` | Client, wrapped in `<AdminGate>` | `fetch('/api/...')`; the browser attaches the HttpOnly session cookie | service role (server-side) | Renders nothing until `GET /api/auth` answers, then shows the password form or the page |
 
@@ -492,6 +497,8 @@ Do all of the following together: add the SQL `alter table` (and update the sche
 | One SQL file per table, no migration tool | Small schema; it runs in the dashboard | A second environment (staging) or frequent schema changes |
 | First-party analytics in Postgres | Privacy, no third-party scripts, portfolio value | Volume nears 50k rows in the stats window, at which point stats need SQL aggregation |
 | Jest with a Babel transform, not `next/jest` | Avoids a root Babel config that would disable SWC | Adopting Vitest per the bundled guide |
+| Plain Three.js for `/laptop` (no react-three-fiber), with sticker art drawn on canvases from data | Demonstrates the Three.js concepts directly; adds one dependency; no image assets or network calls for stickers | Several 3D scenes, or declarative scene composition becomes worth a framework |
+| Sample sponsor data in code, no backend | v1 is a showcase: no database, payment, or upload surface to secure | Real sponsors (then: a `sponsors` table with RLS public-read, Studio editing, and logo images, which would need an image pipeline) |
 
 ## 16. Tech-debt register
 | ID | Debt | Impact | Fix |

@@ -8,7 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 This is the entry point for AI coding agents. Claude Code loads it through `CLAUDE.md` (`@AGENTS.md`); most other agents read it automatically. Read this whole file first, then open only the doc your task needs. This file stays short on purpose. The details are in the linked docs.
 
-_Last verified against the code: **2026-10-21**, branch `security-sweep` (on top of `feb294a`); see SECURITY.md §8 for the sweep._
+_Last verified against the code: **2026-10-30**, branch `laptop-stickers` (on top of `650ad51`, which merged the 2026-10-21 security sweep)._
 
 ---
 
@@ -26,6 +26,7 @@ _Last verified against the code: **2026-10-21**, branch `security-sweep` (on top
 | Touching auth, API input handling, markdown rendering, headers, or secrets | [SECURITY.md](SECURITY.md) |
 | Writing any code at all | [CODE_STYLE.md](CODE_STYLE.md) |
 | Adding or changing tests, or verifying a change | [TESTING.md](TESTING.md) |
+| Building or replacing the 3D laptop model for `/laptop` | [LAPTOP_MODEL.md](LAPTOP_MODEL.md): asset contract, Blender workflow, export settings |
 | Setting up locally, or wanting the human-oriented overview | [README.md](README.md) |
 | Looking for the historical daily status log | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md): written by an external automation, **stale since 2026-08-05** |
 
@@ -41,13 +42,13 @@ npm run lint         # ESLint flat config. `next build` does NOT lint in Next 16
 npm run build        # production build. Needs Supabase env vars (see §6)
 ```
 
-| Check | Result on 2026-10-21 |
+| Check | Result on 2026-10-30 |
 |---|---|
-| `npm test` | ✅ **554 tests, 29 suites** (incl. two jsdom component suites), about 7 s |
+| `npm test` | ✅ **590 tests, 31 suites** (incl. three jsdom component suites), about 7 s |
 | `npx tsc --noEmit` | ✅ clean |
 | `npm run lint` | ✅ clean |
 | `npm run build` | ✅ (Next 16.3.8) |
-| `npm audit --omit=dev` | ✅ 0 critical/high (1 accepted moderate: `sprintf-js`, see SECURITY.md S-16) |
+| `npm audit --omit=dev` | ⚠️ **1 critical: `next` ≤16.4.0** (advisories published after the 16.3.8 pin; fix is 16.4.1+, SECURITY.md S-38) + 4 low (`deepmerge` via `resend`, S-39) |
 
 If you run these checks, update this table.
 
@@ -88,6 +89,8 @@ app/                      routes (App Router)
   layout.tsx              root layout: Geist fonts, Person JSON-LD, <OnboardingProvider> wrapping PageTracker, pages,
                           SiteFooter, IntroModal, TourSpotlight, Toast
   privacy/page.tsx        privacy & cookie policy (server component; generated from lib/consent constants)
+  laptop/                 3D sponsor stickers: page.tsx (server, metadata) → LaptopExperience (client boundary: picker,
+                          details, fallbacks) → LaptopViewer (Three.js, next/dynamic ssr:false). Model contract: LAPTOP_MODEL.md
   robots.ts sitemap.ts opengraph-image.tsx
 components/               index.tsx barrel · ui/* (Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, ComingSoon†) · features/Modal, features/AdminGate (password gate + sign-out)
   onboarding/             first-visit intro + consent + guided tour: OnboardingProvider (state), IntroModal, SitePreviews,
@@ -96,6 +99,8 @@ lib/                      supabase (anon) · supabase-admin (service role) · bl
                           security · rate-limit · auth-lockout (shared lockout) · http (byte-capped bodies) · validation
                           markdown-sanitize · session · two-factor (emailed code) · admin-auth · json-ld
                           consent (cookie model) · tour (steps) · analytics (shared rules) · theme · user-agent · random-id · supabase-errors
+                          laptop-stickers (sample sponsors + GLB contract for /laptop)
+public/models/            (expected) macbook-pro-13-2019.glb — not committed yet; /laptop falls back to 2D until it is
 supabase/*.sql            schema for posts, projects, page_views, project_documents, consent-schema.sql (consent_events + page_views
                           opt-in columns) + security-hardening.sql (run once on an existing DB) + auth-lockout-schema.sql
                           (shared lockout) + audit-exposure.sql (read-only project audit)
@@ -120,6 +125,7 @@ __tests__/                Jest suites + helpers/ (test-utils.ts Supabase chain m
 - **Public pages are client-rendered.** Blog post bodies are fetched in the browser, so they are not in the server HTML. Metadata, JSON-LD, and OG images are server-rendered.
 - **Rate limiting is in-memory per serverless instance** (best-effort). It is keyed on Netlify's `x-nf-client-connection-ip`, falling back to `x-forwarded-for` off-Netlify, and has a global per-route failure ceiling. See SECURITY.md §4.3.
 - **The live DB may lag the schema files.** Agents can't run DDL; the owner runs SQL files in the Supabase SQL editor. `security-hardening.sql` has been run (S-1 confirmed fixed on 2026-10-21). `auth-lockout-schema.sql` (the shared lockout, S-4) may not have been yet. Until it is, `lib/auth-lockout.ts` falls back to in-memory counting and warns once.
+- **Three.js lives only in `app/laptop/LaptopViewer.tsx`**, loaded through `next/dynamic(..., { ssr: false })` from the `LaptopExperience` client boundary, so its ~635 KB chunk downloads only on `/laptop`. Don't import `three` anywhere else. The GLB must follow LAPTOP_MODEL.md: the node names `Lid_Outer` and `Sticker_Slot_1–4`, and **no Draco, meshopt or KTX2**, whose WebAssembly and worker decoders the CSP doesn't allow. The viewer swaps GLTFLoader to `TextureLoader` so embedded textures load under `connect-src 'self'`.
 - **`/sitemap.xml` is static** (build output `○`), so new posts appear in it only after a redeploy.
 - **Keep `turbopackFileSystemCacheForBuild: false`** in `next.config.ts`. Next 16.3+ would otherwise cache env var values in `.next/cache/turbopack`, and Netlify's secrets scan fails the deploy ("RESEND_API_KEY exposed"). If a deploy ever fails a secrets scan, find the file the Netlify log names before changing any setting. Don't add secret names to `SECRETS_SCAN_OMIT_KEYS`.
 - There are no `error.tsx`, `not-found.tsx`, or `loading.tsx` files anywhere, so unknown routes get the default Next 404.
@@ -131,7 +137,8 @@ __tests__/                Jest suites + helpers/ (test-utils.ts Supabase chain m
 The full prioritized list, with acceptance criteria, is in [PRD.md §7](PRD.md#7-roadmap-next-best-actions). The top items:
 
 1. **Owner actions, outside the repo:**
-   - Merge the `security-sweep` PR and deploy.
+   - **Upgrade `next` and `eslint-config-next` to ≥16.4.1** (S-38: a critical advisory affects 16.0.0–16.4.0, published after the 16.3.8 pin). Do it as its own PR.
+   - Build the 13-inch 2019 MacBook Pro model per LAPTOP_MODEL.md and commit it as `public/models/macbook-pro-13-2019.glb`. `/laptop` shows its 2D fallback until then.
    - Run `supabase/auth-lockout-schema.sql` (S-4) and the read-only `supabase/audit-exposure.sql` (S-23).
    - Set `ADMIN_2FA=email` in Netlify (S-6).
    - Rotate `LOGISTICS_PASSWORD` (S-12), and optionally set `SESSION_SECRET`.
