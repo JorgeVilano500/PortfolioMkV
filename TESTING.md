@@ -38,7 +38,15 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-10-30, `/laptop`): 590 tests, 31 suites, all passing, about 7 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-10-30, sponsorship form): 697 tests, 35 suites, all passing, about 8 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Added on 2026-10-30 ("Sponsor a spot" offer form):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-sponsorship.test.ts` | 44 | Email pattern (CRLF, `?bcc=`, display names refused); offer parsing and USD formatting; every field error at once; **no URLs or domain-shaped text in the affiliation** (while "St. Louis", "U.S." pass); control characters and U+2028 stripped; spots; browser file checks; **magic-byte sniffing** (PNG, JPEG, WebP, PDF; SVG, HTML, EXE and WAV refused); file-name cleaning |
+| `sponsor-email.test.ts` | 17 | Thank-you copy: promise to reply, every field, no original file name, "nothing charged", site palette. Owner notice: subject, `mailto:` button, attached/stored notes, the "could NOT be saved" variant. **Hostile input escaped in both**, the only links go to the validated address, and subjects are single-line |
+| `api-sponsorships.test.ts` | 29 | **Two separate sends**: owner (Reply-To = sponsor, sticker attached under the sniffed extension), then sponsor (Reply-To = public address, never the private inbox; `SPONSOR_REPLY_TO`). Private copy (file + JSON, no IP). `confirmationSent: false` on a sandbox failure; 502 without the copy when the owner send fails; bucket missing or throwing still delivers; fails closed without config. Rejections store and send nothing: 403, 415, 413, field errors, disguised SVG/HTML, link spam, CRLF email, honeypot. **Caps**: 3 per hour per client (IPv6 /64), 2 per day per recipient, 20 per day overall, 10 raw requests per 10 min |
+| `sponsor-form.test.tsx` (jsdom) | 17 | Opens from "Sponsor a spot" with the spot pre-set and focus on email; the four fields plus spot; honeypot hidden from people and AT; contact and privacy links; client validation (focus to first error, oversized file, errors clear on edit); multipart POST contents; receipt (copy sent / not sent); can't close mid-send; server field errors, 429, network failure; Esc closes with **focus back on the trigger**; fresh form each open |
 
 Added on 2026-10-30 (`/laptop` sponsor stickers):
 | Suite | Tests | Covers |
@@ -312,6 +320,13 @@ There's no `chromium-cli` on the dev machine and no Chrome, but Microsoft Edge w
 - [ ] Reduced motion (emulate `prefers-reduced-motion: reduce`): the camera jumps instead of gliding, and nothing pulses.
 - [ ] A 500 on the GLB shows "didn't load" with Try again, which recovers. A GLB without a `Sticker_Slot_N` shows "needs an update", and the console names the missing node.
 - [ ] No horizontal overflow at 360 px and 768 px. `/work` downloads no Three.js chunk; it loads only on `/laptop`.
+
+**Sponsor a spot** (form):
+- [ ] The button opens the dialog with the selected spot pre-set; focus starts on Email; Tab stays inside; Esc closes (except while sending), and focus returns to the button.
+- [ ] An empty submit shows four errors and focuses Email. A web address in Affiliation is refused. An SVG renamed `.png` is refused by the server.
+- [ ] A successful send shows the receipt. "A copy is on its way" appears only when the server says `confirmationSent: true`.
+- [ ] Check the real emails only on a deployment you control. **Locally, run the server with junk `RESEND_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY`**, which take precedence over `.env.local` at runtime, or intercept `/api/sponsorships` with `page.route`. Otherwise test offers send real email and write to production storage.
+- [ ] After deploying: one real offer lands in `SUMMARY_RECIPIENT_EMAIL` with the attachment, Reply goes to the sponsor, and the files appear under Storage → `sponsor-stickers`.
 
 **QA stand-in, not an asset:** the 2026-10-30 run exercised the 3D path with a box-level GLB that follows LAPTOP_MODEL.md. It was generated with three's `GLTFExporter` in a scratch directory and served only through `page.route`. Never commit a stand-in to `public/`. A stand-in built from three's `PlaneGeometry` needs its V flipped (`v → 1 − v`) and each sticker plane turned 180° to match a real Blender export, or the artwork shows mirrored.
 

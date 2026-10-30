@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
+import { useFocusTrap } from "../onboarding/useFocusTrap"
 
 type ModalProps = {
     isOpen: boolean
@@ -15,6 +16,10 @@ type ModalProps = {
 }
 
 export function Modal({ isOpen, onClose, children, title, variant = "default", size = "md", contentClassName, bodyClassName }: ModalProps) {
+    // Focus moves into the dialog (to a [data-autofocus] child, if any), Tab
+    // wraps inside it, and focus returns to the opener on close (DESIGN_SYSTEM §9.3).
+    const contentRef = useRef<HTMLDivElement>(null)
+    useFocusTrap(contentRef, isOpen)
 
     useEffect(() => {
         const handleEscape = (e: KeyboardEvent) => {
@@ -51,7 +56,9 @@ export function Modal({ isOpen, onClose, children, title, variant = "default", s
 
             {/* Content box */}
             <div
-                className={`relative w-full max-h-[85vh] overflow-auto rounded-xl shadow-xl flex flex-col
+                ref={contentRef}
+                tabIndex={-1}
+                className={`relative w-full max-h-[85vh] overflow-auto rounded-xl shadow-xl flex flex-col outline-none
                     ${size === "lg" ? "max-w-3xl" : "max-w-xl"}
                     ${variant === "dark"
                         ? "bg-[#13121c] border border-[#2a2840]"

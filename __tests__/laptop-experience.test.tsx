@@ -120,12 +120,16 @@ describe("spot picker", () => {
 })
 
 describe("sponsor call to action", () => {
-    it("links to the contact page and never claims to take payment", () => {
+    it("opens the offer form (a dialog) and never claims to take payment", () => {
         render(<LaptopExperience />)
-        const cta = screen.getByRole("link", { name: /Sponsor a spot/ })
-        expect(cta.getAttribute("href")).toBe("/contact")
-        expect(document.body.textContent).toMatch(/nothing is sold or paid for on this site/i)
+        const cta = screen.getByRole("button", { name: /Sponsor a spot/ })
+        expect(cta.getAttribute("aria-haspopup")).toBe("dialog")
+        expect(document.body.textContent).toMatch(/nothing is charged on this site/i)
         expect(document.body.textContent).not.toMatch(/checkout|buy now|card number|\$\d/i)
+        fireEvent.click(cta)
+        expect(screen.getByRole("dialog")).toBeTruthy()
+        expect(document.body.textContent).toMatch(/nothing is charged here/i)
+        expect(document.body.textContent).not.toMatch(/checkout|buy now|card number/i)
     })
 
     it("labels every sticker as a sample, not a real sponsor", () => {

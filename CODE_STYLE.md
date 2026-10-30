@@ -162,6 +162,7 @@ export async function POST(req: NextRequest) {
 }
 ```
 
+- **File uploads (multipart):** read the raw body with `readBodyBytes(req, BODY_LIMITS.x)` and *then* parse it (`new Response(bytes, { headers: { "content-type": … } }).formData()`), never `req.formData()`, which buffers without a cap. Judge files by their bytes (`sniffStickerType`), not their name or declared type. See `app/api/sponsorships/route.ts`.
 - **Ids:** PATCH and DELETE take row ids that must pass `isUuid` (`400` otherwise), including every entry of a bulk `ids` array.
 - **Client calls to admin routes** send no auth header. The browser attaches the HttpOnly session cookie to same-origin `fetch` calls automatically, so never put the password in client code or storage.
 - **Responses:** errors are `{ error: string }`. Status codes: `400` validation, `401` auth, `403` cross-site request, `413` body too large, `429` limits (with `Retry-After` where there is a window), `500` DB, `502` upstream provider, `201` create, `200` otherwise.

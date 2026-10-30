@@ -20,6 +20,12 @@ export const BODY_LIMITS = {
     admin: 1024 * 1024,
     /** /api/blog/upload, /api/docs/upload, /api/email-summary — ≤1M-char documents */
     upload: 4 * 1024 * 1024,
+    /**
+     * /api/sponsorships — a ≤4 MB sticker file plus a few form fields.
+     * Netlify Functions cap request payloads at 6 MB *after* base64-encoding
+     * binary bodies (×4/3), so ~4.5 MB raw is the real ceiling there.
+     */
+    sponsorship: 4 * 1024 * 1024 + 256 * 1024,
 } as const
 
 export class BodyTooLargeError extends Error {
@@ -29,10 +35,11 @@ export class BodyTooLargeError extends Error {
     }
 }
 
-export async function readBodyText(req: Request, maxBytes: number): Promise<string> {
+/** The raw body bytes, capped like readBodyText (for multipart uploads). */
+export async function readBodyBytes(req: Request, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
     const declared = Number(req.headers.get("content-length"))
     if (Number.isFinite(declared) && declared > maxBytes) throw new BodyTooLargeError()
-    if (!req.body) return ""
+    if (!req.body) return new Uint8Array(0)
 
     const reader = req.body.getReader()
     const chunks: Uint8Array[] = []
@@ -54,7 +61,11 @@ export async function readBodyText(req: Request, maxBytes: number): Promise<stri
         bytes.set(chunk, offset)
         offset += chunk.byteLength
     }
-    return new TextDecoder().decode(bytes)
+    return bytes
+}
+
+export async function readBodyText(req: Request, maxBytes: number): Promise<string> {
+    return new TextDecoder().decode(await readBodyBytes(req, maxBytes))
 }
 
 export type JsonBodyResult =

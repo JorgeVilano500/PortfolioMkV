@@ -21,6 +21,11 @@ export function isMissingFunction(error: DbError): boolean {
     return error?.code === "PGRST202" || error?.code === "42883"
 }
 
+/** Storage bucket doesn't exist yet (its SQL file hasn't been run). */
+export function isMissingBucket(error: { message?: string | null; statusCode?: string | number | null } | null | undefined): boolean {
+    return /bucket not found/i.test(error?.message ?? "") || String(error?.statusCode ?? "") === "404"
+}
+
 const warned = new Set<string>()
 
 /** Log a schema-drift warning once per process (avoids flooding logs on every request). */

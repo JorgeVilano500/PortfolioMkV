@@ -1,11 +1,9 @@
 "use client"
 
-import { useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
+import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react"
 import dynamic from "next/dynamic"
-import Link from "next/link"
 import {
     LAPTOP_MODEL,
-    SPONSOR_CTA_HREF,
     STICKER_SLOTS,
     describeSlot,
     getSlot,
@@ -16,6 +14,7 @@ import {
 } from "@/lib/laptop-stickers"
 import { themeMap } from "@/lib/theme"
 import type { ViewerStatus } from "./LaptopViewer"
+import { SponsorForm } from "./SponsorForm"
 
 // Three.js touches `window` and WebGL, so the viewer never renders on the
 // server. `ssr: false` is only allowed inside a Client Component, which is why
@@ -78,8 +77,22 @@ export function LaptopExperience() {
     const [resetToken, setResetToken] = useState(0)
     const reducedMotion = usePrefersReducedMotion()
     const optionRefs    = useRef(new Map<StickerSlotId, HTMLButtonElement>())
+    const [formOpen, setFormOpen] = useState(false)
+    const [formKey, setFormKey]   = useState(0)
+    const sponsorButtonRef        = useRef<HTMLButtonElement>(null)
 
     const selected = selectedId ? getSlot(selectedId) : null
+
+    const openForm = () => {
+        setFormKey((n) => n + 1) // a fresh form each time, pre-set to the chosen spot
+        setFormOpen(true)
+    }
+    // Return focus to the trigger explicitly: Safari doesn't focus buttons on
+    // click, so the dialog's own focus-return would land on <body>.
+    const closeForm = () => {
+        setFormOpen(false)
+        sponsorButtonRef.current?.focus()
+    }
     const fallback = status === "loading" || status === "ready" ? null : FALLBACK[status]
 
     const retry = () => {
@@ -193,19 +206,21 @@ export function LaptopExperience() {
                     })}
                 </div>
 
-                <SlotDetails slot={selected} />
+                <SlotDetails slot={selected} onSponsor={openForm} buttonRef={sponsorButtonRef} />
 
                 <p className="text-xs text-[#8a88a0] leading-relaxed">
-                    Sample stickers for illustration, not real sponsors. Spots are arranged by email; nothing is sold or paid for on this site.
+                    Sample stickers for illustration, not real sponsors. An offer starts a conversation by email; nothing is charged on this site.
                 </p>
             </section>
+
+            <SponsorForm key={formKey} open={formOpen} onClose={closeForm} initialSpot={selectedId ?? "any"} />
         </div>
     )
 }
 
 // ─── Details card ─────────────────────────────────────────────────────────────
 
-function SlotDetails({ slot }: { slot: StickerSlot | null }) {
+function SlotDetails({ slot, onSponsor, buttonRef }: { slot: StickerSlot | null; onSponsor: () => void; buttonRef: RefObject<HTMLButtonElement | null> }) {
     return (
         <div aria-live="polite" className="bg-[#0d0c14] border border-[#2a2840] rounded-xl p-4 flex flex-col gap-3 min-h-50">
             {!slot && (
@@ -232,12 +247,15 @@ function SlotDetails({ slot }: { slot: StickerSlot | null }) {
                     </p>
                 </>
             )}
-            <Link
-                href={SPONSOR_CTA_HREF}
-                className="mt-auto inline-flex w-fit bg-[#7c6dff] hover:bg-[#6a5de8] text-white text-sm font-medium px-5 py-2.5 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c6dff]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d0c14]"
+            <button
+                ref={buttonRef}
+                type="button"
+                onClick={onSponsor}
+                aria-haspopup="dialog"
+                className="mt-auto inline-flex w-fit bg-[#7c6dff] hover:bg-[#6a5de8] text-white text-sm font-medium px-5 py-2.5 rounded-full transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c6dff]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d0c14]"
             >
                 Sponsor a spot →
-            </Link>
+            </button>
         </div>
     )
 }
