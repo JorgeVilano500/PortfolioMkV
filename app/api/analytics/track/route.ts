@@ -3,8 +3,9 @@ import { isIP } from "net"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { getClientIp } from "@/lib/security"
 import { rateLimit } from "@/lib/rate-limit"
+import { BODY_LIMITS, readJsonBody } from "@/lib/http"
 import { LIMITS, isJsonObject } from "@/lib/validation"
-import { isTrackablePath, normalizeLanguage, normalizeTimezone } from "@/lib/analytics"
+import { isTrackablePath, isValidPagePath, normalizeLanguage, normalizeTimezone } from "@/lib/analytics"
 import { CONSENT_COOKIE, CONSENT_VERSION, allowsAnalytics, parseConsent } from "@/lib/consent"
 import { isMissingColumn, warnSchemaOnce } from "@/lib/supabase-errors"
 
@@ -69,12 +70,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Bad request" }, { status: 400 })
     }
 
-    let body: unknown
-    try {
-        body = await req.json()
-    } catch {
-        return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+    // Byte-capped while streaming: a real page view is a few hundred bytes.
+    const parsed = await readJsonBody(req, BODY_LIMITS.track)
+    if (!parsed.ok) {
+        return NextResponse.json({ error: parsed.error }, { status: parsed.status })
     }
+    const body = parsed.body
     if (!isJsonObject(body)) {
         return NextResponse.json({ error: "Bad request" }, { status: 400 })
     }
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     // Strict shape validation — everything here is attacker-controlled.
     if (
-        typeof page !== "string" || !page.startsWith("/") || page.length > LIMITS.page ||
+        typeof page !== "string" || page.length > LIMITS.page || !isValidPagePath(page) ||
         typeof session_id !== "string" || session_id.length === 0 || session_id.length > LIMITS.sessionId
     ) {
         return NextResponse.json({ error: "Missing required fields" }, { status: 400 })

@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-10-19** (HEAD `5589a7d`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-10-21** (branch `security-sweep`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -138,7 +138,7 @@ published: true           # optional: only literal true publishes
 
 ### 5.4 Studio (STU) 🔒
 - **STU-1** Access requires `LOGISTICS_PASSWORD`, checked server-side with a constant-time compare at `POST /api/auth`. That call sets an HttpOnly, SameSite=Strict session cookie (8 h). The client never stores the password. Sign-out clears the cookie, and changing the password signs everyone out.
-- **STU-2** Every read and mutation goes through `/api/blog/posts` or `/api/projects` with the `x-logistics-key` header. Studio never touches Supabase directly.
+- **STU-2** Every read and mutation goes through `/api/blog/posts` or `/api/projects`, authenticated by the HttpOnly session cookie from sign-in (no password header). Studio never touches Supabase directly.
 - **STU-3** Destructive actions require explicit confirmation: a two-step button or `confirm()`. Bulk operations are capped at 100 ids.
 - **STU-4** Studio is excluded from analytics on both the client and the server.
 - **STU-5** The UI changes only after the server responds successfully; there are no optimistic writes. On failure, an inline pink error appears and the busy state always resets. _This is currently violated by the grid-card quick actions: `togglePublished` and the delete handlers in `PostGridCard` (`BlogsPanel.tsx`) and `ProjectGridCard` (`ProjectsPanel.tsx`) ignore non-OK responses and have no `try/catch`, so a failure does nothing visible. See P1-9._
@@ -191,10 +191,12 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 ### S: Security items (do first; mostly outside the repo)
 | ID | Action | Acceptance |
 |---|---|---|
-| **S-1** 🟡 | **Run `supabase/security-hardening.sql`** in the Supabase SQL editor. It enables RLS on `page_views` (confirmed readable with the anon key on 2026-10-19) and revokes unneeded grants (S-22). The schema files are already updated. | A query with the anon key returns no `page_views` rows; the verification queries at the end of the file pass; `/logistics` still works |
+| ~~S-1~~ ✅ | ~~Run `supabase/security-hardening.sql`~~. Done; verified live 2026-10-21 (anon gets `permission denied` on `page_views`). | |
+| **Deploy** | Merge the `security-sweep` PR, then: run `supabase/auth-lockout-schema.sql` (S-4); set `ADMIN_2FA=email` in Netlify (S-6); rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in asks for an emailed code; `auth_failures` fills with hashed keys after a wrong password; `/.well-known/security.txt` loads |
+| S-23 | Run the read-only `supabase/audit-exposure.sql`. Then decide per app whether to disable open Supabase sign-ups and set size/MIME limits on the public storage buckets | Every section matches its "Expect" comment, or the difference is intentional |
+| S-37 | Decide whether the GitHub repo stays public (SECURITY.md lists open issues) | Repo private, or open items kept out of the public copy |
 | S-2 | Verify a sending domain in Resend and set `RESEND_FROM_EMAIL` | A digest reaches a non-owner address |
 | ~~S-3~~ ✅ | ~~Key rate limits on a client IP the platform sets~~. Done 2026-10-19: `x-nf-client-connection-ip` plus a global failure ceiling. **After deploy:** confirm `/logistics` shows your real IP even when you send a forged `X-Forwarded-For`. | |
-| Deploy | Merge the `cookie-set-up` PR (security pass + docs + onboarding), run `supabase/consent-schema.sql`, optionally set `SESSION_SECRET` in Netlify, and rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in works on production; the intro modal appears in a private window; the Logistics Consent card shows numbers |
 
 ### P0: Quick correctness fixes (under 1 hour in total)
 | ID | Action | Acceptance |
@@ -221,9 +223,9 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 ### P2: Ops and security (some need external accounts)
 | ID | Action |
 |---|---|
-| P2-1 | Shared rate-limit store (Upstash Redis free tier with `@upstash/ratelimit`) so lockouts hold across serverless instances |
+| ~~P2-1~~ ✅ | ~~Shared rate-limit store so lockouts hold across serverless instances~~. Done 2026-10-21 without a new account: auth lockouts use Postgres (`auth-lockout-schema.sql`, `lib/auth-lockout.ts`). Request limiters stay per instance; revisit with Upstash only if floods get past them. |
 | P2-2 | Analytics retention: a Supabase scheduled job deleting `page_views` rows older than an agreed window (90 days to 12 months), plus a short privacy note in the site footer or on Contact |
-| P2-3 | **Second factor for admin sign-in.** The HttpOnly session cookie already exists (2026-10-19, `lib/session.ts`). What remains is adding an email OTP through Resend (or Supabase Auth magic links) as a step in `POST /api/auth` before the cookie is issued. |
+| ~~P2-3~~ ✅ | ~~Second factor for admin sign-in~~. Done 2026-10-21: an emailed 6-digit code through Resend, a step in `POST /api/auth` before the session cookie (`lib/two-factor.ts`). Off until `ADMIN_2FA=email` is set. |
 | P2-4 | Nonce-based CSP through `proxy.ts` to drop `'unsafe-inline'` scripts (see the bundled CSP guide). Note that this forces dynamic rendering. (`script-src-attr 'none'` was added on 2026-10-19 as a partial mitigation.) |
 | P2-5 | A `GET /api/health` route that checks Supabase connectivity, as groundwork for uptime monitoring |
 
@@ -233,7 +235,7 @@ Already done, so **don't re-propose**: per-post OG images, BlogPosting JSON-LD, 
 - **Blog:** public view counts and a "most viewed" widget; a tag filter on `/blog`; related posts by shared tags; an RSS feed (`app/feed.xml/route.ts`); a reading-progress bar; draft preview links (token-gated, using the bundled `draft-mode.md` guide); scheduled publishing (a `publish_at` column); a "recently updated" badge
 - **Studio:** sort and filter state in the URL query; soft delete with an undo window for bulk delete; a keyboard shortcut sheet; a manual "sync now" for docs
 - **Logistics:** CSV export; outbound-click and resume-download events (needs an `event` column); timezone-aware peak hours; a sanitized public stats page as a portfolio flex
-- **Site:** a `/uses` or `/now` page; a Cmd+K command palette; a light/dark toggle built on theme tokens; a "last deployed" or git SHA badge in the footer; `/.well-known/security.txt`; Project JSON-LD on `/work`; a dedicated footer
+- **Site:** a `/uses` or `/now` page; a Cmd+K command palette; a light/dark toggle built on theme tokens; a "last deployed" or git SHA badge in the footer; Project JSON-LD on `/work` (`/.well-known/security.txt` shipped 2026-10-21)
 - **Automation:** skip the daily email when `content_hash` is unchanged; Netlify deploy webhook to an email ping; an aggregator page across `project_documents`
 
 ## 8. Open questions for the owner
@@ -261,6 +263,14 @@ Ask before acting on any of these:
 
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
+
+- 2026-10-21 (branch `security-sweep`):
+  - **Admin sign-in:** optional emailed 2FA code (`ADMIN_2FA=email`), with a code step in the sign-in screen; one brute-force lockout shared by every admin-password route and, once its SQL runs, by every server instance; `__Host-` session cookies.
+  - **Requests:** byte-capped request bodies (413) on every route; forged tracked paths rejected; blog slug lookups validated.
+  - **Hardening:** IPv6 counted per /64; `server-only` guards; Supabase clients never adopt sessions; CSP `connect-src` narrowed to this project; more Permissions-Policy, `X-Permitted-Cross-Domain-Policies`, and CORP on the API.
+  - **New files:** `/.well-known/security.txt`; `supabase/auth-lockout-schema.sql` and the read-only `supabase/audit-exposure.sql`.
+  - **Tests:** 407 → 554.
+  - Details are in SECURITY.md §7 and §8.
 
 - 2026-10-20 (branch `cookie-set-up`): First-visit intro modal (welcome, privacy choice, live-component guide, tour offer); opt-in analytics enforced server-side, now recording IP, language, timezone, and visitor id for consenting visitors; `/api/consent` (receipts + self-service erasure); 10-step guided tour with navbar next-tab highlight, guide bar, and spotlight; site footer; `/privacy` page; Logistics Consent card plus IP and browser in recent activity; Navbar accessibility fixes; `supabase/consent-schema.sql`. Tests went from 315 to 406 (including a jsdom component suite); verified in headless Edge on desktop and mobile.
 - 2026-10-19 (security pass 2, commit `233b7dd`): Next upgraded from 16.2.1 to 16.3.8 (critical advisories); gray-matter JS front-matter RCE closed; JSON-LD XSS closed; admin auth moved to an HttpOnly session cookie with CSRF checks and sign-out; IP spoofing past the lockout closed and a global ceiling added; UUID and object-body validation; analytics referrer reduced to origin; `noindex` on admin pages; header hardening; `rel` on external links; re-uploads no longer unpublish; Google Fonts link removed; `security-hardening.sql` written (S-1). Tests went from 218 to 315 and lint is clean. Details are in SECURITY.md §7 and §8.

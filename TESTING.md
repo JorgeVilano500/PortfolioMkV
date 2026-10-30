@@ -1,6 +1,6 @@
 # Testing
 
-_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-10-19**._
+_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-10-21**._
 
 ---
 
@@ -29,6 +29,8 @@ npm run lint                               # ESLint (Next 16's `next build` does
 | JSX | `@babel/preset-react` (automatic runtime) in the inline Babel config | Needed for `.tsx` suites |
 | DOM | `jest-environment-jsdom`, `@testing-library/react`, `@testing-library/dom` (dev only) | Opt in per file with `/** @jest-environment jsdom */` as the **first line**; everything else stays on `node` |
 | Path alias | `moduleNameMapper: { "^@/(.*)$": "<rootDir>/$1" }` | Matches the tsconfig `@/*` alias |
+| `server-only` | `moduleNameMapper: { "^server-only$": "<rootDir>/__tests__/helpers/server-only.ts" }` (an empty module) | Next resolves `import "server-only"` itself; plain Node has no such package |
+| Setup | `setupFiles: ["<rootDir>/__tests__/helpers/setup-env.ts"]` sets `AUTH_LOCKOUT_STORE=memory` | Keeps the lockout off the (mocked) database; `lib-auth-lockout.test.ts` opts back in |
 | Mocks | `clearMocks: true` | Call history is reset between tests |
 | Type checking | Babel strips types without checking them | Run `npx tsc --noEmit` separately |
 
@@ -36,7 +38,25 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-10-21): 407 tests, 20 suites, all passing, about 10 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-10-21, security sweep): 554 tests, 29 suites, all passing, about 7 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Added or extended on 2026-10-21 (security sweep):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-two-factor.test.ts` | 27 | Code ↔ token round-trip; the code never appears in the token; wrong code, expiry, edited expiry, password rotation all fail; **a challenge never verifies as a session and the reverse**; fails closed without secrets; malformed tokens; code distribution; `normalizeCode`; enable/configured flags |
+| `api-auth-2fa.test.ts` | 20 | With `ADMIN_2FA=email` (Resend mocked): the password emails a code instead of signing in. The code goes only to the configured owner, stays out of the subject, and the email names the IP. The challenge cookie is HttpOnly/Strict/10 min. No email for a wrong password. **Fails closed** without email config (500) or on a provider error (502). 5-code send cap. The right code → session and challenge cleared; spaced input accepted; wrong code 401; a code without the challenge 401. **Wrong codes trip the lockout**, malformed codes don't count. Sign-out clears the challenge. **`x-logistics-key` refused, with identical answers for right and wrong passwords**, and a two-factor session works on the admin API |
+| `body-limits.test.ts` | 17 | Every body-reading route (auth, consent, track, posts, projects, both uploads, email) returns **413 with no DB write or email** past its cap, both streamed and declared via Content-Length; oversized sign-ins aren't counted as guesses |
+| `lib-http.test.ts` | 13 | Under/at/over the cap; Content-Length rejection without reading; **stream cancelled once the cap is crossed** (no full read); bytes not characters; bogus Content-Length; JSON 400/413; never throws on a broken stream |
+| `server-boundary.test.ts` | 12 | Walks the import graph of `app/`, `components/`, `lib/`. Every secret-holding module keeps `import "server-only"`; every module reading a secret env var is server-only or a route handler; **no `"use client"` file reaches server-only code**; a positive control proves the walker follows imports |
+| `lib-auth-lockout.test.ts` | 13 | With `AUTH_LOCKOUT_STORE=supabase` and `rpc` mocked: per-IP and global keys; **raw IP never sent, and the IP hash is keyed with a server secret** (not reversible by enumerating IPv4); distinct keys per IP and scope; blocks on another instance's count; just-under stays open; global ceiling; 15-minute window on hits; memory short-circuit; missing SQL → memory fallback with one warning; store down still counts in memory; **a throwing client doesn't 500 or lock out**; `memory` mode never calls the store |
+| `admin-lockout.test.ts` | 6 | **Guesses spread over `/api/projects`, `/api/blog/posts`, and `/api/auth` add up to one lockout**, enforced on every admin route including stats; other IPs unaffected; key-less requests and empty passwords never lock anyone out; upload-secret failures don't touch the admin scope |
+| `admin-gate.test.tsx` (jsdom) | 6 | Existing session shows content; password-only sign-in; **2FA: the correct password shows the code step, not the content**, then the code signs in; server errors shown and Start over; lockout message; the password is never in browser storage and the legacy `_lk` is removed |
+| `security-txt.test.ts` | 4 | RFC 9116 fields; `Expires` in the future and under a year; `SECURITY_CONTACT`; `Canonical` from the site URL |
+| `lib-security.test.ts` (+14) | 30 | `getClientIp` ignores garbage, markup, hostnames, ports, over-long and out-of-range values, and skips a malformed platform header; IPv6 accepted; **`ipBucket`**: /64 grouping, separate /64s, every spelling normalized (zero-padding, case, zone id), IPv4-mapped collapse, compressed edge cases |
+| `security-headers.test.ts` (+8) | 22 | **`connect-src` is exactly the project origin and fails closed to `'self'`** when the URL is unset, malformed, plain http, or `javascript:`; Permissions-Policy denies 9 key features (clipboard allowed); `X-Permitted-Cross-Domain-Policies: none`; CORP on `/api` |
+| `api-analytics-track.test.ts` (+3) | 33 | Forged paths rejected (`//evil.com`, query, fragment, whitespace, markup, newline, backslash, non-ASCII); every real route shape accepted; 413 before parsing |
+| `lib-rate-limit.test.ts` (+3) | 16 | IPv6 /64 rotation can't dodge the lockout or the request limiter; IPv4-mapped equals IPv4 |
+| `lib-session.test.ts` (+1) | 20 | **`__Host-admin_session` in production** with Secure, `Path=/`, no Domain; bare name in dev |
 
 Added on 2026-10-20:
 | Suite | Tests | Covers |
@@ -68,8 +88,9 @@ Added on 2026-10-20:
 | `lib-json-ld.test.ts` | 4 | No raw `<`, `>`, `&`, U+2028, or U+2029 in the output; exact round-trip; **both layouts use `serializeJsonLd`** (stored-XSS regression) |
 
 ### Not covered (known gaps)
-- **Most React components and pages.** jsdom and Testing Library now exist, but only the onboarding flow (provider, modal, Navbar tour states, footer, toast) has component tests. Studio CRUD flows, `AdminGate`, `Modal`, and the `MarkdownRenderer` output are still untested.
-- **`lib/blog.ts` and `lib/projects-data.ts`** (the anon-client query builders), and `formatDate`.
+- **Most React components and pages.** jsdom and Testing Library now exist, but only the onboarding flow (provider, modal, Navbar tour states, footer, toast) and `AdminGate` have component tests. Studio CRUD flows, `Modal`, and the `MarkdownRenderer` output are still untested.
+- **`lib/blog.ts` and `lib/projects-data.ts`** (the anon-client query builders), and `formatDate`. The slug guard and explicit columns in `getPostBySlug` were verified in a browser, not by a unit test.
+- **The real 2FA email** (Resend is mocked in tests) and **the Postgres lockout functions** (the RPCs are mocked). Check both by hand after running `auth-lockout-schema.sql` / setting `ADMIN_2FA` (§7.3).
 - **End-to-end flows**, such as creating a post in Studio and seeing it on `/blog`.
 - **RLS policies**, which live in the database. Verify them manually (§7.4).
 - **Visual, responsive, and accessibility regressions.**
@@ -77,7 +98,7 @@ Added on 2026-10-20:
 ## 4. Patterns used in the suites
 
 ### 4.1 Mocking Supabase (`__tests__/helpers/test-utils.ts`)
-`createChain(state)` returns a fake query builder. Every method (`from`, `select`, `order`, `limit`, `insert`, `update`, `upsert`, `delete`, `eq`, `in`, `like`, `single`) records itself in `state.calls` and returns the chain. Awaiting the chain resolves to the next entry in `state.queue`, or to `state.result` once the queue is empty.
+`createChain(state)` returns a fake query builder. Every method (`from`, `select`, `order`, `limit`, `insert`, `update`, `upsert`, `delete`, `eq`, `in`, `like`, `single`, `rpc`) records itself in `state.calls` and returns the chain. Awaiting the chain resolves to the next entry in `state.queue`, or to `state.result` once the queue is empty.
 
 ```ts
 jest.mock("@/lib/supabase-admin", () => {
@@ -119,7 +140,10 @@ beforeEach(() => {
 })
 afterEach(() => jest.restoreAllMocks())
 ```
-- Use a **distinct `x-forwarded-for`** for lockout tests so they don't bleed into each other (for example `"6.6.6.6"`).
+- Use a **distinct `x-forwarded-for`** for lockout tests so they don't bleed into each other (for example `"6.6.6.6"`). Remember the four admin-password routes **share** one lockout scope, and that IPv6 addresses in the same /64 count as one client.
+- **Lockout counting:** only requests that carry a credential count. A lockout test must send a wrong key or password, not omit it.
+- **The shared lockout store** is off in every suite (`AUTH_LOCKOUT_STORE=memory` from `setup-env.ts`). To test it, set `process.env.AUTH_LOCKOUT_STORE = "supabase"` in `beforeEach` and assert on `rpc` calls, as `lib-auth-lockout.test.ts` does.
+- **Oversized bodies:** use a body over the route's `BODY_LIMITS` cap and expect 413. Keep normal test payloads under the cap; the `track` cap is only 8 KB.
 - For time windows, use `jest.useFakeTimers()` with `jest.advanceTimersByTime(ms)`, and reset to real timers in `beforeEach`.
 - To test fail-closed behaviour, `delete process.env.SECRET` inside the test.
 
@@ -235,14 +259,17 @@ Run `npm run dev` with a working `.env.local`. Use browser devtools device mode 
 
 ### 7.3 Studio and Logistics
 - [ ] A wrong password shows "Incorrect password." and the button recovers; the 11th wrong try in 15 minutes shows "Too many attempts. Try again later."
-- [ ] After signing in, devtools → Application → Cookies shows `admin_session` as HttpOnly and SameSite=Strict, and nothing is in sessionStorage. Reloading keeps you signed in, and "Sign out" returns you to the gate.
+- [ ] After signing in, devtools → Application → Cookies shows `__Host-admin_session` (production) or `admin_session` (dev) as HttpOnly and SameSite=Strict, and nothing is in sessionStorage. Reloading keeps you signed in, and "Sign out" returns you to the gate.
+- [ ] **With `ADMIN_2FA=email`:** the right password shows "We emailed a 6-digit code…", and an "Admin sign-in code" email arrives within a minute with the requesting IP. The code signs you in; a wrong code says "Incorrect or expired code."; "Start over" returns to the password. A script sending `x-logistics-key` now gets 401.
+- [ ] **After `auth-lockout-schema.sql`:** five wrong passwords, then `select key, count from auth_failures` in the SQL editor shows hashed keys (no raw IPs) with counts. The function logs no longer warn about the schema.
 - [ ] Create, edit (every field), publish, unpublish, and delete a post; bulk select, publish, and delete
 - [ ] Create a project through the wizard (all 4 steps), edit it, toggle Public/Hidden, two-click delete; check that Home reflects the change
 - [ ] Logistics loads, refreshes, toggles device tracking, and copies the IP
 - [ ] Studio and Logistics visits are **not** recorded (check that the Logistics recent-activity list doesn't show them)
 
 ### 7.4 Database and RLS (after any schema change)
-- [ ] With the **anon** key (browser console on the site, or a REST call), drafts and hidden projects are not returned; inserts and updates on `posts` and `projects` are denied; `page_views` and `project_documents` return nothing once S-1 is fixed
+- [ ] With the **anon** key (browser console on the site, or a REST call), drafts and hidden projects are not returned; inserts and updates on `posts` and `projects` are denied; `page_views`, `consent_events` and `project_documents` return `42501 permission denied` (true since 2026-10-21); calling `/rest/v1/rpc/auth_failure_counts` is denied
+- [ ] Run `supabase/audit-exposure.sql` (read-only) and compare each section with its "Expect" comment
 - [ ] The schema SQL file in `supabase/` matches what you ran
 
 ### 7.5 Production build

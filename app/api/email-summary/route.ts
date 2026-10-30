@@ -1,7 +1,9 @@
 import { type NextRequest } from "next/server"
 import { Resend } from "resend"
 import { safeEqual, getClientIp } from "@/lib/security"
-import { isAuthBlocked, recordAuthFailure, rateLimit } from "@/lib/rate-limit"
+import { rateLimit } from "@/lib/rate-limit"
+import { isAuthBlocked, recordAuthFailure } from "@/lib/auth-lockout"
+import { BODY_LIMITS, readJsonBody } from "@/lib/http"
 import { LIMITS, isStringMax, isJsonObject } from "@/lib/validation"
 
 const ROUTE = "email-summary"
@@ -23,22 +25,25 @@ const SEND_WINDOW_MS = 60 * 60 * 1000 // 10 sends per hour
 export async function POST(request: NextRequest) {
     // 1. Authenticate (constant-time compare + brute-force damping)
     const ip = getClientIp(request)
-    if (isAuthBlocked(ROUTE, ip)) {
+    if (await isAuthBlocked(ROUTE, ip)) {
         return Response.json({ error: "Too many attempts. Try again later." }, { status: 429 })
     }
+    const apiKey = request.headers.get("x-api-key")
     const secret = process.env.EMAIL_SUMMARY_SECRET
-    if (!secret || !safeEqual(request.headers.get("x-api-key"), secret)) {
-        recordAuthFailure(ROUTE, ip)
+    if (!secret || !safeEqual(apiKey, secret)) {
+        if (apiKey) await recordAuthFailure(ROUTE, ip) // only real guesses count
         return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // 2. Parse + validate body
-    let body: unknown
-    try {
-        body = await request.json()
-    } catch {
-        return Response.json({ error: "Request body must be valid JSON" }, { status: 400 })
+    // 2. Parse + validate body (byte-capped while streaming)
+    const parsed = await readJsonBody(request, BODY_LIMITS.upload)
+    if (!parsed.ok) {
+        return Response.json(
+            { error: parsed.status === 413 ? parsed.error : "Request body must be valid JSON" },
+            { status: parsed.status }
+        )
     }
+    const body = parsed.body
     if (!isJsonObject(body)) {
         return Response.json({ error: "Request body must be a JSON object" }, { status: 400 })
     }
@@ -62,8 +67,8 @@ export async function POST(request: NextRequest) {
     }
 
     const to = process.env.SUMMARY_RECIPIENT_EMAIL
-    const apiKey = process.env.RESEND_API_KEY
-    if (!to || !apiKey) {
+    const resendKey = process.env.RESEND_API_KEY
+    if (!to || !resendKey) {
         // Created per request rather than at module load: `new Resend()` throws
         // without a key, which would crash the whole module instead of failing closed.
         console.error(`[${ROUTE}] SUMMARY_RECIPIENT_EMAIL or RESEND_API_KEY is not set`)
@@ -81,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     // 4. Send via Resend — recipient is always the configured env address,
     // so this route can never be turned into an open relay.
-    const resend = new Resend(apiKey)
+    const resend = new Resend(resendKey)
     const { data, error } = await resend.emails.send({
         from: process.env.RESEND_FROM_EMAIL || "Inbox Summary <onboarding@resend.dev>",
         to,

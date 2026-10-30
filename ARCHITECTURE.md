@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-10-19** (HEAD `5589a7d`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-10-21** (branch `security-sweep`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -111,9 +111,12 @@ flowchart LR
 │   ├── blog.ts                    Post types, themeMap, getPosts/getPostContent/getPostBySlug, formatDate
 │   ├── projects-data.ts           PublicProject type, projectThemeMap, getPublicProjects
 │   ├── projects.ts                LEGACY hard-coded project list, used only by WorkComponent (/work)
-│   ├── security.ts                safeEqual (timing-safe), getClientIp, isSameOriginRequest (CSRF)
-│   ├── session.ts                 Signed, expiring admin session tokens + cookie options
-│   ├── admin-auth.ts              checkAdminAuth: session cookie (+CSRF) or x-logistics-key, with lockout
+│   ├── security.ts                safeEqual (timing-safe), getClientIp (validated), ipBucket (IPv6 /64), isSameOriginRequest (CSRF)
+│   ├── session.ts                 Signed, expiring admin session tokens + cookie options (__Host- in production)
+│   ├── two-factor.ts              Optional emailed sign-in code (ADMIN_2FA=email): stateless challenge + Resend send
+│   ├── admin-auth.ts              checkAdminAuth: session cookie (+CSRF) or x-logistics-key, with the shared lockout
+│   ├── auth-lockout.ts            Brute-force lockout: in-memory layer + Postgres layer shared by all instances
+│   ├── http.ts                    readJsonBody / readBodyText: byte-capped body readers (413), BODY_LIMITS
 │   ├── json-ld.ts                 serializeJsonLd: XSS-safe JSON for <script type=ld+json>
 │   ├── consent.ts                 java_consent cookie model (parse/serialize, version, allowsAnalytics, data-point list)
 │   ├── tour.ts                    Tour steps + navigation rules (resolveTourIndex, upcomingPageChange)
@@ -121,7 +124,7 @@ flowchart LR
 │   ├── theme.ts                   Accent theme map (pure data; re-exported by lib/blog)
 │   ├── user-agent.ts              Coarse browser/OS summary for the dashboard
 │   ├── random-id.ts               UUID v4 that also works on plain-http origins
-│   ├── supabase-errors.ts         isMissingColumn / isMissingTable for graceful schema drift
+│   ├── supabase-errors.ts         isMissingColumn / isMissingTable / isMissingFunction for graceful schema drift
 │   ├── rate-limit.ts              In-memory fixed-window limiter (10k-key cap) + per-IP and global auth lockout
 │   ├── validation.ts              LIMITS, type-guard validators, normalizers, slugify, estimateReadingTime
 │   └── markdown-sanitize.ts       rehype-sanitize allowlist schema
@@ -157,39 +160,45 @@ There are no Server Actions, `use cache`, `revalidate*` calls, `proxy.ts`, or ro
 
 | Module | Runs where | Purpose | Rules |
 |---|---|---|---|
-| `lib/supabase.ts` | Anywhere | `createClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)` | Logs a warning when env vars are missing, **but `createClient` throws on an empty URL at import time** |
-| `lib/supabase-admin.ts` | **Server only** | Service-role client, `persistSession: false` | Never import from `"use client"` files. Bypasses RLS. |
-| `lib/blog.ts` | Anywhere | `Post`, `PostWithContent`, `PostTheme`, `themeMap`; `getPosts()` (published, without content, newest first), `getPostContent(id)` (published only), `getPostBySlug(slug)` (published only, `null` on error), `formatDate` | Public reads always add `.eq("published", true)` on top of RLS |
+| `lib/supabase.ts` | Anywhere | `createClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)` with every auth feature off (`persistSession`, `autoRefreshToken`, `detectSessionInUrl`), so a crafted `#access_token=` link can't plant a session | Logs a warning when env vars are missing, **but `createClient` throws on an empty URL at import time** |
+| `lib/supabase-admin.ts` | **Server only** (`import "server-only"`) | Service-role client, auth features off | Never import from `"use client"` files (the build and `server-boundary.test.ts` both fail). Bypasses RLS. Also throws at import without env vars, so `lib/auth-lockout.ts` imports it lazily. |
+| `lib/blog.ts` | Anywhere | `Post`, `PostWithContent`, `PostTheme`, `themeMap`; `getPosts()` (published, without content, newest first), `getPostContent(id)` (published only), `getPostBySlug(slug)` (published only; returns `null` for an invalid slug **without querying**, or on error), `formatDate` | Public reads always add `.eq("published", true)` on top of RLS, and select explicit columns (`POST_COLUMNS`), never `*` |
 | `lib/projects-data.ts` | Anywhere | `PublicProject`, `projectThemeMap`, `getPublicProjects()` (published; featured first, then newest) | Same rule |
 | `lib/projects.ts` | Anywhere | Legacy static `projects[]` with Tailwind classes baked in | Scheduled for deletion |
 | `lib/validation.ts` | Server (pure) | `LIMITS`, `isValidSlug`, `isNonEmptyString`, `isStringMax`, `normalizeTags`, `normalizeTheme`, `normalizeProjectStatus`, `isValidUrlOrEmpty`, `estimateReadingTime`, `slugify` | Pure functions, fully unit-tested |
-| `lib/security.ts` | Server | `safeEqual` (SHA-256 both sides, then `timingSafeEqual`), `getClientIp` (`x-nf-client-connection-ip`, then first XFF entry, then `x-real-ip`, then `"unknown"`), `isSameOriginRequest` (Sec-Fetch-Site, then Origin vs Host) | |
-| `lib/session.ts` | Server | `createSessionToken`, `verifySessionToken`, `sessionCookieOptions`, `SESSION_COOKIE`, `SESSION_TTL_SECONDS` (8 h) | The HMAC key derives from `SESSION_SECRET` (or the service-role key) plus `LOGISTICS_PASSWORD`; fails closed |
-| `lib/admin-auth.ts` | Server | `checkAdminAuth(req, route)` returns a response to send, or null if allowed | The only auth check admin routes should use |
+| `lib/security.ts` | Server only | `safeEqual` (SHA-256 both sides, then `timingSafeEqual`), `getClientIp` (`x-nf-client-connection-ip`, then first XFF entry, then `x-real-ip`, each kept only if it parses as an IP; else `"unknown"`), `ipBucket` (IPv6 → its /64, IPv4-mapped → IPv4), `isSameOriginRequest` (Sec-Fetch-Site, then Origin vs Host) | |
+| `lib/session.ts` | Server only | `createSessionToken`, `verifySessionToken`, `sessionCookieOptions`, `SESSION_COOKIE` (`__Host-admin_session` in production, `admin_session` otherwise), `SESSION_TTL_SECONDS` (8 h), `getSessionKey` | The HMAC key derives from `SESSION_SECRET` (or the service-role key) plus `LOGISTICS_PASSWORD`; fails closed |
+| `lib/two-factor.ts` | Server only | `isTwoFactorEnabled` (`ADMIN_2FA=email`), `isTwoFactorConfigured`, `createChallenge` / `verifyChallenge` (stateless HMAC over expiry + nonce + code, `admin-2fa-v1` prefix), `normalizeCode`, `sendCode` (Resend), `TWO_FACTOR_COOKIE` | Codes go only to `ADMIN_2FA_EMAIL` / `SUMMARY_RECIPIENT_EMAIL`; 10-minute challenges |
+| `lib/admin-auth.ts` | Server only | `await checkAdminAuth(req)` returns a response to send, or null if allowed | The only auth check admin routes should use. Shares the `admin-password` lockout scope with `/api/auth`; refuses `x-logistics-key` while 2FA is on. |
+| `lib/auth-lockout.ts` | Server only | `ADMIN_PASSWORD_SCOPE`, `await isAuthBlocked(scope, ip)`, `await recordAuthFailure(scope, ip)` | In-memory layer (`lib/rate-limit.ts`) plus Postgres RPCs from `auth-lockout-schema.sql`. Keys hold a hash, not the IP. Store errors fall back to memory. `AUTH_LOCKOUT_STORE=memory` skips the store (tests). |
+| `lib/http.ts` | Server only | `readJsonBody(req, max)` → `{ok, body}` or `{ok:false, status: 400/413}`, `readBodyText(req, max)` (throws `BodyTooLargeError`), `BODY_LIMITS` | The only way routes read bodies; enforces the byte cap while streaming |
 | `lib/json-ld.ts` | Anywhere | `serializeJsonLd(data)` | Escapes `<`, `>`, `&`, and U+2028/2029 |
 | `lib/consent.ts` | Anywhere | `CONSENT_COOKIE`, `CONSENT_VERSION`, `parseConsent` (strict), `serializeConsent`, `allowsAnalytics`, `consentCookieString`, `readConsentFromCookieHeader`, `ANALYTICS_DATA_POINTS` | Cookie value `{"v","a":0/1,"t","id"}`, URI-encoded, 180 days, SameSite=Lax, readable by JS (it holds no secret) |
 | `lib/tour.ts` | Anywhere | `TOUR_STEPS`, `NAV_ITEMS`, `resolveTourIndex`, `upcomingPageChange`, `firstStepForPath`, `tourPages` | Pure, unit-tested; targets map to `data-tour` attributes |
-| `lib/analytics.ts` | Anywhere | `ANALYTICS_SKIP_PREFIXES`, `isTrackablePath`, `normalizeLanguage`, `normalizeTimezone` | Replaces the old duplicated skip lists |
-| `lib/supabase-errors.ts` | Server | `isMissingColumn` (42703/PGRST204), `isMissingTable` (42P01/PGRST205), `warnSchemaOnce` | Lets code deploy before `consent-schema.sql` runs |
-| `lib/rate-limit.ts` | Server | `rateLimit(name, key, limit, windowMs)`, `isAuthBlocked(route, ip)`, `recordAuthFailure(route, ip)`, `resetRateLimits()` (tests) | Module-level `Map`, so state is per process. Each limiter is capped at 10k keys (expired buckets go first, then the oldest 10%). Auth damping: 10 failures per 15 min per IP, plus 100 per route globally. |
+| `lib/analytics.ts` | Anywhere | `ANALYTICS_SKIP_PREFIXES`, `isTrackablePath`, `isValidPagePath` (URL path characters only), `normalizeLanguage`, `normalizeTimezone` | Replaces the old duplicated skip lists |
+| `lib/supabase-errors.ts` | Server | `isMissingColumn` (42703/PGRST204), `isMissingTable` (42P01/PGRST205), `isMissingFunction` (PGRST202/42883), `warnSchemaOnce` | Lets code deploy before a SQL file runs |
+| `lib/rate-limit.ts` | Server only | `rateLimit(name, key, limit, windowMs)`, the in-memory layer of the auth lockout (`isAuthBlocked` / `recordAuthFailure`, sync; routes use `lib/auth-lockout.ts` instead), `AUTH_FAIL_LIMIT` / `AUTH_GLOBAL_FAIL_LIMIT` / `AUTH_FAIL_WINDOW_MS`, `resetRateLimits()` (tests) | Module-level `Map`, so state is per process. Keys go through `ipBucket`. Each limiter is capped at 10k keys (expired buckets go first, then the oldest 10%). Auth damping: 10 failures per 15 min per IP, plus 100 per scope globally. |
 | `lib/markdown-sanitize.ts` | Anywhere | `markdownSanitizeSchema` | Type-only import, so it has no runtime dependencies |
 
 ## 6. API reference
 
 All handlers live in `app/api/**/route.ts`. Errors are always `{"error": "<generic message>"}`. Every JSON body must be a plain object (`null`, arrays, and scalars return 400). Every response carries `Cache-Control: no-store` and `X-Robots-Tag: noindex` (from `next.config.ts`).
 
-**Admin routes** (marked "admin" below) call `checkAdminAuth` (SECURITY.md §4.1). A valid `admin_session` cookie is accepted; for writes it must also pass the same-origin check, or the route returns 403. Without a cookie, the route falls back to the `x-logistics-key` header. **Machine routes** take `x-api-key`. Failed attempts count toward **10 per IP and 100 per route globally per 15 minutes**, after which the route returns `429 {"error":"Too many attempts. Try again later."}`.
+**Admin routes** (marked "admin" below) call `await checkAdminAuth(req)` (SECURITY.md §4.1). A valid session cookie is accepted; for writes it must also pass the same-origin check, or the route returns 403. Without a cookie, the route falls back to the `x-logistics-key` header, which is refused while `ADMIN_2FA=email`. **Machine routes** take `x-api-key`. Wrong credentials count toward **10 per IP and 100 globally per 15 minutes**, after which the route returns `429 {"error":"Too many attempts. Try again later."}`. Requests with no credential get 401 but aren't counted. All four admin-password routes share one counter (scope `admin-password`); each machine route has its own.
+
+**Bodies** are read with `lib/http.ts` and capped in bytes: 2 KB for auth and consent, 8 KB for track, 1 MB for admin CRUD, 4 MB for uploads and email. Anything larger gets `413 {"error":"Request body too large"}` before any other work.
 
 ### 6.0 `/api/auth` (session)
 | Method | Body | Result |
 |---|---|---|
 | GET | none | `200 {authenticated: boolean}` |
-| POST | `{ password }` | `200 {authenticated:true}` plus `Set-Cookie: admin_session=…; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800; Secure` (Secure in production only). Wrong password returns `401`, a lockout `429`, a cross-site request `403`, and a missing signing secret `500`. |
-| DELETE | none | Clears the cookie. A cross-site request returns `403`. |
+| POST | `{ password }` | `200 {authenticated:true}` plus `Set-Cookie: __Host-admin_session=…; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800; Secure`. In development the cookie is `admin_session` and isn't Secure. **With `ADMIN_2FA=email`** the response is instead `200 {authenticated:false, twoFactor:"email"}` plus a 10-minute `__Host-admin_2fa` challenge cookie, and a 6-digit code is emailed to the owner. Wrong password returns `401`, a lockout `429`, a cross-site request `403`, an oversized body `413`, and a missing signing secret `500`. With 2FA on, missing email config returns `500`, a provider error `502`, and more than 5 codes in 15 min `429`. |
+| POST | `{ code }` (2FA step, with the challenge cookie) | `200 {authenticated:true}` plus the session cookie; the challenge cookie is cleared. A wrong or expired code returns `401` and counts toward the lockout; a malformed code returns `400`; a missing challenge cookie returns `401`. |
+| DELETE | none | Clears the session and any pending challenge. A cross-site request returns `403`. |
 
 ### 6.1 `POST /api/analytics/track` (public)
 - **Consent gate (first, after IP exclusion and the rate limit):** without a current `java_consent` cookie with analytics on, the route returns `200 {ok:true, tracked:false}` and writes nothing.
-- **Body** (`Content-Type: application/json` required): `{ page, session_id, referrer?, is_new_visitor?, load_time?, screen_width?, language?, timezone? }`
+- **Body** (`Content-Type: application/json` required, ≤8 KB): `{ page, session_id, referrer?, is_new_visitor?, load_time?, screen_width?, language?, timezone? }`. `page` must be a plain path (`isValidPagePath`): no `//host`, query, fragment, whitespace, or markup.
 - **Opt-in fields stored:** `ip_address` (the client IP, only if it parses as an IP), `language` and `timezone` (validated, else null), `visitor_id` (**from the consent cookie, never the body**), and `consent_version`. If those columns don't exist yet (code deployed before `consent-schema.sql`), the insert is retried with the original columns and a warning is logged once.
 - Success returns `200 {ok:true, tracked:true}`.
 - **Order of checks:**
@@ -293,6 +302,15 @@ RLS is **enabled with no policies**, so only the service role can touch it. It i
 **Setup order on a fresh project:** `schema.sql`, then `projects-schema.sql`, then `analytics-schema.sql`, then `consent-schema.sql`, then `documents-schema.sql`.
 **Existing database:** run `security-hardening.sql` once. It is idempotent: it enables RLS everywhere, revokes unneeded anon/authenticated grants, and pins the trigger function's `search_path`. It ends with two verification queries and a commented-out retention job.
 
+### `auth_failures` (from `supabase/auth-lockout-schema.sql`)
+`key text PK` (`<scope>:ip:<HMAC prefix>` keyed with a server secret, or `<scope>:global`; never a raw IP), `count int`, and `window_end timestamptz`. RLS is on, and anon/authenticated have no grants. Two functions, executable only by `service_role`:
+- `auth_failure_hit(p_keys text[], p_window_seconds int)` upserts the counters, starting a fresh window when the old one ended, and deletes rows whose window ended over a day ago.
+- `auth_failure_counts(p_keys text[])` returns the counts for windows that are still open.
+
+Used by `lib/auth-lockout.ts`. The app works without this table, falling back to in-memory counting.
+
+**`supabase/audit-exposure.sql`** is read-only. It lists tables without RLS, policies, anon/authenticated grants, functions anon can call, views that bypass RLS, storage buckets and write policies, and Auth accounts by provider. Fixes are included, commented out.
+
 ## 8. Key flows
 
 ### 8.1 Public blog read
@@ -313,17 +331,24 @@ sequenceDiagram
 sequenceDiagram
     participant U as Owner (browser)
     participant AU as /api/auth
-    participant RL as lib/rate-limit (in-memory)
+    participant RL as lib/auth-lockout (memory + Postgres)
     participant A as /api/blog/posts
     participant DB as Supabase (service role)
     U->>AU: POST {password} (AdminGate form, same-origin)
-    AU->>RL: isAuthBlocked(route, ip)? (per IP + global)
+    AU->>RL: isAuthBlocked("admin-password", ip)? (per IP + global)
     AU->>AU: safeEqual(password, LOGISTICS_PASSWORD)
     alt wrong password
         AU->>RL: recordAuthFailure
         AU-->>U: 401 (429 after 10 per IP or 100 global per 15 min)
-    else ok
-        AU-->>U: 200 + Set-Cookie admin_session (HttpOnly, SameSite=Strict, 8 h)
+    else ok, ADMIN_2FA off
+        AU-->>U: 200 + Set-Cookie __Host-admin_session (HttpOnly, SameSite=Strict, 8 h)
+    else ok, ADMIN_2FA=email
+        AU->>AU: createChallenge() → code + HMAC token
+        AU-->>U: email with the code (Resend → owner's inbox)
+        AU-->>U: 200 {twoFactor:"email"} + Set-Cookie __Host-admin_2fa (10 min)
+        U->>AU: POST {code} (challenge cookie attached)
+        AU->>AU: verifyChallenge(token, code) (wrong code → recordAuthFailure, 401)
+        AU-->>U: 200 + Set-Cookie __Host-admin_session, challenge cleared
     end
     U->>A: GET (cookie attached automatically)
     A->>A: checkAdminAuth: verify HMAC + expiry
@@ -370,10 +395,11 @@ sequenceDiagram
 On later visits, a cookie with the current `CONSENT_VERSION` means no modal and no tour offer. A cookie with an older version re-opens only the Privacy step.
 
 ## 9. Auth model (summary)
-- **Admin humans** share one secret, `LOGISTICS_PASSWORD`, sent once to `POST /api/auth` and exchanged for an HttpOnly, SameSite=Strict session cookie (`admin_session`, 8 h, HMAC-signed and stateless). The cookie guards `/api/blog/posts`, `/api/projects`, and `/api/analytics/stats` through `checkAdminAuth`. Cookie-authenticated writes must be same-origin. Changing the password signs everyone out. Scripts may still send the password as `x-logistics-key`.
+- **Admin humans** share one secret, `LOGISTICS_PASSWORD`, sent once to `POST /api/auth` and exchanged for an HttpOnly, SameSite=Strict session cookie (`__Host-admin_session` in production, 8 h, HMAC-signed and stateless). The cookie guards `/api/blog/posts`, `/api/projects`, and `/api/analytics/stats` through `checkAdminAuth`. Cookie-authenticated writes must be same-origin. Changing the password signs everyone out. Scripts may still send the password as `x-logistics-key`, unless 2FA is on.
 - **Machines** each get their own secret in the `x-api-key` header: `BLOG_UPLOAD_SECRET`, `DOCS_UPLOAD_SECRET`, and `EMAIL_SUMMARY_SECRET`.
 - **The page "gates"** (`components/features/AdminGate.tsx`) are UX only. The real protection is that every data call needs a valid session or secret.
-- See SECURITY.md for the threat model and limitations. A second factor is still open (S-6, PRD P2-3).
+- **Second factor (opt-in):** `ADMIN_2FA=email` adds an emailed 6-digit code after the password and disables `x-logistics-key` (S-6).
+- See SECURITY.md for the threat model and limitations.
 
 ## 10. SEO plumbing
 - **Root metadata** (`app/layout.tsx`): `metadataBase = NEXT_PUBLIC_SITE_URL ?? "https://java.dev"`, a title template of `%s | JAVA.dev`, OG and Twitter cards, robots allowing indexing, and Person JSON-LD.
@@ -408,10 +434,14 @@ Set these in `.env.local` locally and in **Netlify, under Site settings → Envi
 | `BLOG_UPLOAD_SECRET` | server secret | `/api/blog/upload` | Only if you use the upload webhook |
 | `DOCS_UPLOAD_SECRET` | server secret | `/api/docs/upload` | Only for docs sync |
 | `EMAIL_SUMMARY_SECRET` | server secret | `/api/email-summary` | Only for digests |
-| `RESEND_API_KEY` | server secret | `/api/email-summary` | Only for digests. Without it, the route returns 500 (fails closed). |
+| `RESEND_API_KEY` | server secret | `/api/email-summary`, 2FA codes | Only for digests and 2FA. Without it, the route returns 500 (fails closed). |
 | `RESEND_FROM_EMAIL` | server | `/api/email-summary` | Optional. Without it, sends use the sandbox sender, which delivers only to the owner. |
 | `SUMMARY_RECIPIENT_EMAIL` | server | `/api/email-summary` | Yes, for digests |
 | `ANALYTICS_EXCLUDED_IPS` | server | `/api/analytics/track`, `/api/analytics/stats` | Optional; comma-separated list |
+| `ADMIN_2FA` | server | `lib/two-factor.ts`, `lib/admin-auth.ts` | Optional. `email` turns on the emailed sign-in code and disables `x-logistics-key`. Needs `RESEND_API_KEY` and a recipient, or sign-in fails closed. |
+| `ADMIN_2FA_EMAIL` | server | `lib/two-factor.ts` | Optional; where 2FA codes go (default `SUMMARY_RECIPIENT_EMAIL`) |
+| `AUTH_LOCKOUT_STORE` | server | `lib/auth-lockout.ts` | Tests set `memory`; leave unset in production so lockouts are shared |
+| `SECURITY_CONTACT` | server | `/.well-known/security.txt` | Optional; email or `https://` URL (default: the address on `/contact`) |
 
 To add a new variable, add it to this table **and** to the README env table, read it with `process.env.X` on the server, and check that it is set before use (fail closed for secrets).
 
@@ -419,7 +449,7 @@ To add a new variable, add it to this table **and** to the README env table, rea
 - **Netlify** builds `next build` from `main`. There is no repo-side Netlify config. The site is at https://javastudios.netlify.app.
 - **Build prerequisites:** the Supabase URL and anon key must be present, because the sitemap queries posts and `createClient` throws without them.
 - Linting does **not** run during `next build` in Next 16, and there is **no CI**. Run the checks locally (see TESTING.md) until P1-2 lands.
-- **Serverless caveat:** module state such as the rate-limit maps is per warm instance and resets on cold start.
+- **Serverless caveat:** module state such as the rate-limit maps is per warm instance and resets on cold start. Auth lockouts also live in Postgres (`auth_failures`) once `auth-lockout-schema.sql` has run, so they survive both.
 
 ## 14. Recipes
 
@@ -457,8 +487,8 @@ Do all of the following together: add the SQL `alter table` (and update the sche
 |---|---|---|
 | Public reads go from browser to Supabase with RLS | No server hop; RLS is the trust boundary | Moving the blog to Server Components (P1-4) |
 | All writes go through route handlers with the service role | Keeps the service key server-side and centralizes validation | Never |
-| A static shared password instead of user auth | A single owner, and fast to build | P2-3 |
-| In-memory rate limiting | No external dependency | P2-1 |
+| A static shared password instead of user auth, with an optional emailed code (`ADMIN_2FA`) | A single owner, and fast to build | More than one admin |
+| In-memory request limiting; auth lockouts in Postgres | No external dependency (the lockout reuses Supabase) | Abuse that per-instance flood limits can't absorb (P2-1) |
 | One SQL file per table, no migration tool | Small schema; it runs in the dashboard | A second environment (staging) or frequent schema changes |
 | First-party analytics in Postgres | Privacy, no third-party scripts, portfolio value | Volume nears 50k rows in the stats window, at which point stats need SQL aggregation |
 | Jest with a Babel transform, not `next/jest` | Avoids a root Babel config that would disable SWC | Adopting Vitest per the bundled guide |

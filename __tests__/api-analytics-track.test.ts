@@ -138,6 +138,25 @@ describe("validation", () => {
         expect((await track({ ...validBody, page: 42 })).status).toBe(400)
     })
 
+    it("rejects forged paths: protocol-relative, query, whitespace, markup", async () => {
+        for (const page of ["//evil.com", "/blog?x=1", "/blog#top", "/a b", "/<script>", "/a\nb", "/\\evil", "/café"]) {
+            expect((await track({ ...validBody, page })).status).toBe(400)
+        }
+        expect(mockDb.calls.some((c) => c.method === "insert")).toBe(false)
+    })
+
+    it("accepts every real route shape", async () => {
+        for (const page of ["/", "/blog", "/blog/my-first-post", "/work", "/privacy", "/caf%C3%A9"]) {
+            expect((await track({ ...validBody, page })).status).toBe(200)
+        }
+    })
+
+    it("refuses an oversized body with 413 before parsing it", async () => {
+        const res = await track({ ...validBody, junk: "x".repeat(9 * 1024) })
+        expect(res.status).toBe(413)
+        expect(mockDb.calls).toHaveLength(0)
+    })
+
     it("rejects oversized page / session_id", async () => {
         expect((await track({ ...validBody, page: "/" + "a".repeat(400) })).status).toBe(400)
         expect((await track({ ...validBody, session_id: "s".repeat(200) })).status).toBe(400)
@@ -148,7 +167,7 @@ describe("validation", () => {
     })
 
     it("drops an oversized or non-URL referrer instead of storing it", async () => {
-        await track({ ...validBody, referrer: "https://x.com/" + "r".repeat(10_000) })
+        await track({ ...validBody, referrer: "https://x.com/" + "r".repeat(3_000) }) // over LIMITS.referrer, under the body cap
         await track({ ...validBody, referrer: "not a url" })
         await track({ ...validBody, referrer: "javascript:alert(1)" })
         const rows = mockDb.calls.filter((c) => c.method === "insert").map((c) => c.args[0] as Record<string, string>)

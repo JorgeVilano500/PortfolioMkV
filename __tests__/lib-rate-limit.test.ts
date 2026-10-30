@@ -49,6 +49,13 @@ describe("rateLimit", () => {
     })
 })
 
+describe("IPv6 rotation", () => {
+    it("rate-limits a whole /64 as one client (track-endpoint flood)", () => {
+        for (let i = 0; i < 5; i++) rateLimit("t", `2001:db8:9:9::${i + 1}`, 5, 60_000)
+        expect(rateLimit("t", "2001:db8:9:9:abcd::42", 5, 60_000).ok).toBe(false)
+    })
+})
+
 describe("auth brute-force damping", () => {
     it("does not block before 10 failures", () => {
         for (let i = 0; i < 9; i++) recordAuthFailure("route", "1.2.3.4")
@@ -68,6 +75,17 @@ describe("auth brute-force damping", () => {
     it("blocks per-route", () => {
         for (let i = 0; i < 10; i++) recordAuthFailure("route-a", "1.2.3.4")
         expect(isAuthBlocked("route-b", "1.2.3.4")).toBe(false)
+    })
+
+    it("can't be dodged by rotating addresses inside one IPv6 /64", () => {
+        for (let i = 0; i < 10; i++) recordAuthFailure("route", `2001:db8:1:2::${(i + 1).toString(16)}`)
+        expect(isAuthBlocked("route", "2001:db8:1:2:dead:beef:0:1")).toBe(true)
+        expect(isAuthBlocked("route", "2001:db8:1:3::1")).toBe(false)
+    })
+
+    it("treats IPv4-mapped IPv6 as the same client as the IPv4 address", () => {
+        for (let i = 0; i < 10; i++) recordAuthFailure("route", "::ffff:1.2.3.4")
+        expect(isAuthBlocked("route", "1.2.3.4")).toBe(true)
     })
 
     it("unblocks after the 15-minute window", () => {

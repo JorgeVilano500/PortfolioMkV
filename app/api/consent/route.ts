@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { getClientIp, isSameOriginRequest } from "@/lib/security"
 import { rateLimit } from "@/lib/rate-limit"
+import { BODY_LIMITS, readJsonBody } from "@/lib/http"
 import { isJsonObject, isUuid } from "@/lib/validation"
 import { CONSENT_COOKIE, CONSENT_VERSION, parseConsent } from "@/lib/consent"
 import { isMissingColumn, isMissingTable, warnSchemaOnce } from "@/lib/supabase-errors"
@@ -51,12 +52,9 @@ export async function POST(req: NextRequest) {
     const denied = guard(req)
     if (denied) return denied
 
-    let body: unknown
-    try {
-        body = await req.json()
-    } catch {
-        return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-    }
+    const parsed = await readJsonBody(req, BODY_LIMITS.tiny)
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status })
+    const body = parsed.body
     if (!isJsonObject(body)) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
 
     const { id, analytics, version } = body

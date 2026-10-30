@@ -16,6 +16,11 @@ export function isMissingTable(error: DbError): boolean {
     return error?.code === "42P01" || error?.code === "PGRST205"
 }
 
+/** RPC function doesn't exist (PostgREST schema cache PGRST202). */
+export function isMissingFunction(error: DbError): boolean {
+    return error?.code === "PGRST202" || error?.code === "42883"
+}
+
 const warned = new Set<string>()
 
 /** Log a schema-drift warning once per process (avoids flooding logs on every request). */

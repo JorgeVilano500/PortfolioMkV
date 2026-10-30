@@ -4,9 +4,10 @@
  *
  * Because rehype-raw parses embedded raw HTML, without sanitization a post
  * could carry <script>, <iframe>, onerror= handlers, javascript: URLs, etc.
- * (stored XSS — and the admin password sits in sessionStorage on the gated
- * pages, so XSS = credential theft). This schema is allowlist-based: anything
- * not listed is stripped.
+ * (stored XSS — script running on this origin can make same-origin requests
+ * that carry the HttpOnly admin session cookie, so XSS = admin takeover even
+ * though no page holds the password). This schema is allowlist-based:
+ * anything not listed is stripped.
  *
  * Defined explicitly (rather than importing rehype-sanitize's defaultSchema)
  * so it stays dependency-free and unit-testable.
