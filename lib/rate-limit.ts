@@ -1,10 +1,16 @@
+import "server-only"
+import { ipBucket } from "./security"
+
 /**
  * In-memory fixed-window rate limiter.
  *
  * NOTE: state lives in the process. On serverless (Netlify functions) each
  * warm instance has its own counters, so this is best-effort abuse damping,
- * not a hard guarantee. For a hard guarantee use a shared store
- * (e.g. Upstash Redis) — see SECURITY.md.
+ * not a hard guarantee. Auth lockouts add a shared Postgres layer on top
+ * (lib/auth-lockout.ts); the request limiters here stay per instance.
+ *
+ * Client keys go through ipBucket(), so an IPv6 attacker can't get a fresh
+ * bucket per address by rotating within their /64.
  */
 
 type Bucket = { count: number; resetAt: number }
@@ -51,6 +57,7 @@ export function rateLimit(
 ): RateLimitResult {
     const store = getStore(name)
     const now = Date.now()
+    key = ipBucket(key)
 
     const bucket = store.get(key)
     if (!bucket || bucket.resetAt <= now) {
@@ -66,18 +73,20 @@ export function rateLimit(
     return { ok: true, retryAfterSeconds: 0 }
 }
 
-// ─── Auth brute-force damping ────────────────────────────────────────────────
+// ─── Auth brute-force damping (in-process layer) ─────────────────────────────
 // Only *failed* auth attempts count, so legitimate admin traffic is never
-// throttled. Two layers, both per route:
+// throttled. Two layers, both per scope:
 //  - per IP: 10 failures / 15 min
 //  - global: 100 failures / 15 min across all IPs, so an attacker with many
 //    addresses still gets a bounded number of guesses. Trade-off: during such
-//    an attack, new sign-ins on that route are refused until the window ends
-//    (existing admin sessions are unaffected — see lib/admin-auth.ts).
+//    an attack, new sign-ins are refused until the window ends (existing admin
+//    sessions are unaffected — see lib/admin-auth.ts).
+// Routes don't call these directly: lib/auth-lockout.ts combines this layer
+// with counters shared across serverless instances.
 
-const AUTH_FAIL_LIMIT = 10
-const AUTH_GLOBAL_FAIL_LIMIT = 100
-const AUTH_FAIL_WINDOW_MS = 15 * 60 * 1000
+export const AUTH_FAIL_LIMIT = 10
+export const AUTH_GLOBAL_FAIL_LIMIT = 100
+export const AUTH_FAIL_WINDOW_MS = 15 * 60 * 1000
 const GLOBAL_KEY = "all"
 
 function isOverLimit(bucket: Bucket | undefined, limit: number): boolean {
@@ -88,7 +97,7 @@ function isOverLimit(bucket: Bucket | undefined, limit: number): boolean {
 export function isAuthBlocked(route: string, ip: string): boolean {
     return (
         isOverLimit(getStore(`auth-global:${route}`).get(GLOBAL_KEY), AUTH_GLOBAL_FAIL_LIMIT) ||
-        isOverLimit(getStore(`auth:${route}`).get(ip), AUTH_FAIL_LIMIT)
+        isOverLimit(getStore(`auth:${route}`).get(ipBucket(ip)), AUTH_FAIL_LIMIT)
     )
 }
 

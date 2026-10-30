@@ -10,6 +10,18 @@ export function isTrackablePath(path: string): boolean {
     return !ANALYTICS_SKIP_PREFIXES.some((prefix) => path.startsWith(prefix))
 }
 
+/**
+ * A same-site path as the tracker sends it: URL path characters only
+ * (RFC 3986 pchar plus "/"), no protocol-relative "//" prefix, no query or
+ * fragment, no whitespace or markup. Every real route is ASCII, so anything
+ * else is a forged request and isn't stored.
+ */
+const PAGE_PATH_RE = /^\/(?!\/)[A-Za-z0-9\-._~%!$&'()*+,;=:@/]*$/
+
+export function isValidPagePath(path: string): boolean {
+    return PAGE_PATH_RE.test(path)
+}
+
 /** BCP 47-ish language tag from navigator.language, e.g. "en-US", "zh-Hant-TW". */
 const LANGUAGE_RE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/
 /** IANA timezone from Intl, e.g. "America/Los_Angeles", "Etc/GMT+8", "UTC". */

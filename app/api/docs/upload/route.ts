@@ -2,7 +2,8 @@ import { type NextRequest } from "next/server"
 import { createHash } from "crypto"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { safeEqual, getClientIp } from "@/lib/security"
-import { isAuthBlocked, recordAuthFailure } from "@/lib/rate-limit"
+import { isAuthBlocked, recordAuthFailure } from "@/lib/auth-lockout"
+import { BODY_LIMITS, BodyTooLargeError, readBodyText } from "@/lib/http"
 import { LIMITS, isValidSlug, isNonEmptyString, isStringMax, isJsonObject } from "@/lib/validation"
 
 const ROUTE = "docs/upload"
@@ -15,18 +16,27 @@ const FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,198}\.md$/
 export async function POST(request: NextRequest) {
     // 1. Authenticate (constant-time compare + brute-force damping)
     const ip = getClientIp(request)
-    if (isAuthBlocked(ROUTE, ip)) {
+    if (await isAuthBlocked(ROUTE, ip)) {
         return Response.json({ error: "Too many attempts. Try again later." }, { status: 429 })
     }
     const apiKey = request.headers.get("x-api-key")
     const secret = process.env.DOCS_UPLOAD_SECRET
     if (!secret || !safeEqual(apiKey, secret)) {
-        recordAuthFailure(ROUTE, ip)
+        if (apiKey) await recordAuthFailure(ROUTE, ip) // only real guesses count
         return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // 2. Read + parse JSON body, with a size cap
-    const raw = await request.text()
+    // 2. Read + parse JSON body — byte cap while streaming, then a char cap
+    let raw: string
+    try {
+        raw = await readBodyText(request, BODY_LIMITS.upload)
+    } catch (err) {
+        const tooLarge = err instanceof BodyTooLargeError
+        return Response.json(
+            { error: tooLarge ? "Request body too large" : "Could not read request body" },
+            { status: tooLarge ? 413 : 400 }
+        )
+    }
     if (raw.length > LIMITS.uploadBody) {
         return Response.json({ error: "Request body too large" }, { status: 413 })
     }

@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import type { PostTheme } from "./theme"
+import { isValidSlug } from "./validation"
 
 // Re-exported so existing imports keep working; the definitions live in lib/theme.ts.
 export { themeMap, type PostTheme } from "./theme"
@@ -19,10 +20,12 @@ export type Post = {
 
 export type PostWithContent = Post & { content: string }
 
+const POST_COLUMNS = "id, title, slug, excerpt, tags, cover_emoji, theme, reading_time, published, created_at"
+
 export async function getPosts(): Promise<Post[]> {
     const { data, error } = await supabase
         .from("posts")
-        .select("id, title, slug, excerpt, tags, cover_emoji, theme, reading_time, published, created_at")
+        .select(POST_COLUMNS)
         .eq("published", true)
         .order("created_at", { ascending: false })
 
@@ -43,9 +46,15 @@ export async function getPostContent(id: string): Promise<string> {
 }
 
 export async function getPostBySlug(slug: string): Promise<PostWithContent | null> {
+    // The slug comes straight from the URL: anything that isn't a slug can't
+    // match a post, so don't send it to the database at all.
+    if (!isValidSlug(slug)) return null
+
+    // Explicit columns: a column added to `posts` later (notes, drafts…) must
+    // not start shipping to every visitor's browser by default.
     const { data, error } = await supabase
         .from("posts")
-        .select("*")
+        .select(`${POST_COLUMNS}, content`)
         .eq("slug", slug)
         .eq("published", true)
         .single()

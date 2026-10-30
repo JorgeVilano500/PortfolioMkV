@@ -1,6 +1,6 @@
 # Code Style
 
-_Conventions for writing code in this repo, inferred from the code that exists. The repo has **no Prettier or EditorConfig**, so this doc and ESLint are the only formatting authority. Last verified: **2026-10-19**._
+_Conventions for writing code in this repo, inferred from the code that exists. The repo has **no Prettier or EditorConfig**, so this doc and ESLint are the only formatting authority. Last verified: **2026-10-21**._
 
 **The prime rule: make new code read like the code around it.** Where older files differ (most of them are create-next-app leftovers), follow this doc in new code, and don't reformat untouched lines in unrelated changes.
 
@@ -61,7 +61,7 @@ Use numeric separators for large literals (`60_000`, `200_000`, `1_000_000`).
 - **Components** are **named exports** (`export function Navbar(...)`). **Pages, layouts, and route-convention files** use `export default` (Next requires it), while route handlers export named `GET`, `POST`, and so on.
 - **Barrel:** `components/index.tsx` re-exports public components, so `import { Navbar } from "@/components"` is fine. **Inside `components/`, import siblings directly** (`./ProjectList`, `../features/Modal`), not from `../index`. `Home.tsx` does the latter today; fix it when you touch that file.
 - **One feature, one folder.** Admin feature components live next to their page (`app/studio/*`). Promote a component to `components/` only once a second page uses it.
-- **Server-only modules:** keep anything that reads secrets or uses `supabaseAdmin` out of files that client components import. If you create a new one, consider adding `import "server-only"` at the top (the package would need adding).
+- **Server-only modules:** any `lib/` file that reads a secret, uses `supabaseAdmin`, or builds on one that does starts with `import "server-only"`. Next resolves that import itself with nothing to install, so a Client Component importing the module fails the build. Jest maps it to `__tests__/helpers/server-only.ts`. `__tests__/server-boundary.test.ts` checks every such module has the guard, and that no `"use client"` file can reach one through its imports. Keep shared logic that the browser needs (for example `lib/analytics.ts`, `lib/consent.ts`, `lib/validation.ts`) free of server imports.
 
 ## 5. React and Next.js patterns
 
@@ -101,7 +101,7 @@ const save = async () => {
     try {
         const res = await fetch("/api/projects", {
             method: "PATCH",
-            headers: { "Content-Type": "application/json", "x-logistics-key": authKey },
+            headers: { "Content-Type": "application/json" }, // the HttpOnly session cookie rides along
             body: JSON.stringify({ id, ...fields }),
         })
         if (!res.ok) { setError((await res.json()).error ?? "Save failed"); return }
@@ -125,20 +125,20 @@ Every admin route follows this shape. `app/api/projects/route.ts` is the referen
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { checkAdminAuth } from "@/lib/admin-auth"
+import { BODY_LIMITS, readJsonBody } from "@/lib/http"
 import { LIMITS, isNonEmptyString, isStringMax, isUuid, isJsonObject } from "@/lib/validation"
 
 const ROUTE = "things"
 
-// Session cookie (+ same-origin check for writes) or x-logistics-key, with lockout
-const checkAuth = (req: NextRequest) => checkAdminAuth(req, ROUTE)
+// Session cookie (+ same-origin check for writes) or x-logistics-key, with the shared admin lockout
+const checkAuth = (req: NextRequest) => checkAdminAuth(req)
 
-async function readJson(req: NextRequest): Promise<Record<string, unknown> | null> {
-    try {
-        const body: unknown = await req.json()
-        return isJsonObject(body) ? body : null   // JSON.parse("null") is valid JSON, so check the shape
-    } catch {
-        return null
-    }
+/** Size-capped JSON object body, or the error response to send. Never `req.json()`: it buffers unbounded input. */
+async function readJson(req: NextRequest): Promise<Record<string, unknown> | NextResponse> {
+    const parsed = await readJsonBody(req, BODY_LIMITS.admin)
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status })
+    // JSON.parse("null") is valid JSON, so check the shape
+    return isJsonObject(parsed.body) ? parsed.body : NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
 }
 function validateFields(body: Record<string, unknown>, { requireCore }: { requireCore: boolean }) { /* whitelist */ }
 function dbError(context: string, message: string): NextResponse {
@@ -147,11 +147,11 @@ function dbError(context: string, message: string): NextResponse {
 }
 
 export async function POST(req: NextRequest) {
-    const denied = checkAuth(req)
+    const denied = await checkAuth(req)
     if (denied) return denied
 
     const body = await readJson(req)
-    if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    if (body instanceof NextResponse) return body
 
     const result = validateFields(body, { requireCore: true })
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 })

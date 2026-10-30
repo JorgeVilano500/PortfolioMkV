@@ -7,6 +7,7 @@ import {
     createSessionToken,
     verifySessionToken,
     sessionCookieOptions,
+    SESSION_COOKIE,
     SESSION_TTL_SECONDS,
 } from "@/lib/session"
 
@@ -86,11 +87,27 @@ describe("sessionCookieOptions", () => {
         expect(opts.maxAge).toBe(SESSION_TTL_SECONDS)
     })
 
-    it("is Secure in production", () => {
+    it("is a Secure __Host- cookie in production (no subdomain can plant or overwrite it)", () => {
         const env = process.env as Record<string, string | undefined>
         const prev = env.NODE_ENV
         env.NODE_ENV = "production"
-        expect(sessionCookieOptions().secure).toBe(true)
-        env.NODE_ENV = prev
+        try {
+            let prod: typeof import("@/lib/session") | undefined
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- fresh module under a different NODE_ENV
+            jest.isolateModules(() => { prod = require("@/lib/session") })
+            expect(prod!.SESSION_COOKIE).toBe("__Host-admin_session")
+            const opts = prod!.sessionCookieOptions()
+            // The browser drops a __Host- cookie unless all three hold.
+            expect(opts.secure).toBe(true)
+            expect(opts.path).toBe("/")
+            expect(opts).not.toHaveProperty("domain")
+        } finally {
+            env.NODE_ENV = prev
+        }
+    })
+
+    it("keeps the bare name off production (plain-http dev servers)", () => {
+        expect(SESSION_COOKIE).toBe("admin_session")
+        expect(sessionCookieOptions().secure).toBe(false)
     })
 })

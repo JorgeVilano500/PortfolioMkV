@@ -12,7 +12,9 @@ module.exports = {
     testMatch: ["**/__tests__/**/*.test.ts", "**/__tests__/**/*.test.tsx"],
     moduleNameMapper: {
         "^@/(.*)$": "<rootDir>/$1",
+        "^server-only$": "<rootDir>/__tests__/helpers/server-only.ts",
     },
+    setupFiles: ["<rootDir>/__tests__/helpers/setup-env.ts"],
     clearMocks: true,
     transform: {
         "^.+\\.(t|j)sx?$": [

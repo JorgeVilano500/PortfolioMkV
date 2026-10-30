@@ -2,7 +2,7 @@
  * lib/security — timing-safe comparison + client IP extraction.
  */
 import { NextRequest } from "next/server"
-import { safeEqual, getClientIp, isSameOriginRequest } from "@/lib/security"
+import { safeEqual, getClientIp, ipBucket, isSameOriginRequest } from "@/lib/security"
 
 describe("safeEqual", () => {
     it("returns true for identical strings", () => {
@@ -70,6 +70,67 @@ describe("getClientIp", () => {
 
     it("returns 'unknown' with no headers", () => {
         expect(getClientIp(make({}))).toBe("unknown")
+    })
+
+    it.each([
+        ["garbage", "not-an-ip"],
+        ["markup", "<script>alert(1)</script>"],
+        ["a hostname", "evil.example.com"],
+        ["an IP with a port", "1.2.3.4:8080"],
+        ["an over-long value", "1".repeat(100)],
+        ["an out-of-range octet", "999.1.1.1"],
+    ])("ignores %s in a forwarding header", (_label, forged) => {
+        expect(getClientIp(make({ "x-forwarded-for": forged }))).toBe("unknown")
+        expect(getClientIp(make({ "x-forwarded-for": forged, "x-real-ip": "5.6.7.8" }))).toBe("5.6.7.8")
+    })
+
+    it("skips a malformed platform header rather than trusting x-forwarded-for blindly", () => {
+        expect(getClientIp(make({ "x-nf-client-connection-ip": "junk", "x-forwarded-for": "1.2.3.4" }))).toBe("1.2.3.4")
+    })
+
+    it("accepts IPv6", () => {
+        expect(getClientIp(make({ "x-nf-client-connection-ip": "2001:db8::1" }))).toBe("2001:db8::1")
+    })
+})
+
+describe("ipBucket", () => {
+    it("leaves IPv4 and non-IP keys alone", () => {
+        expect(ipBucket("203.0.113.9")).toBe("203.0.113.9")
+        expect(ipBucket("unknown")).toBe("unknown")
+        expect(ipBucket("global")).toBe("global")
+    })
+
+    it("counts a whole IPv6 /64 as one client", () => {
+        const a = ipBucket("2001:db8:aaaa:bbbb:1:2:3:4")
+        const b = ipBucket("2001:db8:aaaa:bbbb:ffff:ffff:ffff:ffff")
+        expect(a).toBe(b)
+        expect(a).toBe("2001:db8:aaaa:bbbb::/64")
+    })
+
+    it("keeps different /64s apart", () => {
+        expect(ipBucket("2001:db8:aaaa:bbbb::1")).not.toBe(ipBucket("2001:db8:aaaa:bbbc::1"))
+    })
+
+    it("normalises every spelling of the same address", () => {
+        const spellings = [
+            "2001:db8:0:0:1::1",
+            "2001:0db8:0000:0000:0001:0000:0000:0001",
+            "2001:DB8::1:0:0:1",
+            "2001:db8::1:0:0:1%eth0",
+        ]
+        expect(new Set(spellings.map(ipBucket))).toEqual(new Set(["2001:db8:0:0::/64"]))
+    })
+
+    it("collapses IPv4-mapped IPv6 to the IPv4 address", () => {
+        expect(ipBucket("::ffff:203.0.113.9")).toBe("203.0.113.9")
+        expect(ipBucket("::ffff:cb00:7109")).toBe("203.0.113.9")
+    })
+
+    it("handles the compressed edge cases", () => {
+        expect(ipBucket("::1")).toBe("0:0:0:0::/64")
+        expect(ipBucket("::")).toBe("0:0:0:0::/64")
+        expect(ipBucket("fe80::")).toBe("fe80:0:0:0::/64")
+        expect(ipBucket("64:ff9b::192.0.2.1")).toBe("64:ff9b:0:0::/64")
     })
 })
 

@@ -112,7 +112,7 @@ function cleanReferrer(raw: string): string {
 
 export async function GET(req: NextRequest) {
     // Auth: admin session cookie, or the password header with brute-force damping
-    const denied = checkAdminAuth(req, ROUTE)
+    const denied = await checkAdminAuth(req)
     if (denied) return denied
 
     // Single fetch of all rows (reasonable for a personal portfolio)

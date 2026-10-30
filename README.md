@@ -41,8 +41,11 @@ npm install
 3. `supabase/analytics-schema.sql`: `page_views`
 4. `supabase/consent-schema.sql`: `consent_events`, plus the opt-in `page_views` columns (IP, language, timezone, visitor id)
 5. `supabase/documents-schema.sql`: `project_documents`
+6. `supabase/auth-lockout-schema.sql`: `auth_failures`, the brute-force lockout shared by every server instance (the app works without it, but then each instance counts on its own)
 
-**Already have a database from before 2026-10-20?** Run `supabase/security-hardening.sql` and `supabase/consent-schema.sql` once each (both are safe to re-run). They lock the analytics table away from the public anon key, tighten grants, and add the consent tables (SECURITY.md S-1, S-22, S-5).
+**Already have a database from before 2026-10-20?** Run `supabase/security-hardening.sql` and `supabase/consent-schema.sql` once each (both are safe to re-run). They lock the analytics table away from the public anon key, tighten grants, and add the consent tables (SECURITY.md S-1, S-22, S-5). **From before 2026-10-21?** Also run `supabase/auth-lockout-schema.sql` (S-4).
+
+`supabase/audit-exposure.sql` is a read-only check of the whole Supabase project (RLS, grants, callable functions, storage buckets, sign-ups). Run it any time; it changes nothing.
 
 **2. Configure the environment.** Create `.env.local` in the repo root:
 
@@ -57,10 +60,13 @@ npm install
 | `BLOG_UPLOAD_SECRET` | optional | Secret for `POST /api/blog/upload` |
 | `DOCS_UPLOAD_SECRET` | optional | Secret for `POST /api/docs/upload` |
 | `EMAIL_SUMMARY_SECRET` | optional | Secret for `POST /api/email-summary` |
-| `RESEND_API_KEY` | optional | Resend API key (needed only if you use email summaries) |
+| `RESEND_API_KEY` | optional | Resend API key (needed for email summaries and for 2FA codes) |
 | `RESEND_FROM_EMAIL` | optional | Verified sender, e.g. `Site <hello@yourdomain.com>` |
-| `SUMMARY_RECIPIENT_EMAIL` | optional | Where email summaries are delivered |
+| `SUMMARY_RECIPIENT_EMAIL` | optional | Where email summaries (and, by default, 2FA codes) are delivered |
 | `ANALYTICS_EXCLUDED_IPS` | optional | Comma-separated IPs to leave out of analytics |
+| `ADMIN_2FA` | recommended in production | `email` adds a second sign-in step: a 6-digit code emailed to you. It needs `RESEND_API_KEY` and a recipient, and turns off the `x-logistics-key` header. |
+| `ADMIN_2FA_EMAIL` | optional | Send 2FA codes somewhere other than `SUMMARY_RECIPIENT_EMAIL` |
+| `SECURITY_CONTACT` | optional | Contact for `/.well-known/security.txt` (default: the `/contact` email) |
 
 **3. Run it.**
 ```bash
@@ -74,7 +80,7 @@ Sign in at `/studio` with your `LOGISTICS_PASSWORD` to add your first post or pr
 |---|---|
 | `npm run dev` | Dev server (Turbopack) |
 | `npm run build` / `npm start` | Production build and serve (needs the Supabase env vars) |
-| `npm test` / `npm run test:watch` | Jest suite (407 tests, including jsdom component tests; Supabase and Resend are mocked, so no secrets are needed) |
+| `npm test` / `npm run test:watch` | Jest suite (554 tests, including jsdom component tests; Supabase and Resend are mocked, so no secrets are needed) |
 | `npm run lint` | ESLint (in Next 16, `next build` no longer lints) |
 | `npx tsc --noEmit` | Type-check |
 
@@ -115,4 +121,4 @@ The site deploys on **Netlify**, which builds `main` with `next build`; no `netl
 
 ## Status
 
-The site is live. Tests, type-check, lint, and the production build all pass. A security hardening pass on 2026-10-19 is summarized in [SECURITY.md §7](SECURITY.md#7-issue-queue); it takes effect once deployed and once `supabase/security-hardening.sql` has been run. Next steps are prioritized in [PRD.md §7](PRD.md#7-roadmap-next-best-actions). Highlights: moving `/work` onto Supabase, fixing font loading, and adding CI.
+The site is live. Tests, type-check, lint, and the production build all pass. The latest security sweep (2026-10-21) is summarized in [SECURITY.md §7](SECURITY.md#7-issue-queue). It takes effect once deployed, and the shared lockout once `supabase/auth-lockout-schema.sql` has been run. Next steps are prioritized in [PRD.md §7](PRD.md#7-roadmap-next-best-actions). Highlights: moving `/work` onto Supabase, fixing font loading, and adding CI.

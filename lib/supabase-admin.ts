@@ -1,3 +1,4 @@
+import "server-only" // build error if a Client Component ever imports this
 import { createClient } from "@supabase/supabase-js"
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -12,5 +13,5 @@ if (!url || !serviceKey) {
 
 // Service-role client — bypasses RLS. Never expose this to the browser.
 export const supabaseAdmin = createClient(url ?? "", serviceKey ?? "", {
-    auth: { persistSession: false },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 })

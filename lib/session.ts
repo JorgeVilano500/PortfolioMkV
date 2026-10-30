@@ -13,14 +13,24 @@
  * signs every session out. Tokens are stateless: sign-out clears the cookie,
  * and rotation is the server-side kill switch.
  */
+import "server-only"
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto"
 
-export const SESSION_COOKIE = "admin_session"
+const isProduction = process.env.NODE_ENV === "production"
+
+/**
+ * `__Host-` in production: browsers then refuse the cookie unless it's
+ * Secure, Path=/ and has no Domain, so a sibling subdomain can't plant or
+ * overwrite it (cookie tossing / session fixation). Plain-http dev servers
+ * can't set a Secure cookie, so development keeps the bare name.
+ */
+export const SESSION_COOKIE = isProduction ? "__Host-admin_session" : "admin_session"
 export const SESSION_TTL_SECONDS = 8 * 60 * 60
 
 const MAX_TOKEN_LENGTH = 200
 
-function getSessionKey(): Buffer | null {
+/** Also signs two-factor challenges (lib/two-factor.ts), domain-separated there. */
+export function getSessionKey(): Buffer | null {
     const password = process.env.LOGISTICS_PASSWORD
     const material = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY
     if (!password || !material) return null
@@ -55,13 +65,13 @@ export function verifySessionToken(token: string | null | undefined, now = Date.
     return provided.length === expected.length && timingSafeEqual(provided, expected)
 }
 
-/** Cookie attributes for the session cookie; pass maxAge 0 to clear it. */
+/** Cookie attributes for the session (and 2FA challenge) cookie; pass maxAge 0 to clear it. */
 export function sessionCookieOptions(maxAge = SESSION_TTL_SECONDS) {
     return {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: isProduction, // required by the __Host- prefix
         sameSite: "strict" as const,
-        path: "/",
+        path: "/",            // required by the __Host- prefix (and no `domain`)
         maxAge,
     }
 }

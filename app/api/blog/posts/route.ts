@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { checkAdminAuth } from "@/lib/admin-auth"
+import { BODY_LIMITS, readJsonBody } from "@/lib/http"
 import {
     LIMITS,
     isValidSlug,
@@ -15,15 +16,13 @@ import {
 
 const ROUTE = "blog/posts"
 
-const checkAuth = (req: NextRequest) => checkAdminAuth(req, ROUTE)
+const checkAuth = (req: NextRequest) => checkAdminAuth(req)
 
-async function readJson(req: NextRequest): Promise<Record<string, unknown> | null> {
-    try {
-        const body: unknown = await req.json()
-        return isJsonObject(body) ? body : null
-    } catch {
-        return null
-    }
+/** Size-capped JSON object body, or the error response to send. */
+async function readJson(req: NextRequest): Promise<Record<string, unknown> | NextResponse> {
+    const parsed = await readJsonBody(req, BODY_LIMITS.admin)
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status })
+    return isJsonObject(parsed.body) ? parsed.body : NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
 }
 
 /** Validate the mutable post fields present in `body`. Returns error string or normalized fields. */
@@ -91,7 +90,7 @@ function dbError(context: string, message: string): NextResponse {
 }
 
 export async function GET(req: NextRequest) {
-    const denied = checkAuth(req)
+    const denied = await checkAuth(req)
     if (denied) return denied
 
     const { data, error } = await supabaseAdmin
@@ -125,11 +124,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-    const denied = checkAuth(req)
+    const denied = await checkAuth(req)
     if (denied) return denied
 
     const body = await readJson(req)
-    if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    if (body instanceof NextResponse) return body
 
     const result = validateFields(body, { requireCore: true })
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 })
@@ -156,11 +155,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-    const denied = checkAuth(req)
+    const denied = await checkAuth(req)
     if (denied) return denied
 
     const body = await readJson(req)
-    if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    if (body instanceof NextResponse) return body
 
     const { id } = body
     if (!isUuid(id)) return NextResponse.json({ error: "Missing or invalid id" }, { status: 400 })
@@ -187,11 +186,11 @@ export async function PATCH(req: NextRequest) {
 const MAX_BULK_DELETE = 100
 
 export async function DELETE(req: NextRequest) {
-    const denied = checkAuth(req)
+    const denied = await checkAuth(req)
     if (denied) return denied
 
     const body = await readJson(req)
-    if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    if (body instanceof NextResponse) return body
 
     // Accepts { id } for a single delete or { ids } for a group delete.
     const { id, ids } = body
