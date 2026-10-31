@@ -37,7 +37,7 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 ## 2. Posture at a glance
 | Area | Status |
 |---|---|
-| Framework & dependencies free of known critical/high runtime advisories | ✅ Next 16.3.8; `npm audit --omit=dev`: 0 critical/high (S-13, S-16) |
+| Framework & dependencies free of known critical/high runtime advisories | ✅ Next 16.4.2; `npm audit --omit=dev`: 0 critical/high/moderate, 4 low (S-13, S-16, S-38, S-39) |
 | Admin auth: password exchanged once for a `__Host-` HttpOnly/SameSite=Strict/Secure session cookie | ✅ |
 | Second factor for admin sign-in | 🟡 built, off by default — set `ADMIN_2FA=email` (S-6) |
 | CSRF protection on cookie-authenticated writes | ✅ SameSite=Strict + Sec-Fetch-Site/Origin check |
@@ -320,12 +320,29 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 | **S-36** | Info | No `/.well-known/security.txt` (§9 promised one) | ✅ | RFC 9116 route; contact overridable with `SECURITY_CONTACT`. |
 | S-37 | Info | The GitHub repository is public, so this file's open-issue queue tells anyone which weaknesses are still open | 🔴 | Your decision: make the repo private, or keep open items out of the public copy and use GitHub's private vulnerability reporting. |
 
+### Found after the sweep (2026-10-30)
+| ID | Severity | Issue | Status | Fix |
+|---|---|---|---|---|
+| **S-38** | **Critical** (per advisory) | **`next` 16.0.0–16.4.0**: unauthenticated RCE in the Image Optimization API when SVGs are used (GHSA-2464-fhr4-w9xw); DoS in the App Router via Server Actions (GHSA-p3m5-59mp-jv5r, high); RCE in `use cache` functions returning typed arrays (GHSA-673q-mjm6-r5xr). Published after the 16.3.8 pin. Exposure here was limited (no `next/image`, Server Actions, or `use cache` in the code; Netlify fronts `/_next/image`), but the endpoints existed regardless. | ✅ | **Upgraded `next` and `eslint-config-next` to 16.4.2** (2026-10-31, branch `next-security-upgrade`). 16.4.1 is the security release for all three; 16.4.2 adds only Turbopack fixes, and it is the newest release at least two weeks old. 16.4.3 (2026-10-23) has only bug-fix backports. `npm audit` shows no critical, high, or moderate advisories. |
+| S-39 | Low | `deepmerge` prototype poisoning (GHSA-gcqx-w48m-w2h4), reached through `resend` → `@react-email/render` → `html-to-text`. Only the React-email rendering path uses it; `/api/email-summary` and the 2FA email send plain text/HTML. | 🔴 | `resend` 6.35+ drops it, but it's a breaking major; upgrade with the email routes' tests. |
+
 ### How to finish the 🟡 items (≈3 minutes)
 1. **S-4:** Supabase dashboard → **SQL Editor** → New query → paste `supabase/auth-lockout-schema.sql` → **Run**. Its last two result sets should show `rowsecurity = true`, with only `postgres` and `service_role` able to execute the two functions.
 2. **S-6 (optional, recommended):** Netlify → Site configuration → Environment variables → add `ADMIN_2FA` = `email` → redeploy. The next sign-in asks for the emailed code. Scripts using `x-logistics-key` stop working while it's on.
 3. **S-23:** paste `supabase/audit-exposure.sql` the same way and read each result tab. It changes nothing.
 
 ## 8. History
+
+### 2026-10-31: Next.js 16.3.8 → 16.4.2 (branch `next-security-upgrade`, S-38)
+- **Why:** three advisories (two critical RCEs and a high-severity DoS) affect Next 16.0.0–16.4.0. They were published after the 16.3.8 pin.
+- **Change:** `next` and `eslint-config-next` move to **16.4.2**, both exact-pinned. The bundled docs list only additive 16.4 changes (`ensureStatic`, `navigation`, a bundle analyzer, ESLint 10 support). `experimental.turbopackFileSystemCacheForBuild: false` is still supported, so the Netlify secrets-scan fix holds.
+- **Side effect:** `next dev` on 16.4 rewrites its own managed `nextjs-agent-rules` block at the top of AGENTS.md (from `next/dist/server/lib/generate-agent-files.js`). The new wording is committed so the tree stays clean.
+- **Verification:**
+  - 554 tests, `tsc` and lint pass, and `next build` gives the same 24 routes.
+  - On a local production server: every page returns 200; the CSP and other headers are unchanged; the auth, CSRF, lockout and body-cap responses are unchanged.
+  - `/_next/image` with an SVG returns 400, and a forged `Next-Action` POST returns 400 with the server still up.
+  - Headless Edge: the intro modal and consent flow work, `/blog` reads Supabase under the CSP, and there are no console errors.
+- **Audit:** 0 critical, high or moderate advisories. 4 low remain (S-39).
 
 ### 2026-10-21: Security sweep (branch `security-sweep`)
 A whole-app pass covering code, configuration, headers, the live deployment, and the Supabase project as seen from outside. Of 8 open queue items, 2 were confirmed fixed and 2 moved to "ready, needs you". 15 new issues were found; 13 are fixed in code and 2 need your decision (§7).

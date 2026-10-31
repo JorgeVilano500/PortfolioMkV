@@ -1,20 +1,24 @@
 <!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
 <!-- END:nextjs-agent-rules -->
 
 # AGENTS.md — start here
 
 This is the entry point for AI coding agents. Claude Code loads it through `CLAUDE.md` (`@AGENTS.md`); most other agents read it automatically. Read this whole file first, then open only the doc your task needs. This file stays short on purpose. The details are in the linked docs.
 
-_Last verified against the code: **2026-10-21**, branch `security-sweep` (on top of `feb294a`); see SECURITY.md §8 for the sweep._
+_Last verified against the code: **2026-10-31**, branch `next-security-upgrade` (on top of `650ad51`)._
 
 ---
 
 ## 1. The project in one paragraph
 
-`portfoliomkv` is the personal portfolio site of **Jorge Alejandro Vilanova Alvarado**, branded **JAVA.dev**, live at **https://javastudios.netlify.app**. It is built on Next.js **16.3.8** (App Router), React **19.2**, TypeScript (strict), and Tailwind CSS **4**, with Supabase Postgres as the backend and Netlify for hosting. There are five public pages: Home, Work, About, Blog (with `/blog/[slug]` post pages), and Contact. There are two private, password-gated pages: **`/studio`**, a CMS for blog posts and projects, and **`/logistics`**, a visitor-analytics dashboard. Public reads go straight from the browser to Supabase using the **anon key**, and Row Level Security limits them to published rows. All writes and private reads go through **`app/api/*` route handlers** that use the **service-role key**. Separately, an external automation pushes project docs to `/api/docs/upload` and emails summaries through `/api/email-summary`.
+`portfoliomkv` is the personal portfolio site of **Jorge Alejandro Vilanova Alvarado**, branded **JAVA.dev**, live at **https://javastudios.netlify.app**. It is built on Next.js **16.4.2** (App Router), React **19.2**, TypeScript (strict), and Tailwind CSS **4**, with Supabase Postgres as the backend and Netlify for hosting. There are five public pages: Home, Work, About, Blog (with `/blog/[slug]` post pages), and Contact. There are two private, password-gated pages: **`/studio`**, a CMS for blog posts and projects, and **`/logistics`**, a visitor-analytics dashboard. Public reads go straight from the browser to Supabase using the **anon key**, and Row Level Security limits them to published rows. All writes and private reads go through **`app/api/*` route handlers** that use the **service-role key**. Separately, an external automation pushes project docs to `/api/docs/upload` and emails summaries through `/api/email-summary`.
 
 ## 2. Doc map: read the one you need
 
@@ -41,13 +45,13 @@ npm run lint         # ESLint flat config. `next build` does NOT lint in Next 16
 npm run build        # production build. Needs Supabase env vars (see §6)
 ```
 
-| Check | Result on 2026-10-21 |
+| Check | Result on 2026-10-31 |
 |---|---|
 | `npm test` | ✅ **554 tests, 29 suites** (incl. two jsdom component suites), about 7 s |
 | `npx tsc --noEmit` | ✅ clean |
 | `npm run lint` | ✅ clean |
-| `npm run build` | ✅ (Next 16.3.8) |
-| `npm audit --omit=dev` | ✅ 0 critical/high (1 accepted moderate: `sprintf-js`, see SECURITY.md S-16) |
+| `npm run build` | ✅ (Next 16.4.2) |
+| `npm audit --omit=dev` | ✅ 0 critical/high/moderate. 4 low: `deepmerge` via `resend` (SECURITY.md S-39). Next 16.4.2 clears the critical advisories in S-38. |
 
 If you run these checks, update this table.
 
@@ -131,7 +135,7 @@ __tests__/                Jest suites + helpers/ (test-utils.ts Supabase chain m
 The full prioritized list, with acceptance criteria, is in [PRD.md §7](PRD.md#7-roadmap-next-best-actions). The top items:
 
 1. **Owner actions, outside the repo:**
-   - Merge the `security-sweep` PR and deploy.
+   - Merge the `next-security-upgrade` PR and deploy (S-38: critical Next.js advisories).
    - Run `supabase/auth-lockout-schema.sql` (S-4) and the read-only `supabase/audit-exposure.sql` (S-23).
    - Set `ADMIN_2FA=email` in Netlify (S-6).
    - Rotate `LOGISTICS_PASSWORD` (S-12), and optionally set `SESSION_SECRET`.

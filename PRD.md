@@ -264,6 +264,8 @@ Ask before acting on any of these:
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
 
+- 2026-10-31 (branch `next-security-upgrade`): Next.js 16.3.8 → **16.4.2** (and `eslint-config-next`), closing two critical RCE advisories and a high-severity DoS (SECURITY.md S-38). No behaviour changes; tests, build and a browser smoke test pass.
+
 - 2026-10-21 (branch `security-sweep`):
   - **Admin sign-in:** optional emailed 2FA code (`ADMIN_2FA=email`), with a code step in the sign-in screen; one brute-force lockout shared by every admin-password route and, once its SQL runs, by every server instance; `__Host-` session cookies.
   - **Requests:** byte-capped request bodies (413) on every route; forged tracked paths rejected; blog slug lookups validated.
