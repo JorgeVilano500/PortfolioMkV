@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { DM_Sans, Geist, Geist_Mono, Syne } from "next/font/google";
 import "./globals.css";
 import { PageTracker } from "@/components/ui/PageTracker";
 import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
@@ -18,6 +18,24 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// The brand faces (DESIGN_SYSTEM.md §3): Syne for display headings
+// (`font-syne`), DM Sans for body text (`font-dm`). Both are variable fonts,
+// so one self-hosted file each covers every weight; next/font serves them
+// from this origin, so the CSP needs no font host and visitors never
+// contact Google. They were never loaded before, so those classes fell
+// back to Arial.
+const syne = Syne({
+  variable: "--font-syne-face",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const dmSans = DM_Sans({
+  variable: "--font-dm-face",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 const siteUrl = getSiteUrl();
@@ -102,7 +120,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${syne.variable} ${dmSans.variable} h-full antialiased`}
     >
       <head>
         <script
