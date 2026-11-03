@@ -8,6 +8,7 @@ import { TourSpotlight } from "@/components/onboarding/TourSpotlight";
 import { SiteFooter } from "@/components/onboarding/SiteFooter";
 import { Toast } from "@/components/onboarding/Toast";
 import { serializeJsonLd } from "@/lib/json-ld";
+import { siteUrl as getSiteUrl } from "@/lib/site";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,7 +20,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://java.dev";
+const siteUrl = getSiteUrl();
 const siteName = "JAVA.dev";
 const fullName = "Jorge Alejandro Vilanova Alvarado";
 const defaultTitle = `${siteName} — ${fullName}`;

@@ -15,6 +15,7 @@ import {
     type SponsorFieldErrors,
 } from "@/lib/sponsorship"
 import { ownerNotificationEmail, sponsorConfirmationEmail, type SponsorInquiry } from "@/lib/sponsor-email"
+import { CONTACT_EMAIL, siteUrl } from "@/lib/site"
 
 const ROUTE = "sponsorships"
 
@@ -24,7 +25,7 @@ const BUCKET = "sponsor-stickers"
 // The public address already shown on /contact. Replies to the sponsor's
 // copy go here (override with SPONSOR_REPLY_TO), never to the private
 // SUMMARY_RECIPIENT_EMAIL inbox.
-const PUBLIC_REPLY_TO = "vilanova.jorge50@gmail.com"
+const PUBLIC_REPLY_TO = CONTACT_EMAIL
 
 // This route emails an address a stranger typed in, so it's capped hard.
 // In-memory and per instance (SECURITY.md §4.3): best-effort, but it bounds
@@ -135,7 +136,7 @@ export async function POST(req: NextRequest) {
     // 8. A private copy (file + JSON record). Not fatal: the owner's email carries everything.
     const stored = await storeInquiry(inquiry, bytes, ext)
 
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://javastudios.netlify.app").replace(/\/+$/, "")
+    const site    = siteUrl()
     const from    = process.env.RESEND_FROM_EMAIL || "JAVA.dev <onboarding@resend.dev>"
     const resend  = new Resend(resendKey)
 
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
         from,
         to: owner,
         replyTo: inquiry.email,
-        ...ownerNotificationEmail(inquiry, siteUrl, { stored }),
+        ...ownerNotificationEmail(inquiry, site, { stored }),
         attachments: [{ filename: attachmentName, content: Buffer.from(bytes) }],
     } as EmailMessage)
     if (!ownerSent) {
@@ -161,7 +162,7 @@ export async function POST(req: NextRequest) {
         from,
         to: inquiry.email,
         replyTo: process.env.SPONSOR_REPLY_TO?.trim() || PUBLIC_REPLY_TO,
-        ...sponsorConfirmationEmail(inquiry, siteUrl),
+        ...sponsorConfirmationEmail(inquiry, site),
     } as EmailMessage)
 
     return Response.json({ ok: true, reference: inquiry.id.slice(0, 8).toUpperCase(), confirmationSent })

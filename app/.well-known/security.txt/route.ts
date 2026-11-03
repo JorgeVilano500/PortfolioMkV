@@ -1,9 +1,10 @@
 // GET /.well-known/security.txt — RFC 9116: tells researchers who found a
 // vulnerability where to report it, instead of guessing (or giving up).
+import { CONTACT_EMAIL, siteUrl } from "@/lib/site"
 
 // Already public on /contact. Override with SECURITY_CONTACT (an email or an
 // https:// URL) to route reports elsewhere.
-const DEFAULT_CONTACT = "vilanova.jorge50@gmail.com"
+const DEFAULT_CONTACT = CONTACT_EMAIL
 
 // RFC 9116 wants Expires less than a year out so a forgotten file goes stale
 // visibly; computed per request so it never lapses between deploys.
@@ -14,13 +15,12 @@ function contactUri(value: string): string {
 }
 
 export function GET() {
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://java.dev").replace(/\/+$/, "")
     const contact = process.env.SECURITY_CONTACT?.trim() || DEFAULT_CONTACT
     const body = [
         `Contact: ${contactUri(contact)}`,
         `Expires: ${new Date(Date.now() + EXPIRES_IN_MS).toISOString()}`,
         "Preferred-Languages: en, es",
-        `Canonical: ${siteUrl}/.well-known/security.txt`,
+        `Canonical: ${siteUrl()}/.well-known/security.txt`,
         "",
     ].join("\n")
 
