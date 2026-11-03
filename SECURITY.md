@@ -152,7 +152,7 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 - **Sponsorship offers** (`lib/sponsorship.ts`, shared by the form and the route):
   - **Email:** a strict pattern with no spaces, quotes, `?`, `&`, or CR/LF, so no header or mailto tricks.
   - **Affiliation:** at most 120 characters, control characters stripped, and **no URLs or domain-shaped text**. Mail clients auto-link domains, and this text goes to a typed-in address.
-  - **Offer:** $1–$1,000,000 with at most 2 decimals. **Spot:** from a fixed list.
+  - **Offer:** $1–$1,000,000 with at most 2 decimals. **Spot:** from a fixed list (`SPOT_CHOICES`: four lid spots, two palm-rest spots, or "any").
   - **File:** at most 4 MB, and **sniffed by its magic bytes** (PNG, JPEG, WebP, PDF). SVG and everything else are refused, whatever the name or declared type. The file name is shown only after cleaning (no path or reserved characters).
 - **Front matter** (`/api/blog/upload`): gray-matter called with `MATTER_OPTIONS`, which replaces the `js`/`javascript` engines (gray-matter `eval`s those by default) with a refusal → 400. YAML uses `safeLoad`; JSON is `JSON.parse`; unregistered languages throw → 400. Passing options also disables gray-matter's unbounded per-input cache.
 
@@ -170,7 +170,7 @@ All routes (`/:path*`):
 | X-Permitted-Cross-Domain-Policies | `none` |
 | X-DNS-Prefetch-Control | `on` |
 
-**3D assets (`/laptop`).** No header changes were needed for Three.js. WebGL needs no CSP source. The GLB is a same-origin `fetch`. Sticker artwork is drawn on canvases, so it makes no requests.
+**3D assets (`/laptop`).** No header changes were needed for Three.js. WebGL needs no CSP source. The GLB is a same-origin `fetch`. Sticker, screen and keyboard artwork is drawn on canvases, so it makes no requests. The bezel's `KHR_materials_specular` is a plain material extension that GLTFLoader reads itself (no decoder).
 - **Embedded textures:** `GLTFLoader` normally decodes them by `fetch()`ing a `blob:` URL, which `connect-src 'self'` blocks. The viewer swaps it to `TextureLoader`, which uses an `<img>` that `img-src blob:` already allows. This was verified with a textured QA model: no CSP violations.
 - **Compressed geometry:** Draco, meshopt and KTX2 decoders need WebAssembly and workers, which the CSP doesn't allow (`script-src` has no `wasm-unsafe-eval`, and there is no `worker-src`). LAPTOP_MODEL.md requires uncompressed exports, so **don't loosen the CSP to load a model; re-export it instead.**
 
@@ -357,6 +357,10 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 3. **S-23:** paste `supabase/audit-exposure.sql` the same way and read each result tab. It changes nothing.
 
 ## 8. History
+
+### 2026-11-03: inside the laptop (branch `laptop-sponsorships`)
+- **No new attack surface.** The open/close animation, screen and keyboard are client-side drawing from static data; the CSP is unchanged.
+- **The offer form accepts two more spot values** (`palm-left`, `palm-right`), still from the fixed `SPOT_CHOICES` list that the route validates; anything else is refused (tested). Spot labels in emails come from that list, never from input.
 
 ### 2026-10-30: "Sponsor a spot" offer form (branch `laptop-sponsorships`)
 The first public route that accepts files and emails a typed-in address. Controls are in §4.3, §4.4, §4.7 and §4.9: same-origin only, honeypot, flood/offer/recipient/global caps, byte-capped multipart parsed only after the cap, magic-byte file checks (no SVG), link-free text, escaped HTML emails, Reply-To routing that never exposes the private inbox, and a **private** bucket with no policies.

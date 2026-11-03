@@ -18,7 +18,7 @@ Built with **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind
 | Blog | `/blog`, `/blog/[slug]` | Markdown posts stored in Supabase, with themed cards, callouts, syntax highlighting, and per-post OG images |
 | Contact | `/contact` | Email, socials, quick message form |
 | Privacy | `/privacy` | Plain-language privacy and cookie policy, with cookie settings |
-| Laptop stickers | `/laptop` | A Three.js 13-inch 2019 MacBook Pro with four sponsor-sticker spots on the lid (sample sponsors). "Sponsor a spot" opens an offer form that emails you, with Reply-To set to the sponsor, and sends them a copy. Needs `public/models/macbook-pro-13-2019.glb`, built per [LAPTOP_MODEL.md](LAPTOP_MODEL.md); shows a 2D fallback until then. |
+| Laptop stickers | `/laptop` | A Three.js 13-inch 2019 MacBook Pro with four sponsor-sticker spots on the lid and two on the palm rest (sample sponsors). "Open the laptop" swings the lid open, boots the screen, and lights the backlit keyboard. "Sponsor a spot" opens an offer form that emails you, with Reply-To set to the sponsor, and sends them a copy. Needs `public/models/macbook-pro-13-2019.glb`, built per [LAPTOP_MODEL.md](LAPTOP_MODEL.md); shows a 2D fallback until then. |
 | First-visit intro | every page | Welcome → privacy choice (analytics off by default, enforced server-side) → how-to guide with live previews → optional guided tour that highlights the next navbar tab on each page |
 | Studio 🔒 | `/studio` | Password-gated CMS: create, edit, publish, and bulk-manage blog posts and projects |
 | Logistics 🔒 | `/logistics` | Password-gated, first-party visitor analytics |

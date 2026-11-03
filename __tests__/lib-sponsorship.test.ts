@@ -103,7 +103,15 @@ describe("validateSponsorFields", () => {
     it("accepts every listed spot, including 'any'", () => {
         for (const choice of SPOT_CHOICES) expect("fields" in validateSponsorFields({ ...valid, spot: choice.value })).toBe(true)
         expect(spotLabel("any")).toBe("Any spot")
-        expect(spotLabel("slot-1")).toBe("Upper left")
+        expect(spotLabel("slot-1")).toBe("Lid, upper left")
+    })
+
+    it("lists the palm-rest spots beside the trackpad, with labels that say which surface", () => {
+        expect(SPOT_CHOICES.map((choice) => choice.value)).toEqual(["slot-1", "slot-2", "slot-3", "slot-4", "palm-left", "palm-right", "any"])
+        expect(spotLabel("palm-left")).toBe("Palm rest, left of trackpad")
+        expect(spotLabel("palm-right")).toBe("Palm rest, right of trackpad")
+        expect("fields" in validateSponsorFields({ ...valid, spot: "palm-right" })).toBe(true)
+        expect("errors" in validateSponsorFields({ ...valid, spot: "palm-middle" })).toBe(true)
     })
 })
 

@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-10-30** (branch `laptop-sponsorships`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-03** (branch `laptop-sponsorships`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -71,7 +71,7 @@ Legend: ✅ working · ⚠️ working but has a known gap · ❌ missing or brok
 | **Site footer** | `components/onboarding/SiteFooter.tsx` | ✅ | Privacy · Cookie settings · Take the tour, on every public page |
 | **Privacy page** | `/privacy` | ✅ | Plain-language policy covering every storage key and data point (generated from the same constants as the modal), plus a "Manage cookie settings" button |
 | **Cookie settings / erasure** | footer → settings dialog, `DELETE /api/consent` | ✅ | Change the choice any time; "Delete my data" erases this browser's analytics rows |
-| **3D sponsor-sticker laptop** | `/laptop` (`app/laptop/*`, `lib/laptop-stickers.ts`), linked from `/work` | ⚠️ | v1 shipped in code, but **the GLB isn't in `public/` yet**, so visitors see the 2D lid fallback (LAPTOP_MODEL.md). Three.js viewer of a 13-inch 2019 MacBook Pro with four spots on the lid, **sample** sponsors, a spot picker (radio group), a details card, and a **"Sponsor a spot" offer form** (email, affiliation, offer, spot, sticker file) that emails the owner (Reply-To: the sponsor) and sends the sponsor a copy, keeping a private copy in Supabase Storage. No payments. ⚠️ The sponsor's copy needs a verified Resend domain (S-2), and the bucket SQL must be run. |
+| **3D sponsor-sticker laptop** | `/laptop` (`app/laptop/*`, `lib/laptop-stickers.ts`), linked from `/work` | ⚠️ | v1 shipped in code, but **the GLB isn't in `public/` yet**, so visitors see the 2D lid fallback (LAPTOP_MODEL.md). Three.js viewer of a 13-inch 2019 MacBook Pro with four spots on the lid and **two on the palm rest**, an **Open the laptop** animation (lid swing, screen boot, backlit keyboard), **sample** sponsors, spot pickers (radio groups), a details card, and a **"Sponsor a spot" offer form** (email, affiliation, offer, spot, sticker file) that emails the owner (Reply-To: the sponsor) and sends the sponsor a copy, keeping a private copy in Supabase Storage. No payments. ⚠️ The sponsor's copy needs a verified Resend domain (S-2), and the bucket SQL must be run. |
 | Error and 404 pages | none | ❌ | Uses Next.js defaults |
 
 ### 4.2 Admin 🔒
@@ -170,12 +170,14 @@ published: true           # optional: only literal true publishes
 - **TOUR-3** Spotlights never block clicks, and every target is a `data-tour` anchor that a test verifies exists.
 
 ### 5.6b 3D laptop stickers (LAP)
-- **LAP-1** `/laptop` shows a Three.js model of a **13-inch 2019 MacBook Pro**, loaded from `public/models/macbook-pro-13-2019.glb`. The lid's outside is the distinct part `Lid_Outer`, carrying four sticker planes, `Sticker_Slot_1–4` (contract: LAPTOP_MODEL.md).
+- **LAP-1** `/laptop` shows a Three.js model of a **13-inch 2019 MacBook Pro**, loaded from `public/models/macbook-pro-13-2019.glb`. The lid's outside is the distinct part `Lid_Outer`, carrying four sticker planes, `Sticker_Slot_1–4`; the lid hangs from the hinge empty `Lid`, which also carries the `Screen`; the base carries the `Keyboard` plane and two palm-rest sticker planes, `Palm_Slot_Left/Right` (contract: LAPTOP_MODEL.md).
 - **LAP-2** Selecting a spot, by clicking the sticker in 3D or using the spot list (mouse or keyboard), shows its sponsor details. The two stay in sync, and the camera moves to the chosen sticker.
 - **LAP-3** Sponsor data shown on the lid is curated sample data, labelled as samples. "Sponsor a spot" opens an offer form (SPN-1 to SPN-6). Nothing is sold or paid for on the site, and the page says so.
 - **LAP-4** States: loading skeleton; a 2D fallback when the model is missing, invalid, WebGL is unavailable, or loading fails (with Try again for failures). The spot picker works in every state.
 - **LAP-5** Keyboard: the spot list is a WAI-ARIA radio group. Reduced motion: the camera jumps instead of gliding, and nothing pulses. Responsive at 360/768/1280+.
 - **LAP-6** Three.js loads only on `/laptop` (client-only dynamic import); the model stays under 1 MB with no Draco, meshopt or KTX2 (CSP).
+- **LAP-7** "Open the laptop" plays a MacBook-style opening: the lid swings to 108° while the camera swings round to the classic front view; the screen lights first (a JAVA.dev boot screen on the first open, then a desktop in the site palette), then the keyboard backlight and Touch Bar fade up. Closing sleeps the display, then lowers the lid. Reduced motion jumps straight to the end state. Without the model, a 2D drawing of the open laptop takes its place.
+- **LAP-8** Two palm-rest spots, left and right of the trackpad, in a second picker section ("Inside the laptop"). Choosing one opens the laptop and focuses it; they're clickable in 3D only while open (the closed lid hides them). The offer form lists all six spots by full name ("Palm rest, left of trackpad"), and both emails name the spot.
 
 ### 5.6c Sponsorship offers (SPN)
 - **SPN-1** "Sponsor a spot" opens a dialog with **email**, **affiliation**, **preferred spot** (pre-set to the selected one, or "Any"), **offer in USD** (negotiable), and the **sticker file to print** (PNG, JPG, WebP or PDF, up to 4 MB). Everything is required.
@@ -285,6 +287,11 @@ Ask before acting on any of these:
 
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
+
+- 2026-11-03 (branch `laptop-sponsorships`): **Inside the laptop** (LAP-7, LAP-8).
+  - **Opening:** "Open the laptop" swings the lid open with the camera, boots the screen to a JAVA.dev desktop, and lights the backlit keyboard and Touch Bar (artwork drawn in Canvas 2D, `app/laptop/canvas-art.ts`; layout in `lib/laptop-keyboard.ts`).
+  - **Two palm-rest spots** beside the trackpad, with the same offer form; spot names now say which surface ("Lid, upper left").
+  - **Model contract** gains `Lid` (hinge), `Screen`, `Keyboard` and `Palm_Slot_Left/Right`, checked for their side of the hinge (LAPTOP_MODEL.md). Also fixed: the selection frame no longer gets clipped by the sticker's clear margin.
 
 - 2026-10-30 (branch `laptop-sponsorships`): **"Sponsor a spot" offer form** (SPN-1 to SPN-6).
   - **Flow:** `POST /api/sponsorships` stores a private copy in the `sponsor-stickers` bucket (new `supabase/sponsor-stickers-schema.sql`) and sends two separate site-styled emails (owner notice with Reply-To and attachment; sponsor copy).

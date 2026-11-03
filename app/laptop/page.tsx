@@ -5,7 +5,7 @@ import { LAPTOP_MODEL } from "@/lib/laptop-stickers"
 import { LaptopExperience } from "./LaptopExperience"
 
 const DESCRIPTION =
-    `A Three.js ${LAPTOP_MODEL.label} with four sponsor-sticker spots on the lid. Rotate it, pick a sticker, and see who's on it.`
+    `A Three.js ${LAPTOP_MODEL.label} with sponsor-sticker spots on the lid and the palm rest. Rotate it, open it up, and see who's on it.`
 
 export const metadata: Metadata = {
     title: "Laptop stickers",
@@ -39,7 +39,8 @@ export default function LaptopPage() {
                 <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">3D experiment</p>
                 <h1 className="font-syne font-extrabold text-3xl md:text-4xl text-[#f0eeff] tracking-tight mb-2">Sticker the laptop</h1>
                 <p className="text-sm text-[#8a88a0] max-w-md leading-relaxed">
-                    A {LAPTOP_MODEL.label}, rebuilt in Three.js, with four spots on the lid for sponsor stickers.
+                    A {LAPTOP_MODEL.label}, rebuilt in Three.js, with four sponsor-sticker spots on the lid and
+                    two more beside the trackpad. Open it up to see the screen and the backlit keyboard.
                     The stickers shown are samples.
                 </p>
             </section>

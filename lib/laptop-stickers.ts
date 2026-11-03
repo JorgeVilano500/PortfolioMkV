@@ -7,7 +7,7 @@
  * full asset spec and Blender workflow are in LAPTOP_MODEL.md.
  *
  * The sponsors are curated SAMPLE data (fictional names), not real sponsors,
- * and nothing here takes payment: "Sponsor a spot" links to /contact.
+ * and nothing here takes payment: an offer starts an email conversation.
  */
 import type { PostTheme } from "./theme"
 
@@ -19,11 +19,29 @@ export const LAPTOP_MODEL = {
     dimensions: { width: 0.3041, depth: 0.2124, height: 0.0149 },
     /** Warn in the console above this size: the target is well under 1 MB. */
     softMaxBytes: 2 * 1024 * 1024,
-    /** The lid's outside surface: a separate mesh so stickers can sit on it. */
-    lidOuterNode: "Lid_Outer",
+    /** Named parts the viewer drives, besides the sticker planes. */
+    nodes: {
+        /** Empty on the hinge axis: rotating it around its local X opens the lid. */
+        lid:      "Lid",
+        /** The lid's outside surface, where the four lid stickers sit. */
+        lidOuter: "Lid_Outer",
+        /** A 16:10 plane over the display, inside the lid. The site draws what it shows. */
+        screen:   "Screen",
+        /** A flat plane over the key area. The site draws the keys and their backlight. */
+        keyboard: "Keyboard",
+    },
+    /** How far the lid opens, in degrees from closed: a comfortable working angle. */
+    openAngle: 108,
 } as const
 
-export type StickerSlotId = "slot-1" | "slot-2" | "slot-3" | "slot-4"
+export type SpotSurface = "lid" | "palm-rest"
+
+export const SURFACE_LABELS: Record<SpotSurface, string> = {
+    "lid":       "Lid",
+    "palm-rest": "Palm rest",
+}
+
+export type StickerSlotId = "slot-1" | "slot-2" | "slot-3" | "slot-4" | "palm-left" | "palm-right"
 
 export type SampleSponsor = {
     name:        string
@@ -36,10 +54,16 @@ export type SampleSponsor = {
 
 export type StickerSlot = {
     id:       StickerSlotId
-    /** Mesh name in the GLB: a square, sticker-sized plane on the lid's outside. */
+    /** Mesh name in the GLB: a sticker-sized plane, UVs filling 0–1. */
     node:     string
-    /** Where the spot sits, seen from outside the lid with the hinge at the bottom. */
+    surface:  SpotSurface
+    /**
+     * Where the spot sits. Lid spots: seen from outside the lid with the hinge
+     * at the bottom. Palm-rest spots: seen by the person typing.
+     */
     position: string
+    /** The plane's width ÷ height, so artwork is drawn without stretching. */
+    aspect:   number
     /** null = the spot is open. */
     sponsor:  SampleSponsor | null
 }
@@ -48,7 +72,9 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
     {
         id: "slot-1",
         node: "Sticker_Slot_1",
+        surface: "lid",
         position: "Upper left",
+        aspect: 1,
         sponsor: {
             name: "Acme Dev Tools",
             mark: "ACME",
@@ -60,7 +86,9 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
     {
         id: "slot-2",
         node: "Sticker_Slot_2",
+        surface: "lid",
         position: "Upper right",
+        aspect: 1,
         sponsor: {
             name: "Example Cloud",
             mark: "EX",
@@ -72,7 +100,9 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
     {
         id: "slot-3",
         node: "Sticker_Slot_3",
+        surface: "lid",
         position: "Lower left",
+        aspect: 1,
         sponsor: {
             name: "Sample Studio",
             mark: "SS",
@@ -84,17 +114,52 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
     {
         id: "slot-4",
         node: "Sticker_Slot_4",
+        surface: "lid",
         position: "Lower right",
+        aspect: 1,
+        sponsor: null,
+    },
+    {
+        id: "palm-left",
+        node: "Palm_Slot_Left",
+        surface: "palm-rest",
+        position: "Left of trackpad",
+        aspect: 5 / 3.5,
+        sponsor: {
+            name: "Demo Robotics",
+            mark: "DR",
+            tagline: "Robots that read the manual",
+            description: "A sample palm-rest sponsor. The spots beside the trackpad are smaller and landscape, like the badges that ship on new laptops, and they're in view every time the laptop is open.",
+            theme: "purple",
+        },
+    },
+    {
+        id: "palm-right",
+        node: "Palm_Slot_Right",
+        surface: "palm-rest",
+        position: "Right of trackpad",
+        aspect: 5 / 3.5,
         sponsor: null,
     },
 ]
 
-/** Sponsorship is arranged by conversation, not checkout. */
+// Sticker artwork uses the site palette (DESIGN_SYSTEM.md §2), drawn by the 3D
+// viewer and the 2D fallback alike.
+export const STICKER_COLORS: Record<PostTheme, { fill: string; ink: string }> = {
+    purple: { fill: "#7c6dff", ink: "#ffffff" },
+    green:  { fill: "#97C459", ink: "#0f1a14" },
+    pink:   { fill: "#ED93B1", ink: "#1a1216" },
+}
+
+export const LID_SLOTS  = STICKER_SLOTS.filter((slot) => slot.surface === "lid")
+export const PALM_SLOTS = STICKER_SLOTS.filter((slot) => slot.surface === "palm-rest")
+
+/** For people who'd rather write than fill in the offer form. */
 export const SPONSOR_CTA_HREF = "/contact"
 
-/** Every node the viewer needs: the lid's outside plus the four sticker planes. */
+/** Every node the viewer needs: the lid's moving parts, the screen, the keyboard, and the six sticker planes. */
 export const REQUIRED_MODEL_NODES: readonly string[] = [
-    LAPTOP_MODEL.lidOuterNode,
+    ...Object.values(LAPTOP_MODEL.nodes),
     ...STICKER_SLOTS.map((slot) => slot.node),
 ]
 
@@ -113,29 +178,35 @@ export function missingModelNodes(names: Iterable<string>): string[] {
     return REQUIRED_MODEL_NODES.filter((name) => !present.has(name))
 }
 
+/** "Lid, upper left" / "Palm rest, left of trackpad": unambiguous across both surfaces. */
+export function spotName(slot: StickerSlot): string {
+    return `${SURFACE_LABELS[slot.surface]}, ${slot.position.toLowerCase()}`
+}
+
 /** One-line description of a spot, for screen readers and the 3D view's label. */
 export function describeSlot(slot: StickerSlot): string {
     return slot.sponsor
-        ? `${slot.position} spot: ${slot.sponsor.name} (sample sponsor)`
-        : `${slot.position} spot: open`
+        ? `${spotName(slot)}: ${slot.sponsor.name} (sample sponsor)`
+        : `${spotName(slot)}: open`
 }
 
 /**
- * Radio-group keyboard model (WAI-ARIA): arrows move and wrap, Home/End jump.
- * Returns the slot to select, or null when the key isn't a navigation key.
+ * Radio-group keyboard model (WAI-ARIA): arrows move and wrap, Home/End jump,
+ * within one group of spots. Returns the slot to select, or null when the key
+ * isn't a navigation key.
  */
-export function nextSlotId(current: StickerSlotId | null, key: string): StickerSlotId | null {
-    const last  = STICKER_SLOTS.length - 1
-    const index = current ? STICKER_SLOTS.findIndex((slot) => slot.id === current) : -1
+export function nextSlotId(current: StickerSlotId | null, key: string, slots: readonly StickerSlot[] = LID_SLOTS): StickerSlotId | null {
+    const last  = slots.length - 1
+    const index = current ? slots.findIndex((slot) => slot.id === current) : -1
     let next: number
     switch (key) {
         case "ArrowRight":
-        case "ArrowDown": next = index < 0 ? 0 : (index + 1) % STICKER_SLOTS.length; break
+        case "ArrowDown": next = index < 0 ? 0 : (index + 1) % slots.length; break
         case "ArrowLeft":
         case "ArrowUp":   next = index <= 0 ? last : index - 1; break
         case "Home":      next = 0; break
         case "End":       next = last; break
         default:          return null
     }
-    return STICKER_SLOTS[next].id
+    return slots[next].id
 }

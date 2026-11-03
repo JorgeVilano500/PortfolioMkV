@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-10-30** (branch `laptop-sponsorships`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-03** (branch `laptop-sponsorships`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -80,9 +80,10 @@ flowchart LR
 │   ├── opengraph-image.tsx        Site OG image (ImageResponse, 1200×630)
 │   ├── robots.ts, sitemap.ts      SEO (sitemap includes published posts)
 │   ├── privacy/ page.tsx (server): privacy & cookie policy, generated from lib/consent constants
-│   ├── laptop/  page.tsx (server + metadata) → LaptopExperience.tsx (client boundary: spot picker,
-│   │               details, loading/fallbacks) → LaptopViewer.tsx (Three.js; next/dynamic, ssr: false);
-│   │               SponsorForm.tsx ("Sponsor a spot" offer dialog)
+│   ├── laptop/  page.tsx (server + metadata) → LaptopExperience.tsx (client boundary: open/close toggle,
+│   │               lid + palm-rest spot pickers, details, loading/2D fallbacks) → LaptopViewer.tsx (Three.js;
+│   │               next/dynamic, ssr: false: hinge, power-on timeline, camera) + canvas-art.ts (stickers,
+│   │               screen, keyboard drawn in Canvas 2D); SponsorForm.tsx ("Sponsor a spot" offer dialog)
 │   ├── about/   page.tsx (client) + layout.tsx (metadata only)
 │   ├── work/    page.tsx (client) + layout.tsx (metadata only)
 │   ├── contact/ page.tsx (client) + layout.tsx (metadata only)
@@ -133,7 +134,8 @@ flowchart LR
 │   ├── rate-limit.ts              In-memory fixed-window limiter (10k-key cap) + per-IP and global auth lockout
 │   ├── validation.ts              LIMITS, type-guard validators, normalizers, slugify, estimateReadingTime
 │   ├── markdown-sanitize.ts       rehype-sanitize allowlist schema
-│   ├── laptop-stickers.ts         /laptop: sample sponsors, sticker slots, GLB contract, radio-key helper (no three import)
+│   ├── laptop-stickers.ts         /laptop: sample sponsors, lid + palm-rest slots, GLB contract, radio-key helper (no three import)
+│   ├── laptop-keyboard.ts         /laptop: the 2019 13-inch keyboard layout, drawn by the 3D viewer and the 2D fallback
 │   ├── sponsorship.ts             Offer field rules shared by the form and the route (email, offer, spot, file sniffing)
 │   └── sponsor-email.ts           Server-only HTML + text templates for the two sponsorship emails
 ├── supabase/                      SQL to run in the Supabase SQL editor (no migration tool)
@@ -159,7 +161,7 @@ The app currently follows a **"client pages + server metadata"** pattern. Each p
 | `/blog/[slug]/opengraph-image` | Server | `getPostBySlug` | anon | `await params` (Next 16) |
 | `/sitemap.xml` | Server | `getPosts()` | anon | **Static** (`○` in the 2026-10-19 build), so new posts appear only after a redeploy. |
 | `/privacy` | **Server** (static) with a client `PrivacyActions` child | `lib/consent` constants | none | The intro modal never auto-opens here, so the policy stays readable |
-| `/laptop` | **Server** (static) shell with a client `LaptopExperience` child; the Three.js viewer is client-only (`next/dynamic`, `ssr: false`) | Sample stickers in `lib/laptop-stickers.ts`; the GLB is fetched from `/models/macbook-pro-13-2019.glb` | none | **Download first, WebGL second:** a 404 shows the 2D fallback without creating a WebGL context. Render on demand (no animation loop). Statuses: loading, ready, missing, invalid, unsupported, error. "Sponsor a spot" opens an offer form (`SponsorForm.tsx`, in the shared `Modal`) that posts to `/api/sponsorships` (§6.9). Sponsors on the lid stay sample data; no payments. |
+| `/laptop` | **Server** (static) shell with a client `LaptopExperience` child; the Three.js viewer is client-only (`next/dynamic`, `ssr: false`) | Sample stickers in `lib/laptop-stickers.ts`; the GLB is fetched from `/models/macbook-pro-13-2019.glb` | none | **Download first, WebGL second:** a 404 shows the 2D fallback without creating a WebGL context. Render on demand (no animation loop; frames run only while the camera or the lid timeline moves). Statuses: loading, ready, missing, invalid, unsupported, error. **Open/closed** is page state passed to the viewer as `open`: opening turns the `Lid` node 108°, boots the screen and fades up the keyboard backlight; choosing a palm-rest spot opens it. "Sponsor a spot" opens an offer form (`SponsorForm.tsx`, in the shared `Modal`) that posts to `/api/sponsorships` (§6.9). Sponsors on the lid stay sample data; no payments. |
 | All pages | `OnboardingProvider` (client) wraps everything in the root layout | `document.cookie` / storage after hydration | none | The modal, tour bar, and footer render client-side only, so static pages stay static (`○`) |
 | `/studio`, `/logistics` | Client, wrapped in `<AdminGate>` | `fetch('/api/...')`; the browser attaches the HttpOnly session cookie | service role (server-side) | Renders nothing until `GET /api/auth` answers, then shows the password form or the page |
 
@@ -271,7 +273,7 @@ Both methods require a same-origin request (otherwise `403`) and are rate-limite
 - The Resend client is created per request. If `RESEND_API_KEY` or `SUMMARY_RECIPIENT_EMAIL` is missing, the route returns `500 {error:"Email is not configured"}`. The send cap counts only valid requests.
 
 ### 6.9 `POST /api/sponsorships` (public, browser-only): "Sponsor a spot" offers from `/laptop`
-- **Request:** `multipart/form-data` with `email`, `affiliation`, `offer` (USD, e.g. `1,500`), `spot` (`slot-1`…`slot-4` or `any`), `sticker` (a file), and the honeypot `website`, which must be empty. Rules are in `lib/sponsorship.ts` and shared with the form.
+- **Request:** `multipart/form-data` with `email`, `affiliation`, `offer` (USD, e.g. `1,500`), `spot` (`slot-1`…`slot-4` on the lid, `palm-left`/`palm-right` on the palm rest, or `any`), `sticker` (a file), and the honeypot `website`, which must be empty. Rules are in `lib/sponsorship.ts` and shared with the form.
 - **Order of checks:**
   1. Same-origin, else `403`.
   2. The request flood cap, else `429` with `Retry-After`.
@@ -527,7 +529,7 @@ Do all of the following together: add the SQL `alter table` (and update the sche
 | One SQL file per table, no migration tool | Small schema; it runs in the dashboard | A second environment (staging) or frequent schema changes |
 | First-party analytics in Postgres | Privacy, no third-party scripts, portfolio value | Volume nears 50k rows in the stats window, at which point stats need SQL aggregation |
 | Jest with a Babel transform, not `next/jest` | Avoids a root Babel config that would disable SWC | Adopting Vitest per the bundled guide |
-| Plain Three.js for `/laptop` (no react-three-fiber), with sticker art drawn on canvases from data | Demonstrates the Three.js concepts directly; adds one dependency; no image assets or network calls for stickers | Several 3D scenes, or declarative scene composition becomes worth a framework |
+| Plain Three.js for `/laptop` (no react-three-fiber), with sticker, screen and keyboard art drawn on canvases from data | Demonstrates the Three.js concepts directly; adds one dependency; no image assets or network calls for artwork; the GLB stays a few flat planes (no modelled keycaps), and sponsors, keys or the desktop change without a re-export | Several 3D scenes, or declarative scene composition becomes worth a framework |
 | Sample sponsor data in code; offers by email plus a private bucket (no database table, no payments) | Negotiation happens by email, so the inbox is the workflow. The bucket keeps a durable copy, and there's no new schema to secure. | Real sponsors (then: a `sponsors` table with RLS public-read and Studio editing), or offers that need tracking or statuses (then: an `inquiries` table) |
 
 ## 16. Tech-debt register

@@ -3,13 +3,15 @@
  * /laptop — the sponsor-sticker experience around the Three.js viewer.
  * jsdom has no WebGL, so the viewer is replaced by a stub that records its
  * props and lets each test play the viewer's part (report a status, or a
- * sticker clicked in 3D). Covers selection by click, keyboard, and 3D pick;
- * loading, missing-model, error, and unsupported fallbacks; retry; reduced
- * motion; the contact CTA; and the link from /work.
+ * sticker clicked in 3D). Covers selection by click, keyboard, and 3D pick on
+ * both surfaces; opening and closing the laptop; loading, missing-model,
+ * error, and unsupported fallbacks (including the open 2D drawing); retry;
+ * reduced motion; the offer form's trigger; and the link from /work.
  */
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 
 type MockViewerProps = {
+    open:          boolean
     selectedId:    string | null
     resetToken:    number
     reducedMotion: boolean
@@ -46,8 +48,11 @@ const viewer = () => {
     return mockViewer.props
 }
 const report = (status: string) => act(() => viewer().onStatus(status))
-const radios = () => screen.getAllByRole("radio")
+const lidGroup  = () => screen.getByRole("radiogroup", { name: "Four sponsor spots" })
+const palmGroup = () => screen.getByRole("radiogroup", { name: "Two palm rest spots" })
+const lidRadios = () => within(lidGroup()).getAllByRole("radio")
 const details = () => screen.getByText(/Sponsor a spot/).closest("div") as HTMLElement
+const toggle  = () => screen.getByRole("button", { name: /(Open|Close) the laptop/ })
 
 function setReducedMotion(reduce: boolean) {
     Object.defineProperty(window, "matchMedia", {
@@ -62,11 +67,10 @@ beforeEach(() => {
     setReducedMotion(false)
 })
 
-describe("spot picker", () => {
+describe("lid spot picker", () => {
     it("lists four spots in a radio group, none chosen, the first one tabbable", () => {
         render(<LaptopExperience />)
-        const group = screen.getByRole("radiogroup", { name: "Four sponsor spots" })
-        const options = within(group).getAllByRole("radio")
+        const options = lidRadios()
         expect(options).toHaveLength(4)
         expect(options.every((o) => o.getAttribute("aria-checked") === "false")).toBe(true)
         expect(options.map((o) => o.tabIndex)).toEqual([0, -1, -1, -1])
@@ -78,8 +82,10 @@ describe("spot picker", () => {
         fireEvent.click(screen.getByRole("radio", { name: /Upper right/ }))
         expect(screen.getByRole("radio", { name: /Upper right/ }).getAttribute("aria-checked")).toBe("true")
         expect(within(details()).getByRole("heading", { name: "Example Cloud" })).toBeTruthy()
+        expect(within(details()).getByText("Lid, upper right")).toBeTruthy()
         expect(within(details()).getByText("Sample sponsor")).toBeTruthy()
         expect(viewer().selectedId).toBe("slot-2")
+        expect(viewer().open).toBe(false) // lid stickers don't need the laptop open
     })
 
     it("marks the open spot as available", () => {
@@ -87,27 +93,28 @@ describe("spot picker", () => {
         fireEvent.click(screen.getByRole("radio", { name: /Lower right/ }))
         expect(within(details()).getByRole("heading", { name: "This spot is open" })).toBeTruthy()
         expect(within(details()).getByText("Available")).toBeTruthy()
+        expect(within(details()).getByText(/sticker on the lid/)).toBeTruthy()
     })
 
     it("moves selection and focus with arrow keys, wrapping, plus Home and End", () => {
         render(<LaptopExperience />)
-        const first = radios()[0]
+        const first = lidRadios()[0]
         first.focus()
         fireEvent.keyDown(first, { key: "ArrowRight" })
         expect(viewer().selectedId).toBe("slot-1") // nothing chosen yet → the first spot
         fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" })
-        expect(document.activeElement).toBe(radios()[1])
-        expect(radios()[1].getAttribute("aria-checked")).toBe("true")
+        expect(document.activeElement).toBe(lidRadios()[1])
+        expect(lidRadios()[1].getAttribute("aria-checked")).toBe("true")
         fireEvent.keyDown(document.activeElement!, { key: "End" })
-        expect(document.activeElement).toBe(radios()[3])
+        expect(document.activeElement).toBe(lidRadios()[3])
         fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" })
-        expect(document.activeElement).toBe(radios()[0]) // wrapped
+        expect(document.activeElement).toBe(lidRadios()[0]) // wrapped
         fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" })
         expect(viewer().selectedId).toBe("slot-4")
         fireEvent.keyDown(document.activeElement!, { key: "Home" })
         expect(viewer().selectedId).toBe("slot-1")
         // Only the chosen spot is in the tab order (roving tabindex).
-        expect(radios().map((o) => o.tabIndex)).toEqual([0, -1, -1, -1])
+        expect(lidRadios().map((o) => o.tabIndex)).toEqual([0, -1, -1, -1])
     })
 
     it("selects the spot clicked in the 3D view", () => {
@@ -119,7 +126,101 @@ describe("spot picker", () => {
     })
 })
 
-describe("sponsor call to action", () => {
+describe("inside the laptop: palm rest spots", () => {
+    it("adds a second section with the two spots beside the trackpad", () => {
+        render(<LaptopExperience />)
+        expect(screen.getByText("Inside the laptop")).toBeTruthy()
+        const options = within(palmGroup()).getAllByRole("radio")
+        expect(options.map((o) => o.textContent)).toEqual(["Left of trackpadDemo Robotics", "Right of trackpadOpen spot"])
+        expect(options.map((o) => o.tabIndex)).toEqual([0, -1]) // each group has its own tab stop
+    })
+
+    it("opens the laptop when a palm rest spot is chosen, since the lid covers it", () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("radio", { name: /Left of trackpad/ }))
+        expect(viewer().open).toBe(true)
+        expect(viewer().selectedId).toBe("palm-left")
+        expect(within(details()).getByRole("heading", { name: "Demo Robotics" })).toBeTruthy()
+        expect(within(details()).getByText("Palm rest, left of trackpad")).toBeTruthy()
+        expect(toggle().textContent).toBe("Close the laptop")
+    })
+
+    it("keeps one selection across both groups", () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("radio", { name: /Upper left/ }))
+        fireEvent.click(screen.getByRole("radio", { name: /Right of trackpad/ }))
+        expect(screen.getAllByRole("radio").filter((o) => o.getAttribute("aria-checked") === "true")).toHaveLength(1)
+        expect(within(details()).getByText(/right beside the trackpad/)).toBeTruthy()
+        // The lid group has no selection now, so its first spot is its tab stop again.
+        expect(lidRadios().map((o) => o.tabIndex)).toEqual([0, -1, -1, -1])
+    })
+
+    it("moves between the two palm spots with the arrow keys, wrapping", () => {
+        render(<LaptopExperience />)
+        const [left, right] = within(palmGroup()).getAllByRole("radio")
+        left.focus()
+        fireEvent.keyDown(left, { key: "ArrowRight" })
+        expect(viewer().selectedId).toBe("palm-left")
+        expect(viewer().open).toBe(true)
+        fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" })
+        expect(document.activeElement).toBe(right)
+        fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" })
+        expect(document.activeElement).toBe(left)
+    })
+
+    it("selects a palm rest sticker clicked in the 3D view", () => {
+        render(<LaptopExperience />)
+        report("ready")
+        fireEvent.click(toggle())
+        act(() => viewer().onSelect("palm-right"))
+        expect(screen.getByRole("radio", { name: /Right of trackpad/ }).getAttribute("aria-checked")).toBe("true")
+    })
+})
+
+describe("opening and closing the laptop", () => {
+    it("starts closed and opens with the toggle, clearing the selection so the view starts from its overview", () => {
+        render(<LaptopExperience />)
+        expect(viewer().open).toBe(false)
+        fireEvent.click(screen.getByRole("radio", { name: /Upper left/ }))
+        fireEvent.click(toggle())
+        expect(viewer().open).toBe(true)
+        expect(viewer().selectedId).toBeNull()
+        expect(toggle().textContent).toBe("Close the laptop")
+        fireEvent.click(toggle())
+        expect(viewer().open).toBe(false)
+        expect(toggle().textContent).toBe("Open the laptop")
+    })
+
+    it("keeps the laptop open when a lid sticker is chosen (it's seen from behind the screen)", () => {
+        render(<LaptopExperience />)
+        fireEvent.click(toggle())
+        fireEvent.click(screen.getByRole("radio", { name: /Lower left/ }))
+        expect(viewer().open).toBe(true)
+        expect(viewer().selectedId).toBe("slot-3")
+    })
+
+    it("drops a palm rest selection on closing, since the lid hides it", () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("radio", { name: /Right of trackpad/ }))
+        fireEvent.click(toggle())
+        expect(viewer().open).toBe(false)
+        expect(viewer().selectedId).toBeNull()
+        expect(screen.getByText("Pick a spot")).toBeTruthy()
+    })
+
+    it("describes the open or closed laptop and the selection to assistive tech", () => {
+        render(<LaptopExperience />)
+        const scene = screen.getByRole("img")
+        expect(scene.getAttribute("aria-label")).toMatch(/13-inch MacBook Pro \(2019\), closed, with four sticker spots on the lid/)
+        fireEvent.click(screen.getByRole("radio", { name: /Lower right/ }))
+        expect(scene.getAttribute("aria-label")).toMatch(/Selected: Lid, lower right: open/)
+        fireEvent.click(screen.getByRole("radio", { name: /Left of trackpad/ }))
+        expect(scene.getAttribute("aria-label")).toMatch(/open, with the screen on, the keyboard backlit, and two sticker spots on the palm rest/)
+        expect(scene.getAttribute("aria-label")).toMatch(/Selected: Palm rest, left of trackpad: Demo Robotics \(sample sponsor\)/)
+    })
+})
+
+describe("offer form trigger", () => {
     it("opens the offer form (a dialog) and never claims to take payment", () => {
         render(<LaptopExperience />)
         const cta = screen.getByRole("button", { name: /Sponsor a spot/ })
@@ -158,6 +259,22 @@ describe("viewer states", () => {
         expect(within(details()).getByRole("heading", { name: "Acme Dev Tools" })).toBeTruthy()
     })
 
+    it("draws the open laptop in 2D when it's opened without the 3D model", () => {
+        render(<LaptopExperience />)
+        report("missing")
+        const scene = screen.getByRole("img")
+        expect(scene.querySelector("svg")).toBeNull() // the closed lid drawing
+        expect(within(scene).getByText("ACME")).toBeTruthy()
+        fireEvent.click(screen.getByRole("radio", { name: /Left of trackpad/ }))
+        const drawing = scene.querySelector("svg")
+        expect(drawing).not.toBeNull()
+        expect(within(scene).getByText("DR")).toBeTruthy()   // the sample palm sticker
+        expect(within(scene).getByText("Open")).toBeTruthy() // the open palm spot
+        expect(drawing!.querySelectorAll('rect[stroke="#7c6dff"][stroke-width="2.5"]')).toHaveLength(1) // the selection ring
+        fireEvent.click(toggle())
+        expect(scene.querySelector("svg")).toBeNull()
+    })
+
     it("explains when WebGL isn't available", () => {
         render(<LaptopExperience />)
         report("unsupported")
@@ -168,7 +285,7 @@ describe("viewer states", () => {
         render(<LaptopExperience />)
         report("invalid")
         expect(screen.getByRole("status").textContent).toMatch(/model needs an update/)
-        expect(screen.getByRole("status").textContent).not.toMatch(/Sticker_Slot|Lid_Outer/)
+        expect(screen.getByRole("status").textContent).not.toMatch(/Sticker_Slot|Lid_Outer|Palm_Slot|Keyboard|Screen/)
     })
 
     it("offers a retry after a load error that remounts the viewer from scratch", () => {
@@ -179,14 +296,6 @@ describe("viewer states", () => {
         fireEvent.click(screen.getByRole("button", { name: "Try again" }))
         expect(mockViewer.mounts).toBe(2)
         expect(screen.getByRole("status").textContent).toMatch(/Loading the 3D laptop/)
-    })
-
-    it("describes the scene and the current selection to assistive tech", () => {
-        render(<LaptopExperience />)
-        fireEvent.click(screen.getByRole("radio", { name: /Lower right/ }))
-        const scene = screen.getByRole("img")
-        expect(scene.getAttribute("aria-label")).toMatch(/13-inch MacBook Pro \(2019\) with four sticker spots/)
-        expect(scene.getAttribute("aria-label")).toMatch(/Selected: Lower right spot: open/)
     })
 })
 

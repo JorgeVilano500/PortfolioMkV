@@ -55,6 +55,16 @@ describe("opening", () => {
         expect(document.activeElement).toBe(field(/Your email/))
     })
 
+    it("pre-chooses a palm-rest spot, and lists both surfaces' spots by full name", () => {
+        openForm(/Left of trackpad/)
+        const select = field(/Preferred spot/) as unknown as HTMLSelectElement
+        expect(select.value).toBe("palm-left")
+        expect([...select.options].map((o) => o.textContent)).toEqual([
+            "Lid, upper left", "Lid, upper right", "Lid, lower left", "Lid, lower right",
+            "Palm rest, left of trackpad", "Palm rest, right of trackpad", "Any spot",
+        ])
+    })
+
     it("defaults to 'Any spot' when none is selected", () => {
         openForm()
         expect((field(/Preferred spot/) as unknown as HTMLSelectElement).value).toBe("any")

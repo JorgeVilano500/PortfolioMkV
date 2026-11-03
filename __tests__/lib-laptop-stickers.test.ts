@@ -6,49 +6,65 @@
  */
 import {
     LAPTOP_MODEL,
+    LID_SLOTS,
+    PALM_SLOTS,
     REQUIRED_MODEL_NODES,
     SPONSOR_CTA_HREF,
+    STICKER_COLORS,
     STICKER_SLOTS,
     describeSlot,
     findSlotByNode,
     getSlot,
     missingModelNodes,
     nextSlotId,
+    spotName,
 } from "@/lib/laptop-stickers"
 import { themeMap } from "@/lib/theme"
 
 describe("sticker slots", () => {
-    it("has exactly four slots with unique ids and node names", () => {
-        expect(STICKER_SLOTS).toHaveLength(4)
-        expect(new Set(STICKER_SLOTS.map((s) => s.id)).size).toBe(4)
-        expect(new Set(STICKER_SLOTS.map((s) => s.node)).size).toBe(4)
+    it("has six slots with unique ids and node names: four on the lid, two on the palm rest", () => {
+        expect(STICKER_SLOTS).toHaveLength(6)
+        expect(new Set(STICKER_SLOTS.map((s) => s.id)).size).toBe(6)
+        expect(new Set(STICKER_SLOTS.map((s) => s.node)).size).toBe(6)
+        expect(LID_SLOTS.map((s) => s.id)).toEqual(["slot-1", "slot-2", "slot-3", "slot-4"])
+        expect(PALM_SLOTS.map((s) => s.id)).toEqual(["palm-left", "palm-right"])
     })
 
-    it("names each sticker mesh Sticker_Slot_1–4 (GLTFLoader-safe: no dots, spaces, or slashes)", () => {
-        expect(STICKER_SLOTS.map((s) => s.node)).toEqual(["Sticker_Slot_1", "Sticker_Slot_2", "Sticker_Slot_3", "Sticker_Slot_4"])
+    it("names each sticker mesh to match the GLB (GLTFLoader-safe: no dots, spaces, or slashes)", () => {
+        expect(STICKER_SLOTS.map((s) => s.node)).toEqual([
+            "Sticker_Slot_1", "Sticker_Slot_2", "Sticker_Slot_3", "Sticker_Slot_4", "Palm_Slot_Left", "Palm_Slot_Right",
+        ])
         for (const name of REQUIRED_MODEL_NODES) expect(name).toMatch(/^[A-Za-z0-9_]+$/)
     })
 
-    it("covers the four corners of the lid", () => {
-        expect(STICKER_SLOTS.map((s) => s.position)).toEqual(["Upper left", "Upper right", "Lower left", "Lower right"])
+    it("covers the four corners of the lid and both sides of the trackpad", () => {
+        expect(LID_SLOTS.map((s) => s.position)).toEqual(["Upper left", "Upper right", "Lower left", "Lower right"])
+        expect(PALM_SLOTS.map((s) => s.position)).toEqual(["Left of trackpad", "Right of trackpad"])
     })
 
-    it("uses only the site's accent themes for sponsors", () => {
+    it("draws lid stickers square and palm-rest stickers landscape (5 × 3.5 cm planes)", () => {
+        for (const slot of LID_SLOTS) expect(slot.aspect).toBe(1)
+        for (const slot of PALM_SLOTS) expect(slot.aspect).toBeCloseTo(5 / 3.5)
+    })
+
+    it("uses only the site's accent themes for sponsors, with a sticker colour for each", () => {
+        expect(Object.keys(STICKER_COLORS).sort()).toEqual(Object.keys(themeMap).sort())
         for (const slot of STICKER_SLOTS) {
             if (slot.sponsor) expect(Object.keys(themeMap)).toContain(slot.sponsor.theme)
         }
     })
 
-    it("keeps sample data honest: short marks, no URLs, at least one open spot", () => {
+    it("keeps sample data honest: short marks, no URLs, an open spot on each surface", () => {
         const sponsors = STICKER_SLOTS.flatMap((s) => (s.sponsor ? [s.sponsor] : []))
         for (const sponsor of sponsors) {
             expect(sponsor.mark.length).toBeLessThanOrEqual(6)
             expect(JSON.stringify(sponsor)).not.toMatch(/https?:\/\//)
         }
-        expect(STICKER_SLOTS.some((s) => s.sponsor === null)).toBe(true)
+        expect(LID_SLOTS.some((s) => s.sponsor === null)).toBe(true)
+        expect(PALM_SLOTS.some((s) => s.sponsor === null)).toBe(true)
     })
 
-    it("sends would-be sponsors to the contact page, not a checkout", () => {
+    it("offers the contact page to people who'd rather write, not a checkout", () => {
         expect(SPONSOR_CTA_HREF).toBe("/contact")
     })
 })
@@ -59,27 +75,46 @@ describe("model contract", () => {
         expect(LAPTOP_MODEL.dimensions).toEqual({ width: 0.3041, depth: 0.2124, height: 0.0149 })
     })
 
-    it("requires the lid's outside plus the four sticker planes", () => {
-        expect(REQUIRED_MODEL_NODES).toEqual(["Lid_Outer", "Sticker_Slot_1", "Sticker_Slot_2", "Sticker_Slot_3", "Sticker_Slot_4"])
+    it("opens the lid to a working angle, short of flat", () => {
+        expect(LAPTOP_MODEL.openAngle).toBeGreaterThan(90)
+        expect(LAPTOP_MODEL.openAngle).toBeLessThan(135)
+    })
+
+    it("requires the hinge, the lid's outside, the screen, the keyboard, and the six sticker planes", () => {
+        expect(REQUIRED_MODEL_NODES).toEqual([
+            "Lid", "Lid_Outer", "Screen", "Keyboard",
+            "Sticker_Slot_1", "Sticker_Slot_2", "Sticker_Slot_3", "Sticker_Slot_4", "Palm_Slot_Left", "Palm_Slot_Right",
+        ])
     })
 
     it("reports exactly which nodes a model is missing", () => {
         expect(missingModelNodes(REQUIRED_MODEL_NODES)).toEqual([])
-        expect(missingModelNodes(["Base", "Lid_Outer", "Sticker_Slot_1"])).toEqual(["Sticker_Slot_2", "Sticker_Slot_3", "Sticker_Slot_4"])
+        // The first model contract (lid only) now lacks the inside parts.
+        expect(missingModelNodes(["Base", "Lid", "Lid_Outer", "Sticker_Slot_1", "Sticker_Slot_2", "Sticker_Slot_3", "Sticker_Slot_4"]))
+            .toEqual(["Screen", "Keyboard", "Palm_Slot_Left", "Palm_Slot_Right"])
         // Blender's duplicate suffix (".001" → "001" after GLTFLoader sanitizes it) doesn't count.
-        expect(missingModelNodes(["Lid_Outer", "Sticker_Slot_1001", "Sticker_Slot_2", "Sticker_Slot_3", "Sticker_Slot_4"])).toEqual(["Sticker_Slot_1"])
+        const renamed = REQUIRED_MODEL_NODES.map((name) => (name === "Palm_Slot_Left" ? "Palm_Slot_Left001" : name))
+        expect(missingModelNodes(renamed)).toEqual(["Palm_Slot_Left"])
     })
 
     it("maps a raycast hit's mesh name back to its slot", () => {
         expect(findSlotByNode("Sticker_Slot_3")?.id).toBe("slot-3")
+        expect(findSlotByNode("Palm_Slot_Right")?.id).toBe("palm-right")
         expect(findSlotByNode("Lid_Outer")).toBeUndefined()
+        expect(findSlotByNode("Sticker_Slot_1_Halo")).toBeUndefined()
     })
 })
 
-describe("descriptions", () => {
+describe("names and descriptions", () => {
+    it("names spots unambiguously across both surfaces", () => {
+        expect(spotName(getSlot("slot-1"))).toBe("Lid, upper left")
+        expect(spotName(getSlot("palm-right"))).toBe("Palm rest, right of trackpad")
+    })
+
     it("describes sponsored and open spots for screen readers", () => {
-        expect(describeSlot(getSlot("slot-1"))).toBe("Upper left spot: Acme Dev Tools (sample sponsor)")
-        expect(describeSlot(getSlot("slot-4"))).toBe("Lower right spot: open")
+        expect(describeSlot(getSlot("slot-1"))).toBe("Lid, upper left: Acme Dev Tools (sample sponsor)")
+        expect(describeSlot(getSlot("slot-4"))).toBe("Lid, lower right: open")
+        expect(describeSlot(getSlot("palm-left"))).toBe("Palm rest, left of trackpad: Demo Robotics (sample sponsor)")
     })
 })
 
@@ -92,13 +127,20 @@ describe("nextSlotId (radio-group keys)", () => {
         ["slot-1", "ArrowUp",    "slot-4"], // wraps
         ["slot-3", "Home",       "slot-1"],
         ["slot-2", "End",        "slot-4"],
-    ] as const)("%s + %s → %s", (current, key, expected) => {
+    ] as const)("lid: %s + %s → %s", (current, key, expected) => {
         expect(nextSlotId(current, key)).toBe(expected)
     })
 
-    it("starts from the ends when nothing is selected yet", () => {
+    it("moves within the palm-rest group when given it", () => {
+        expect(nextSlotId("palm-left", "ArrowRight", PALM_SLOTS)).toBe("palm-right")
+        expect(nextSlotId("palm-right", "ArrowRight", PALM_SLOTS)).toBe("palm-left") // wraps
+        expect(nextSlotId("palm-right", "Home", PALM_SLOTS)).toBe("palm-left")
+    })
+
+    it("starts from the ends when nothing in the group is selected yet", () => {
         expect(nextSlotId(null, "ArrowRight")).toBe("slot-1")
         expect(nextSlotId(null, "ArrowLeft")).toBe("slot-4")
+        expect(nextSlotId("slot-2", "ArrowRight", PALM_SLOTS)).toBe("palm-left") // a lid spot isn't in this group
     })
 
     it("ignores keys that aren't navigation keys", () => {

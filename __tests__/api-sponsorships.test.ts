@@ -127,6 +127,13 @@ describe("a valid offer", () => {
         expect(JSON.parse(recordBody)).toMatchObject({ email: "jane@acme.dev", affiliation: "Acme Dev Tools", offer: 1500, spot: "slot-2", fileType: "image/png" })
     })
 
+    it("accepts an offer for a palm-rest spot and names it in both emails", async () => {
+        const res = await offer({ spot: "palm-right" })
+        expect(res.status).toBe(200)
+        expect(JSON.parse(mockUpload.mock.calls[1][1])).toMatchObject({ spot: "palm-right" })
+        for (const mail of sends()) expect(mail.html).toContain("Palm rest, right of trackpad")
+    })
+
     it("never stores the visitor's IP with the offer", async () => {
         await offer({}, { ip: "203.0.113.77" })
         expect(JSON.stringify(mockUpload.mock.calls)).not.toContain("203.0.113.77")

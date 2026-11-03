@@ -6,7 +6,7 @@
  * An offer is the start of an email conversation, not a purchase: nothing is
  * charged, and the amount is negotiable.
  */
-import { STICKER_SLOTS, type StickerSlotId } from "./laptop-stickers"
+import { STICKER_SLOTS, spotName, type StickerSlotId } from "./laptop-stickers"
 
 export const SPONSOR_LIMITS = {
     email:       254,
@@ -33,8 +33,9 @@ export const STICKER_ACCEPT = ".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,i
 
 export type SponsorSpot = StickerSlotId | "any"
 
+// Full names ("Palm rest, left of trackpad"): the label also goes into both emails.
 export const SPOT_CHOICES: readonly { value: SponsorSpot; label: string }[] = [
-    ...STICKER_SLOTS.map((slot) => ({ value: slot.id, label: slot.position })),
+    ...STICKER_SLOTS.map((slot) => ({ value: slot.id, label: spotName(slot) })),
     { value: "any", label: "Any spot" },
 ]
 

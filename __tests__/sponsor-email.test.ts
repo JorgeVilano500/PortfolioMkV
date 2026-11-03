@@ -43,7 +43,7 @@ describe("sponsor's thank-you copy", () => {
     })
 
     it("includes a copy of everything they provided", () => {
-        for (const value of ["jane@acme.dev", "Acme Dev Tools", "Upper right", "$1,500", "PNG, 1.2 MB", "3F2B6C1E"]) {
+        for (const value of ["jane@acme.dev", "Acme Dev Tools", "Lid, upper right", "$1,500", "PNG, 1.2 MB", "3F2B6C1E"]) {
             expect(mail.html).toContain(value)
             expect(mail.text).toContain(value)
         }
@@ -86,6 +86,12 @@ describe("owner's inquiry notice", () => {
     it("admits when storage failed, so the email is known to be the only copy", () => {
         const unstored = ownerNotificationEmail(inquiry(), SITE, { stored: false })
         expect(unstored.text).toMatch(/could NOT be saved/)
+    })
+
+    it("names a palm-rest spot by its surface, so it can't be mistaken for a lid corner", () => {
+        const palm = ownerNotificationEmail(inquiry({ spot: "palm-left" }), SITE, { stored: true })
+        expect(palm.html).toContain("Palm rest, left of trackpad")
+        expect(sponsorConfirmationEmail(inquiry({ spot: "palm-left" }), SITE).text).toContain("Palm rest, left of trackpad")
     })
 })
 
