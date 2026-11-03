@@ -1,7 +1,35 @@
 "use client"
 import { useState } from "react"
 import Link from "next/link"
-import { projects } from "@/lib/projects"
+import { projects, type Project } from "@/lib/projects"
+
+// Every card shows its own project's status. The featured and side cards used
+// to hard-code "Live", so any project placed there read as live.
+const STATUS: Record<Project["status"], { dot: string; text: string; label: string }> = {
+    live:    { dot: "bg-emerald-400 animate-pulse", text: "text-emerald-400", label: "Live" },
+    wip:     { dot: "bg-amber-400",                 text: "text-amber-400",   label: "In Progress" },
+    planned: { dot: "bg-orange-400",                text: "text-orange-400",  label: "Planned" },
+}
+
+function StatusPill({ status }: { status: Project["status"] }) {
+    const s = STATUS[status] ?? STATUS.planned
+    return (
+        <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+            <span className={`text-xs font-medium ${s.text}`}>{s.label}</span>
+        </div>
+    )
+}
+
+/** "View →" for projects with a link; plain text otherwise (never a dead "#" link that opens a new tab). */
+function ProjectLink({ project, label, className }: { project: Project; label: string; className: string }) {
+    if (!project.link) return <span className="text-xs font-medium text-[#555370]">No link yet</span>
+    return (
+        <a target="_blank" rel="noopener noreferrer" href={project.link} className={`text-xs font-medium hover:underline ${className}`}>
+            {label}
+        </a>
+    )
+}
 
 export function WorkComponent() {
 
@@ -14,7 +42,7 @@ export function WorkComponent() {
         )
 
     const featured = filtered.find((p) => p.featured) ?? null;
-    const nonFeat = filtered.filter((p) => !p.featured) ?? null;
+    const nonFeat = filtered.filter((p) => !p.featured);
     const sideCard = featured ? nonFeat[0] ?? null : null;
     const smallCards = featured ? nonFeat.slice(1) : nonFeat; 
 
@@ -24,13 +52,11 @@ export function WorkComponent() {
         <div className="mb-8">
 
             {/* header */}
-            <section className="col-span-1 md:col-span-1 xl:col-span-7 rounded-2xl p-6 flex flex-col justify-end min-h-[200] ">
+            <section className="rounded-2xl p-6 flex flex-col justify-end">
                 <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-2">Portfolio</p>
                 <h1 className="font-syne font-extrabold text-3xl md:text-4xl text-[#f0eeff] tracking-tight mb-2">Things I&apos;ve built</h1>
                 <p className="text-sm text-gray-500 max-w-sm leading-relaxed">Interactive apps, full stack projects, and UI experiments</p>
             </section>
-
-            {/* need to make filter still  */}
 
             <div data-tour="work-filters" className="flex flex-wrap gap-2 mb-8">
                 {
@@ -59,13 +85,13 @@ export function WorkComponent() {
                             }} />
                                 <div className="flex flex-col justify-between  ">
                                     <div>
-                                        <div className={`${featured.iconBg} mt-16 w-full  w-16 h-16 rounded-2xl flex items-center justify-center text-3xl mb-4`}>
+                                        <div className={`${featured.iconBg} mt-16 w-full h-16 rounded-2xl flex items-center justify-center text-3xl mb-4`}>
                                             {featured.icon}
                                         </div>
                                         <p className={`text-[10px] tracking-widest uppercase font-medium mb-2 ${featured.catColor}`}>
                                             {featured.cat}
                                         </p>
-                                        <h2 className="font-syne font-extrabold text-2xl text-[#f0eeff] tracking-light leading-tight mb-3 ">
+                                        <h2 className="font-syne font-extrabold text-2xl text-[#f0eeff] tracking-tight leading-tight mb-3 ">
                                             {featured.title}
                                         </h2>
                                         <p className="text-sm text-[#6b6880] leading-relaxed mb-4 max-w-md">
@@ -82,16 +108,8 @@ export function WorkComponent() {
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between mt-5">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                                <span className="text-xs text-emerald-400 font-medium">
-                                                    Live
-                                                </span>
-                                            </div>
-                                                <a target="_blank" rel="noopener noreferrer" href={featured.link ? featured.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline "> 
-                                                    View Project  →
-                                               </a>
-
+                                            <StatusPill status={featured.status} />
+                                            <ProjectLink project={featured} label="View Project →" className="text-[#7c6dff]" />
                                     </div>
                                 </div>
                                 </div>
@@ -110,7 +128,7 @@ export function WorkComponent() {
                                     <p className={`text-[10px] tracking-widest uppercase font-medium mb-2 ${sideCard.catColor}`}>
                                         {sideCard.cat}
                                     </p>
-                                    <h3 className="font-syne font-bold text-xl text-[#f0eeff] tracking-light leading-snug mb-2">
+                                    <h3 className="font-syne font-bold text-xl text-[#f0eeff] tracking-tight leading-snug mb-2">
                                         {sideCard.title}
                                     </h3>
                                     <p className="text-xs text-[#6b6880] leading-relaxed mb-3">
@@ -127,13 +145,8 @@ export function WorkComponent() {
                                         </div>
                                 </div>
                                 <div className="flex items-center justify-between mt-4">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                            <span className="text-xs text-emerald-400 font-medium">Live</span>
-                                        </div>
-                                        <a target="_blank" rel="noopener noreferrer" href={sideCard.link ? sideCard.link : "#"} className="text-xs text-[#7c6dff] font-medium hover:underline">
-                                            View →
-                                        </a>
+                                        <StatusPill status={sideCard.status} />
+                                        <ProjectLink project={sideCard} label="View →" className="text-[#7c6dff]" />
                                     </div>
                             </div>
                             </div>
@@ -152,7 +165,7 @@ export function WorkComponent() {
                                     <p className={`text-[10px] tracking-widest uppercase font-medium mb-2 ${card.catColor}`}>
                                         {card.cat}
                                     </p>
-                                    <h3 className="font-syne font-bold text-lg text-[#f0eeff] tracking-light leading-snug mb-2">
+                                    <h3 className="font-syne font-bold text-lg text-[#f0eeff] tracking-tight leading-snug mb-2">
                                         {card.title}
                                     </h3>
                                     <p className="text-xs text-[#6b6880] leading-relaxed mb-3">
@@ -166,45 +179,9 @@ export function WorkComponent() {
                                         ))}
                                     </div>
                                 </div>
-                                <div className="flex items-center justify-between mt-4 ">
-                                    <div className="flex items-center gap-1.5">
-                                            {
-                                                card.status === "live" && (
-                                                    <>
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                                        <span className="text-xs text-emerald-400 font-medium">Live</span>
-                                                    </>
-                                                )
-                                            }
-                                            {
-                                                card.status === "wip" && (
-                                                    <>
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 " />
-                                                        <span className="text-xs text-amber-400 font-medium">In Progress</span>
-                                                    </>
-                                                )
-                                            }
-                                            {
-                                                card.status === "planned" && (
-                                                    <>
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
-                                                        <span className="text-xs text-orange-400 font-medium">Planned</span>
-                                                        </>
-                                                )
-                                            }
-                                        </div>
-                                       {
-                                        card.link ? (
-                                             <a target="_blank" rel="noopener noreferrer" href={card.link ? card.link : "#"} className={`text-xs font-medium hover:underline ${card.catColor}`}>
-                                            View →
-                                        </a>
-                                        ) : (
-                                            <span className={`text-xs font-medium ${card.catColor}`}>
-                                                No Link
-                                            </span>
-                                        )
-                                       }
-
+                                <div className="flex items-center justify-between mt-4">
+                                    <StatusPill status={card.status} />
+                                    <ProjectLink project={card} label="View →" className={card.catColor} />
                                 </div>
 
                             </div>
@@ -226,7 +203,7 @@ export function WorkComponent() {
                     <p className="text-[11px] tracking-widest uppercase text-[#7c6dff] font-medium mb-1">3D experiment</p>
                     <h2 className="font-syne font-bold text-xl text-[#f0eeff] leading-snug mb-1">Sticker the laptop</h2>
                     <p className="text-sm text-[#8a88a0] leading-relaxed">
-                        A Three.js 2019 MacBook Pro with four sponsor-sticker spots on the lid.
+                        A Three.js 2019 MacBook Pro with sponsor-sticker spots on the lid and the palm rest. Open it up to see the screen light.
                     </p>
                 </div>
                 <span className="text-xs text-[#7c6dff] font-medium whitespace-nowrap">Explore in 3D →</span>
