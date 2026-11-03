@@ -1,6 +1,6 @@
 # Design System
 
-_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-10-19**._
+_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-11-03**._
 
 **Read this before building or restyling any UI.** When you introduce a new pattern, add it here.
 
@@ -182,8 +182,10 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 | Scroll reveal | `opacity-0 translate-y-5` to `opacity-100 translate-y-0`, `duration-500 ease-out`, staggered by `i * 100ms`, triggered by an IntersectionObserver at threshold 0.15 | About timeline |
 | Mobile nav drawer | `-translate-x-full` to `translate-x-0`, `duration-400 ease-in-out` | Navbar |
 | Bars | `transition-all duration-700` on width | Logistics |
+| Laptop open/close (3D) | Lid 1.3 s ease-in-out cubic; camera swings round in spherical coordinates over 1.7 s; screen up at +350 ms (500 ms), keyboard backlight at +900 ms (900 ms), boot screen → desktop at +1.6 s (first open only). Closing: display and keys off in 250 ms, then the lid in 1.1 s. Camera moves between spots: 450 ms ease-out. | `/laptop` (`LaptopViewer.tsx` `OPENING`/`CLOSING`) |
+| Laptop open (2D fallback) | Screen and key glow fade in with `transition-opacity duration-700 motion-reduce:transition-none` | `/laptop` `DeckDiagram` |
 
-⚠️ No `prefers-reduced-motion` handling exists yet. In new code, wrap non-essential motion in `motion-safe:` (for example `motion-safe:hover:-translate-y-1`), and retrofit it during the P1-8 accessibility pass.
+⚠️ `prefers-reduced-motion` is handled only in newer UI so far: `TourSpotlight`, and `/laptop`, where the camera and the lid jump instead of animating, the screen and keys light instantly, and pulses are `motion-safe:`. In new code, wrap non-essential motion in `motion-safe:` (for example `motion-safe:hover:-translate-y-1`). For JS-driven motion, read the preference with `useSyncExternalStore` over `matchMedia("(prefers-reduced-motion: reduce)")` (see `usePrefersReducedMotion` in `app/laptop/LaptopExperience.tsx`). Retrofit the rest during the P1-8 accessibility pass.
 
 ## 7. Component catalogue
 
@@ -191,7 +193,7 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 | Component | Path | API / notes |
 |---|---|---|
 | `Navbar` | `components/ui/Navbar.tsx` | `currentLink: string`. Links are `work`, `about`, `blog`, `contact`, and the `JAVA.dev` wordmark goes home. Below `md` it shows a hamburger that opens a full-screen drawer. |
-| `Modal` | `components/features/Modal.tsx` | `isOpen`, `onClose`, `title?`, `variant: "default" \| "dark"` (**always use `dark`**), `size: "md" \| "lg"`, `contentClassName?`, `bodyClassName?`. Renders through a portal into `document.body`, closes on Esc and on backdrop click, and locks scroll. |
+| `Modal` | `components/features/Modal.tsx` | `isOpen`, `onClose`, `title?`, `variant: "default" \| "dark"` (**always use `dark`**), `size: "md" \| "lg"`, `contentClassName?`, `bodyClassName?`. Renders through a portal into `document.body`, closes on Esc and on backdrop click, and locks scroll. **Traps focus** (since 2026-10-30): focus moves to a `[data-autofocus]` child (or the box), Tab wraps, and focus returns to the opener on close. |
 | `MarkdownRenderer` | `components/ui/MarkdownRenderer.tsx` | `content: string`. The **only** way to render user markdown (see SECURITY.md). Styles every element (§7.4). |
 | `ProjectList` | `components/ui/ProjectList.tsx` | `projects: PublicProject[]`. A compact row list: icon tile, title, category, 2-line description, tags, status, year, and a "View →" link that appears on hover. |
 | `HomeComponent`, `WorkComponent` | `components/ui/` | Page bodies. They are not reusable. |
@@ -214,6 +216,26 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 | `SiteFooter` | `border-t border-[#1e1c2e]`, `text-xs text-[#8a88a0]`, with links for Privacy · Cookie settings · Take the tour. Hidden on admin pages. |
 
 **Z-index scale** (keep new overlays inside it): spotlight `z-45` · highlighted nav tab `z-46` · tour bar `z-47` · docked tour bar `z-48` · mobile drawer `z-55` · modal `z-60` · toast `z-70`. Use Tailwind's canonical integer classes (`z-46`, not `z-[46]`).
+
+### 7.1c 3D laptop (`app/laptop/`, added 2026-10-30, inside view 2026-11-03)
+| Element | Pattern |
+|---|---|
+| Viewer card | A standard card at `p-3 sm:p-4`, wrapping a **canvas well**: `relative h-80 sm:h-105 xl:h-130 rounded-xl overflow-hidden bg-[#0a0a0f]` with the violet top glow (`radial-gradient(circle at 50% 0%, rgba(124,109,255,.12) 0%, transparent 60%)`, `pointer-events-none`). The well is `role="img"` with a text description; the canvas inside is `aria-hidden`. |
+| Viewer status line | Below the well: `role="status"`, `text-xs text-[#8a88a0]`. Fallback titles are in `text-[#c4c0d8] font-medium`. Buttons sit on the right: the **primary** "Open the laptop" / "Close the laptop" toggle (`bg-[#7c6dff] text-white`, `text-xs px-3 py-1.5 rounded-lg`; the label changes, no `aria-pressed`), then the secondary Reset view and Try again. |
+| Loading | A lid-shaped skeleton (`aspect-[30.41/21.24]`, `bg-[#1e1c2e] motion-safe:animate-pulse`) centred in the well |
+| 2D fallback | A flat lid drawing (`bg-linear-to-b from-[#3a3850] to-[#2a2840]`, hinge bar at the bottom). The four spots are drawn as tag-style chips, with a `ring-4 ring-[#7c6dff]` on the selected one and a dashed violet border on the open one. It's `aria-hidden`, because the picker is the accessible control. **Open:** an inline SVG (`DeckDiagram`) at the model's real proportions: a `#0b0b0e` lid with the lit wallpaper and dock, then the base foreshortened ×0.45 with the keys (from `lib/laptop-keyboard.ts`, white 0.45-opacity edges as the backlight), the trackpad, and the two palm spots as sticker-coloured chips (selected: a 2.5 px `#7c6dff` ring). |
+| Spot pickers | Two sections, each an eyebrow + Syne `text-xl` heading + `role="radiogroup"` of `grid-cols-2` tiles: "On the lid · Four sponsor spots" (2×2) and "Inside the laptop · Two palm rest spots" (1×2, with a `text-xs text-[#8a88a0]` hint). **One selection across both groups**; each group has its own roving tab stop; arrows/Home/End move within a group. Unchecked: `bg-[#0a0a0f] border-[#2a2840]`. Checked: `bg-[#7c6dff] border-[#7c6dff] text-white`. The eyebrow is the position; the label is the sponsor or "Open spot". |
+| Details card | Inset panel (`bg-[#0d0c14] border-[#2a2840] rounded-xl p-4`, `aria-live="polite"`). The eyebrow is the full spot name ("Lid, upper left", "Palm rest, left of trackpad"). Sponsor: theme `catColor` eyebrow, a **"Sample sponsor" pill** (`border-[#3a3850] text-[#c4c0d8]`), Syne title, tagline in `catColor`. Open spot: the emerald "Available" status. It always ends with the primary pill "Sponsor a spot →", which opens the offer dialog (§7.1d). |
+| Sticker artwork (canvas) | Rounded square (lid) or 5:3.5 landscape badge (palm rest) with a `#f0eeff` die-cut edge. purple `#7c6dff` fill with white ink, green `#97C459` with `#0f1a14` ink, pink `#ED93B1` with `#1a1216` ink. Open spot: `#13121c` at 88% opacity, a dashed `#7c6dff` border, and "YOUR LOGO" in `#AFA9EC`. The selected sticker gets a violet frame (halo), drawn before the sticker so the sticker's clear margin never clips it. |
+| Screen (canvas, 1280×800) | Unlit and not tone-mapped, so colours stay true. **Boot:** black with the `JAVA` (`#f0eeff`) `.dev` (`#7c6dff`) wordmark and a thin progress bar. **Desktop:** a diagonal `#1d1648 → #0d0c14 → #2a1530` wallpaper with soft violet, pink and green glows and two violet ribbons; a 30 px `rgba(10,10,15,.55)` menu bar with the wordmark, Work · About · Blog · Contact, and the local time; a frosted dock of five letter tiles (H W A B C) in the accent colours. While the screen is on, the room light dims 30%. No Apple marks. |
+| Keyboard (canvas, 1280 wide) | US 2019 butterfly layout with the Touch Bar (`lib/laptop-keyboard.ts`). Colour map: `#1d1d22 → #0e0e11` keycaps with `#5d5d68` legends, clear gaps so the deck shows. Emissive map (the backlight, white): legends plus a 16% edge glow, and the Touch Bar (esc, a violet→pink `JAVA.dev` pill, brightness and volume buttons). Modifier names sit in a bottom corner with the symbol (⌘ ⌥ ⌃ ⇧) in the top corner. |
+
+### 7.1d Sponsorship form and emails (added 2026-10-30)
+| Element | Pattern |
+|---|---|
+| Offer dialog | The shared `Modal` (`variant="dark"`, title "Sponsor a spot"). Intro in `text-sm text-[#8a88a0]`. Fields use the **Studio input style**, with labels in `text-xs font-medium text-[#c4c0d8]`, hints in `text-xs text-[#8a88a0]` below, and errors in `text-xs text-pink-400` with a `border-pink-400` field (`aria-invalid`, `aria-describedby` to hint + error). The offer input has a `$` prefix. The file input styles its button with `file:` utilities (`file:bg-[#1e1c2e] file:border-[#2a2840] file:rounded-lg`). The full-width primary submit reads "Sending…" while busy. A ghost line below links to Contact. |
+| Receipt | Replaces the form in place: the emerald "Offer sent" status, a Syne title, and an inset `<dl>` (`bg-[#0d0c14]`) of what was sent. The copy says honestly whether an email copy went out. A full-width "Done" button gets focus. |
+| Emails (HTML) | Table layout, inline styles, `color-scheme: dark`. A `#0a0a0f` page; the `JAVA.dev` wordmark (violet dot); a `#13121c` card with a 1 px `#2a2840` border, a **3 px `#7c6dff` top border**, and 16 px radius; a violet uppercase eyebrow, a 24 px `#f0eeff` heading, `#c4c0d8` body; an inset details panel (`#0d0c14`) with `#8a88a0` uppercase labels over `#f0eeff` values; a violet pill button (owner email only); a `#8a88a0` 12 px footer. Plain-text twin always. Reuse `layout()` in `lib/sponsor-email.ts` for new emails. |
 
 ### 7.2 Studio-local primitives (`app/studio/shared.tsx`)
 - The admin gate now lives in `components/features/AdminGate.tsx`, shared by `/studio` and `/logistics`. `<AdminGate title description>` checks the session and otherwise shows a centred card with the "Restricted" eyebrow, a password input, an inline error, and a primary button. `<SignOutButton/>` is a secondary-style button for admin page headers.
@@ -322,7 +344,7 @@ fill:  h-full rounded-full bg-violet-500 (or inline background colour), width vi
 ## 9. Accessibility rules (for new and edited UI)
 1. Icon-only buttons need an `aria-label`. _Gaps: the Navbar hamburger and close buttons, and the Logistics tracking switch._
 2. Interactive cards must be `<button>` or `<a>`, never a `<div onClick>`. The blog cards are buttons ✅. The Home "+ More" cell is an `<a>` without `href`; make it a `<button>`.
-3. Modals: `role="dialog"`, `aria-modal`, and `aria-labelledby`, close on Esc ✅. **To add:** a focus trap and focus return.
+3. Modals: `role="dialog"`, `aria-modal`, and `aria-labelledby`, close on Esc, focus trap and focus return ✅ (shared `Modal`). If the opener might not have focus (Safari doesn't focus buttons on click), focus it explicitly on close, as `LaptopExperience` does.
 4. Keep a visible focus indicator. Inputs use `focus:border-[#7c6dff]`. Buttons and cards need `focus-visible:ring-2 focus-visible:ring-[#7c6dff]/60` (missing today).
 5. Contrast against a `#13121c` card, computed with WCAG relative luminance (approximate):
 

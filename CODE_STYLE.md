@@ -1,6 +1,6 @@
 # Code Style
 
-_Conventions for writing code in this repo, inferred from the code that exists. The repo has **no Prettier or EditorConfig**, so this doc and ESLint are the only formatting authority. Last verified: **2026-10-21**._
+_Conventions for writing code in this repo, inferred from the code that exists. The repo has **no Prettier or EditorConfig**, so this doc and ESLint are the only formatting authority. Last verified: **2026-10-30**._
 
 **The prime rule: make new code read like the code around it.** Where older files differ (most of them are create-next-app leftovers), follow this doc in new code, and don't reformat untouched lines in unrelated changes.
 
@@ -162,6 +162,7 @@ export async function POST(req: NextRequest) {
 }
 ```
 
+- **File uploads (multipart):** read the raw body with `readBodyBytes(req, BODY_LIMITS.x)` and *then* parse it (`new Response(bytes, { headers: { "content-type": … } }).formData()`), never `req.formData()`, which buffers without a cap. Judge files by their bytes (`sniffStickerType`), not their name or declared type. See `app/api/sponsorships/route.ts`.
 - **Ids:** PATCH and DELETE take row ids that must pass `isUuid` (`400` otherwise), including every entry of a bulk `ids` array.
 - **Client calls to admin routes** send no auth header. The browser attaches the HttpOnly session cookie to same-origin `fetch` calls automatically, so never put the password in client code or storage.
 - **Responses:** errors are `{ error: string }`. Status codes: `400` validation, `401` auth, `403` cross-site request, `413` body too large, `429` limits (with `Retry-After` where there is a window), `500` DB, `502` upstream provider, `201` create, `200` otherwise.
@@ -202,6 +203,7 @@ export async function POST(req: NextRequest) {
 - Dev dependencies for testing (for example jsdom or Testing Library) are fine when they come with tests that use them.
 - Never add a root `babel.config.js` (it disables SWC for Next).
 - Pin Next-coupled packages (`next`, `eslint-config-next`) to the same version.
+- `three` and `@types/three` are pinned **exactly** (three.js changes APIs between minor versions). Heavy, browser-only libraries like it load through `next/dynamic(..., { ssr: false })` from a Client Component, so they ship only on the page that uses them (see `app/laptop/LaptopExperience.tsx`).
 
 ## 11. Git
 - Branch: `main` (there is no branching model yet). **Don't commit or push unless the user asks.**

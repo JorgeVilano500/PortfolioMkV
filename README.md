@@ -18,6 +18,7 @@ Built with **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind
 | Blog | `/blog`, `/blog/[slug]` | Markdown posts stored in Supabase, with themed cards, callouts, syntax highlighting, and per-post OG images |
 | Contact | `/contact` | Email, socials, quick message form |
 | Privacy | `/privacy` | Plain-language privacy and cookie policy, with cookie settings |
+| Laptop stickers | `/laptop` | A Three.js 13-inch 2019 MacBook Pro with four sponsor-sticker spots on the lid and two on the palm rest (sample sponsors). "Open the laptop" swings the lid open, boots the screen, and lights the backlit keyboard. "Sponsor a spot" opens an offer form that emails you, with Reply-To set to the sponsor, and sends them a copy. Needs `public/models/macbook-pro-13-2019.glb`, built per [LAPTOP_MODEL.md](LAPTOP_MODEL.md); shows a 2D fallback until then. |
 | First-visit intro | every page | Welcome → privacy choice (analytics off by default, enforced server-side) → how-to guide with live previews → optional guided tour that highlights the next navbar tab on each page |
 | Studio 🔒 | `/studio` | Password-gated CMS: create, edit, publish, and bulk-manage blog posts and projects |
 | Logistics 🔒 | `/logistics` | Password-gated, first-party visitor analytics |
@@ -42,6 +43,7 @@ npm install
 4. `supabase/consent-schema.sql`: `consent_events`, plus the opt-in `page_views` columns (IP, language, timezone, visitor id)
 5. `supabase/documents-schema.sql`: `project_documents`
 6. `supabase/auth-lockout-schema.sql`: `auth_failures`, the brute-force lockout shared by every server instance (the app works without it, but then each instance counts on its own)
+7. `supabase/sponsor-stickers-schema.sql`: the **private** storage bucket that keeps copies of "Sponsor a spot" offers (the form works without it; the owner's email then holds the only copy)
 
 **Already have a database from before 2026-10-20?** Run `supabase/security-hardening.sql` and `supabase/consent-schema.sql` once each (both are safe to re-run). They lock the analytics table away from the public anon key, tighten grants, and add the consent tables (SECURITY.md S-1, S-22, S-5). **From before 2026-10-21?** Also run `supabase/auth-lockout-schema.sql` (S-4).
 
@@ -67,6 +69,7 @@ npm install
 | `ADMIN_2FA` | recommended in production | `email` adds a second sign-in step: a 6-digit code emailed to you. It needs `RESEND_API_KEY` and a recipient, and turns off the `x-logistics-key` header. |
 | `ADMIN_2FA_EMAIL` | optional | Send 2FA codes somewhere other than `SUMMARY_RECIPIENT_EMAIL` |
 | `SECURITY_CONTACT` | optional | Contact for `/.well-known/security.txt` (default: the `/contact` email) |
+| `SPONSOR_REPLY_TO` | optional | Reply-To on the sponsor's thank-you email from the "Sponsor a spot" form (default: the `/contact` email) |
 
 **3. Run it.**
 ```bash
@@ -95,7 +98,7 @@ components/     Shared UI: Navbar, Modal, MarkdownRenderer, ProjectList, PageTra
 lib/            Supabase clients, data helpers, validation, security, rate limiting, sanitize schema
 supabase/       SQL schema files (run in the Supabase SQL editor)
 __tests__/      Jest suites
-public/         resume.pdf and static assets
+public/         resume.pdf and static assets (models/ for the /laptop GLB)
 ```
 
 ## Documentation
@@ -109,6 +112,7 @@ public/         resume.pdf and static assets
 | [SECURITY.md](SECURITY.md) | Threat model, controls, open issues, secrets |
 | [CODE_STYLE.md](CODE_STYLE.md) | Conventions for TypeScript, React, API routes, and styling |
 | [TESTING.md](TESTING.md) | Test setup, patterns, coverage, manual QA, CI |
+| [LAPTOP_MODEL.md](LAPTOP_MODEL.md) | The 3D laptop asset: contract, Blender workflow, export settings |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Historical status log kept by an external automation (may be out of date) |
 
 ## Deployment

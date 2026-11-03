@@ -17,7 +17,7 @@ export const CONSENT_MAX_AGE_DAYS = 180
 /** Mirror of the cookie, so a browser that blocks cookies isn't re-prompted on every page. */
 export const CONSENT_STORAGE_KEY = "java_consent"
 /** Human-readable policy date shown in the modal and on /privacy. */
-export const PRIVACY_POLICY_UPDATED = "October 20, 2026"
+export const PRIVACY_POLICY_UPDATED = "October 30, 2026"
 
 export type ConsentState = {
     /** Policy version the choice was made under. */

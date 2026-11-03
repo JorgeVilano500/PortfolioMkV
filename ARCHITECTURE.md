@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-10-21** (branch `security-sweep`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-03** (branch `laptop-sponsorships`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -61,6 +61,7 @@ flowchart LR
 | Markdown | `react-markdown` 10, `remark-gfm` 4, `rehype-raw` 7, `rehype-sanitize` 6, `rehype-highlight` 7 (highlight.js 11) | | Used only in `components/ui/MarkdownRenderer.tsx` |
 | Frontmatter | `gray-matter` | ^4 | Used only by `/api/blog/upload` |
 | Email | `resend` | 4.8 | Used only by `/api/email-summary` |
+| 3D | `three` (WebGLRenderer, GLTFLoader, OrbitControls, RoomEnvironment) | 0.186.1 (exact pin; `@types/three` 0.186.0) | Used only by `app/laptop/LaptopViewer.tsx`, which loads through `next/dynamic` with `ssr: false`, so it ships only on `/laptop` (~635 KB uncompressed). Three.js breaks APIs between minor versions, so upgrade deliberately. |
 | Icons | `react-icons` (`rx`, `fa6`, `md`, `io5`), plus inline SVG paths in `app/studio/shared.tsx` | ^5.6 | |
 | Tests | Jest 30 with `babel-jest` (inline config) | | See TESTING.md |
 | Lint | ESLint 9 flat config + `eslint-config-next` 16.4.2 | | `npm run lint` |
@@ -79,6 +80,10 @@ flowchart LR
 │   ├── opengraph-image.tsx        Site OG image (ImageResponse, 1200×630)
 │   ├── robots.ts, sitemap.ts      SEO (sitemap includes published posts)
 │   ├── privacy/ page.tsx (server): privacy & cookie policy, generated from lib/consent constants
+│   ├── laptop/  page.tsx (server + metadata) → LaptopExperience.tsx (client boundary: open/close toggle,
+│   │               lid + palm-rest spot pickers, details, loading/2D fallbacks) → LaptopViewer.tsx (Three.js;
+│   │               next/dynamic, ssr: false: hinge, power-on timeline, camera) + canvas-art.ts (stickers,
+│   │               screen, keyboard drawn in Canvas 2D); SponsorForm.tsx ("Sponsor a spot" offer dialog)
 │   ├── about/   page.tsx (client) + layout.tsx (metadata only)
 │   ├── work/    page.tsx (client) + layout.tsx (metadata only)
 │   ├── contact/ page.tsx (client) + layout.tsx (metadata only)
@@ -97,7 +102,8 @@ flowchart LR
 │       ├── blog/upload/route.ts       POST (x-api-key = BLOG_UPLOAD_SECRET)
 │       ├── projects/route.ts          GET/POST/PATCH/DELETE (admin)
 │       ├── docs/upload/route.ts       POST (x-api-key = DOCS_UPLOAD_SECRET)
-│       └── email-summary/route.ts     POST (x-api-key = EMAIL_SUMMARY_SECRET)
+│       ├── email-summary/route.ts     POST (x-api-key = EMAIL_SUMMARY_SECRET)
+│       └── sponsorships/route.ts      POST (public multipart: sponsorship offer → private bucket + 2 emails)
 ├── components/
 │   ├── index.tsx                  Barrel: Navbar, HomeComponent, WorkComponent, ComingSoon, ProjectList, MarkdownRenderer, Modal
 │   ├── ui/                        Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, ComingSoon (dead)
@@ -127,10 +133,14 @@ flowchart LR
 │   ├── supabase-errors.ts         isMissingColumn / isMissingTable / isMissingFunction for graceful schema drift
 │   ├── rate-limit.ts              In-memory fixed-window limiter (10k-key cap) + per-IP and global auth lockout
 │   ├── validation.ts              LIMITS, type-guard validators, normalizers, slugify, estimateReadingTime
-│   └── markdown-sanitize.ts       rehype-sanitize allowlist schema
+│   ├── markdown-sanitize.ts       rehype-sanitize allowlist schema
+│   ├── laptop-stickers.ts         /laptop: sample sponsors, lid + palm-rest slots, GLB contract, radio-key helper (no three import)
+│   ├── laptop-keyboard.ts         /laptop: the 2019 13-inch keyboard layout, drawn by the 3D viewer and the 2D fallback
+│   ├── sponsorship.ts             Offer field rules shared by the form and the route (email, offer, spot, file sniffing)
+│   └── sponsor-email.ts           Server-only HTML + text templates for the two sponsorship emails
 ├── supabase/                      SQL to run in the Supabase SQL editor (no migration tool)
 ├── __tests__/                     Jest suites + helpers/test-utils.ts
-├── public/                        resume.pdf + default Next SVGs (unused)
+├── public/                        resume.pdf + default Next SVGs (unused); models/macbook-pro-13-2019.glb expected (LAPTOP_MODEL.md)
 ├── next.config.ts                 Security headers/CSP, vestigial PDF loader rules, allowedDevOrigins
 ├── jest.config.js, eslint.config.mjs, postcss.config.mjs, tsconfig.json, pdf.d.ts
 └── *.md                           AGENTS, PRD, ARCHITECTURE, DESIGN_SYSTEM, SECURITY, CODE_STYLE, TESTING, README,
@@ -151,6 +161,7 @@ The app currently follows a **"client pages + server metadata"** pattern. Each p
 | `/blog/[slug]/opengraph-image` | Server | `getPostBySlug` | anon | `await params` (Next 16) |
 | `/sitemap.xml` | Server | `getPosts()` | anon | **Static** (`○` in the 2026-10-19 build), so new posts appear only after a redeploy. |
 | `/privacy` | **Server** (static) with a client `PrivacyActions` child | `lib/consent` constants | none | The intro modal never auto-opens here, so the policy stays readable |
+| `/laptop` | **Server** (static) shell with a client `LaptopExperience` child; the Three.js viewer is client-only (`next/dynamic`, `ssr: false`) | Sample stickers in `lib/laptop-stickers.ts`; the GLB is fetched from `/models/macbook-pro-13-2019.glb` | none | **Download first, WebGL second:** a 404 shows the 2D fallback without creating a WebGL context. Render on demand (no animation loop; frames run only while the camera or the lid timeline moves). Statuses: loading, ready, missing, invalid, unsupported, error. **Open/closed** is page state passed to the viewer as `open`: opening turns the `Lid` node 108°, boots the screen and fades up the keyboard backlight; choosing a palm-rest spot opens it. "Sponsor a spot" opens an offer form (`SponsorForm.tsx`, in the shared `Modal`) that posts to `/api/sponsorships` (§6.9). Sponsors on the lid stay sample data; no payments. |
 | All pages | `OnboardingProvider` (client) wraps everything in the root layout | `document.cookie` / storage after hydration | none | The modal, tour bar, and footer render client-side only, so static pages stay static (`○`) |
 | `/studio`, `/logistics` | Client, wrapped in `<AdminGate>` | `fetch('/api/...')`; the browser attaches the HttpOnly session cookie | service role (server-side) | Renders nothing until `GET /api/auth` answers, then shows the password form or the page |
 
@@ -261,6 +272,24 @@ Both methods require a same-origin request (otherwise `403`) and are rate-limite
 - A provider error returns `502 {error:"Email provider error"}`. Success returns `200 {success:true, id}`.
 - The Resend client is created per request. If `RESEND_API_KEY` or `SUMMARY_RECIPIENT_EMAIL` is missing, the route returns `500 {error:"Email is not configured"}`. The send cap counts only valid requests.
 
+### 6.9 `POST /api/sponsorships` (public, browser-only): "Sponsor a spot" offers from `/laptop`
+- **Request:** `multipart/form-data` with `email`, `affiliation`, `offer` (USD, e.g. `1,500`), `spot` (`slot-1`…`slot-4` on the lid, `palm-left`/`palm-right` on the palm rest, or `any`), `sticker` (a file), and the honeypot `website`, which must be empty. Rules are in `lib/sponsorship.ts` and shared with the form.
+- **Order of checks:**
+  1. Same-origin, else `403`.
+  2. The request flood cap, else `429` with `Retry-After`.
+  3. Multipart, else `415`.
+  4. Body ≤4.25 MB, streamed, else `413`.
+  5. A filled honeypot gets a quiet `200 {ok:true}`, and nothing is stored or sent.
+  6. Field and file validation, with the file sniffed by its bytes. Failures return `400 {error, fields:{email?, affiliation?, offer?, spot?, sticker?}}`.
+  7. Email configured, else `500`.
+  8. The offer, recipient and global caps, else `429`.
+- **Side effects, in order:**
+  1. Upload `<uuid>/sticker.<ext>` and `<uuid>/inquiry.json` to the **private** bucket `sponsor-stickers`. This isn't fatal: a missing bucket logs one "run sponsor-stickers-schema.sql" warning.
+  2. **Email 1** goes to `SUMMARY_RECIPIENT_EMAIL`, with `replyTo` set to the sponsor and the sticker attached (subject `Sponsorship inquiry: <affiliation> ($offer)`). If it fails, the route returns `502` and stops.
+  3. **Email 2**, sent separately, goes to the sponsor: a thank-you plus a copy of what they sent, with `replyTo` set to `SPONSOR_REPLY_TO` or the public `/contact` address.
+- **Response:** `200 {ok:true, reference:"3F2B6C1E", confirmationSent:boolean}`. `confirmationSent` is false when email 2 failed, which with Resend's sandbox sender is always (SECURITY.md S-2).
+- **Templates:** `lib/sponsor-email.ts` builds table-based HTML in the site palette, with plain-text twins. All visitor input is escaped.
+
 ## 7. Data model (Supabase)
 
 There is no migration tool. Each table has a standalone SQL file in `supabase/`, to be pasted into the Supabase SQL editor. **Live DB state can drift from these files; when in doubt, check the Supabase dashboard.**
@@ -308,6 +337,13 @@ RLS is **enabled with no policies**, so only the service role can touch it. It i
 - `auth_failure_counts(p_keys text[])` returns the counts for windows that are still open.
 
 Used by `lib/auth-lockout.ts`. The app works without this table, falling back to in-memory counting.
+
+### Storage bucket `sponsor-stickers` (from `supabase/sponsor-stickers-schema.sql`)
+The bucket is **private**, capped at 4 MB per object, and accepts only `image/png`, `image/jpeg`, `image/webp`, `application/pdf` and `application/json`. It has **no** `storage.objects` policies, so only the service role can touch it. Each offer stores two objects under a random id:
+- `<id>/sticker.<ext>`: the sticker file.
+- `<id>/inquiry.json`: email, affiliation, offer, spot, file name/type/size, and `receivedAt`. It never includes the IP.
+
+Written only by `/api/sponsorships`. Download files from the Supabase dashboard (Storage). The app works before the bucket exists, because the owner's email carries the file.
 
 **`supabase/audit-exposure.sql`** is read-only. It lists tables without RLS, policies, anon/authenticated grants, functions anon can call, views that bypass RLS, storage buckets and write policies, and Auth accounts by provider. Fixes are included, commented out.
 
@@ -442,6 +478,7 @@ Set these in `.env.local` locally and in **Netlify, under Site settings → Envi
 | `ADMIN_2FA_EMAIL` | server | `lib/two-factor.ts` | Optional; where 2FA codes go (default `SUMMARY_RECIPIENT_EMAIL`) |
 | `AUTH_LOCKOUT_STORE` | server | `lib/auth-lockout.ts` | Tests set `memory`; leave unset in production so lockouts are shared |
 | `SECURITY_CONTACT` | server | `/.well-known/security.txt` | Optional; email or `https://` URL (default: the address on `/contact`) |
+| `SPONSOR_REPLY_TO` | server | `/api/sponsorships` | Optional; Reply-To on the sponsor's thank-you copy (default: the public `/contact` address). The sponsorship form also needs `RESEND_API_KEY`, `SUMMARY_RECIPIENT_EMAIL`, and, for the sponsor's copy to arrive, a `RESEND_FROM_EMAIL` on a verified domain. |
 
 To add a new variable, add it to this table **and** to the README env table, read it with `process.env.X` on the server, and check that it is set before use (fail closed for secrets).
 
@@ -492,6 +529,8 @@ Do all of the following together: add the SQL `alter table` (and update the sche
 | One SQL file per table, no migration tool | Small schema; it runs in the dashboard | A second environment (staging) or frequent schema changes |
 | First-party analytics in Postgres | Privacy, no third-party scripts, portfolio value | Volume nears 50k rows in the stats window, at which point stats need SQL aggregation |
 | Jest with a Babel transform, not `next/jest` | Avoids a root Babel config that would disable SWC | Adopting Vitest per the bundled guide |
+| Plain Three.js for `/laptop` (no react-three-fiber), with sticker, screen and keyboard art drawn on canvases from data | Demonstrates the Three.js concepts directly; adds one dependency; no image assets or network calls for artwork; the GLB stays a few flat planes (no modelled keycaps), and sponsors, keys or the desktop change without a re-export | Several 3D scenes, or declarative scene composition becomes worth a framework |
+| Sample sponsor data in code; offers by email plus a private bucket (no database table, no payments) | Negotiation happens by email, so the inbox is the workflow. The bucket keeps a durable copy, and there's no new schema to secure. | Real sponsors (then: a `sponsors` table with RLS public-read and Studio editing), or offers that need tracking or statuses (then: an `inquiries` table) |
 
 ## 16. Tech-debt register
 | ID | Debt | Impact | Fix |

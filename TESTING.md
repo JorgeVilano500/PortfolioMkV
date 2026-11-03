@@ -1,6 +1,6 @@
 # Testing
 
-_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-10-21**._
+_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-11-03**._
 
 ---
 
@@ -38,7 +38,29 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-10-21, security sweep): 554 tests, 29 suites, all passing, about 7 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-11-03, inside the laptop): 723 tests, 36 suites, all passing, about 8 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Added or extended on 2026-11-03 (inside the laptop: opening, screen, backlit keyboard, palm-rest spots):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-laptop-keyboard.test.ts` (new) | 9 | Every key row fills the 14.5-unit width (keys can't hang off the plane); room for esc, the Touch Bar strip and Touch ID; the full alphabet once; modifiers print in a corner; the butterfly-era ▲/▼ stack |
+| `lib-laptop-stickers.test.ts` | 24 (was 20) | Six slots (four lid, two palm rest) with contract node names; landscape palm aspect; an open spot on each surface; the open angle; the new required nodes (`Lid`, `Screen`, `Keyboard`, `Palm_Slot_*`), with a lid-only model reported as missing them; full spot names; arrow keys within the palm group |
+| `laptop-experience.test.tsx` (jsdom) | 25 (was 16) | **Open/close toggle** (label, clears the selection); choosing a palm spot opens the laptop; one selection across both groups, each with its own tab stop; palm arrows wrap; 3D pick of a palm sticker; lid spots keep it open; closing drops a palm selection; the scene label for open and closed; **the 2D open drawing** in the fallback |
+| `lib-sponsorship.test.ts`, `sponsor-email.test.ts`, `api-sponsorships.test.ts`, `sponsor-form.test.tsx` | 45, 18, 30, 18 (+1 each) | Palm-rest spots accepted end to end with full labels ("Palm rest, left of trackpad") in the select, both emails and the stored record; unknown spots still refused |
+
+Added on 2026-10-30 ("Sponsor a spot" offer form):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-sponsorship.test.ts` | 44 | Email pattern (CRLF, `?bcc=`, display names refused); offer parsing and USD formatting; every field error at once; **no URLs or domain-shaped text in the affiliation** (while "St. Louis", "U.S." pass); control characters and U+2028 stripped; spots; browser file checks; **magic-byte sniffing** (PNG, JPEG, WebP, PDF; SVG, HTML, EXE and WAV refused); file-name cleaning |
+| `sponsor-email.test.ts` | 17 | Thank-you copy: promise to reply, every field, no original file name, "nothing charged", site palette. Owner notice: subject, `mailto:` button, attached/stored notes, the "could NOT be saved" variant. **Hostile input escaped in both**, the only links go to the validated address, and subjects are single-line |
+| `api-sponsorships.test.ts` | 29 | **Two separate sends**: owner (Reply-To = sponsor, sticker attached under the sniffed extension), then sponsor (Reply-To = public address, never the private inbox; `SPONSOR_REPLY_TO`). Private copy (file + JSON, no IP). `confirmationSent: false` on a sandbox failure; 502 without the copy when the owner send fails; bucket missing or throwing still delivers; fails closed without config. Rejections store and send nothing: 403, 415, 413, field errors, disguised SVG/HTML, link spam, CRLF email, honeypot. **Caps**: 3 per hour per client (IPv6 /64), 2 per day per recipient, 20 per day overall, 10 raw requests per 10 min |
+| `sponsor-form.test.tsx` (jsdom) | 17 | Opens from "Sponsor a spot" with the spot pre-set and focus on email; the four fields plus spot; honeypot hidden from people and AT; contact and privacy links; client validation (focus to first error, oversized file, errors clear on edit); multipart POST contents; receipt (copy sent / not sent); can't close mid-send; server field errors, 429, network failure; Esc closes with **focus back on the trigger**; fresh form each open |
+
+Added on 2026-10-30 (`/laptop` sponsor stickers):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-laptop-stickers.test.ts` | 20 | Four slots with unique ids and **contract node names** (`Sticker_Slot_1–4`, GLTFLoader-safe); the corner layout; site themes only; **honest sample data** (short marks, no URLs, at least one open spot); CTA is `/contact`; GLB URL and real 13-inch dimensions; `missingModelNodes` (including Blender's `.001` suffix trap); raycast name → slot; screen-reader descriptions; the WAI-ARIA radio keys (wrap, Home/End, nothing selected yet) |
+| `laptop-experience.test.tsx` (jsdom) | 16 | `next/dynamic` stubbed to play the viewer. Radio group with roving tabindex; click, keyboard and 3D-pick selection update the details; the open spot; the CTA links to `/contact` and **never claims payment**; samples labelled; loading → ready + Reset view; missing, unsupported and invalid fallbacks (no internals leaked); **error + Try again remounts the viewer**; the scene label tracks the selection; reduced motion reaches the viewer; `/work` links to `/laptop` |
 
 Added or extended on 2026-10-21 (security sweep):
 | Suite | Tests | Covers |
@@ -90,6 +112,7 @@ Added on 2026-10-20:
 ### Not covered (known gaps)
 - **Most React components and pages.** jsdom and Testing Library now exist, but only the onboarding flow (provider, modal, Navbar tour states, footer, toast) and `AdminGate` have component tests. Studio CRUD flows, `Modal`, and the `MarkdownRenderer` output are still untested.
 - **`lib/blog.ts` and `lib/projects-data.ts`** (the anon-client query builders), and `formatDate`. The slug guard and explicit columns in `getPostBySlug` were verified in a browser, not by a unit test.
+- **`app/laptop/LaptopViewer.tsx` and `canvas-art.ts` (Three.js, Canvas 2D).** jsdom has neither WebGL nor a 2D canvas. The rendering, raycasting, camera, the open/close timeline, the screen and keyboard artwork, and disposal were verified in headless Edge against a QA stand-in GLB (§7.8). The real model still needs that pass once it exists.
 - **The real 2FA email** (Resend is mocked in tests) and **the Postgres lockout functions** (the RPCs are mocked). Check both by hand after running `auth-lockout-schema.sql` / setting `ADMIN_2FA` (§7.3).
 - **End-to-end flows**, such as creating a post in Studio and seeing it on `/blog`.
 - **RLS policies**, which live in the database. Verify them manually (§7.4).
@@ -290,6 +313,34 @@ There's no `chromium-cli` on the dev machine and no Chrome, but Microsoft Edge w
 4. **Intercept `/api/analytics/track` and `/api/consent` with `page.route`.** The local server talks to the production Supabase, and test clicks must not create fake analytics.
 5. Capture `console` errors and `pageerror`, and check `document.documentElement.scrollWidth <= innerWidth` for horizontal overflow at 1366 px and 390 px.
 6. Stop the server by its port's PID. Stopping `npx` alone leaves the Node child holding the port.
+7. **WebGL in headless Edge** (for `/laptop`): launch with `args: ["--enable-unsafe-swiftshader"]`. It renders in software, so frames are slow. Wait about 1.5 s after a camera move before you click or assert; the 450 ms tween is time-based but its last frame lands late. After opening or closing the laptop, wait about 4.5 s (the timeline is 2.2 s). Add `--disable-3d-apis --disable-webgl` to test the no-WebGL fallback.
+
+### 7.8 `/laptop` (3D sponsor stickers)
+**Without the model** (`public/models/macbook-pro-13-2019.glb` absent):
+- [ ] "3D model coming soon" shows over the 2D lid drawing, with no "Try again".
+- [ ] The only console entry is the GLB's 404. No WebGL context is created.
+- [ ] Tab reaches the spot picker. Arrows, Home and End move the selection and wrap. The details card updates. "Sponsor a spot" opens the offer dialog.
+- [ ] "Open the laptop" (or choosing a palm-rest spot) switches the drawing to the open laptop: the screen and key glow fade in, and the selected palm spot gets a violet ring. No horizontal overflow at 360 px.
+
+**With the model**, or a QA stand-in served by `page.route`:
+- [ ] The status reads "Drag to rotate…". Drag rotates, scroll or pinch zooms, and a drag never selects anything.
+- [ ] Clicking each sticker selects the matching corner. Choosing a spot in the list moves the camera to it, with a violet frame around the sticker. Reset view returns to the overview.
+- [ ] Sticker artwork reads normally (not mirrored or upside down) from the default view.
+- [ ] **Open the laptop:** the lid swings up while the camera swings round to the front. The screen lights first (the JAVA.dev boot screen on the first open), then the desktop and the keyboard backlight and Touch Bar. The bezel is black, keys and legends read normally, and nothing pokes through the lid or the deck. The toggle reads "Close the laptop".
+- [ ] Open: clicking each palm sticker selects "Left/Right of trackpad"; clicking the screen selects nothing. Choosing a lid spot keeps the laptop open and moves the camera behind the screen to that sticker.
+- [ ] Closing sleeps the screen, then lowers the lid; a palm selection is cleared. Choosing a palm spot while closed opens the laptop and focuses that sticker. Reopening wakes straight to the desktop.
+- [ ] Reduced motion (emulate `prefers-reduced-motion: reduce`): the camera and the lid jump instead of animating, the screen and keys light at once, and nothing pulses.
+- [ ] A 500 on the GLB shows "didn't load" with Try again, which recovers. A GLB without a `Sticker_Slot_N` shows "needs an update", and the console names the missing node. So does a lid-only GLB (missing `Screen`, `Keyboard`, `Palm_Slot_*`) and one with `Screen` outside `Lid` ("has Screen outside Lid").
+- [ ] No horizontal overflow at 360 px and 768 px. `/work` downloads no Three.js chunk; it loads only on `/laptop`.
+
+**Sponsor a spot** (form):
+- [ ] The button opens the dialog with the selected spot pre-set (palm-rest spots included, listed by full name); focus starts on Email; Tab stays inside; Esc closes (except while sending), and focus returns to the button.
+- [ ] An empty submit shows four errors and focuses Email. A web address in Affiliation is refused. An SVG renamed `.png` is refused by the server.
+- [ ] A successful send shows the receipt. "A copy is on its way" appears only when the server says `confirmationSent: true`.
+- [ ] Check the real emails only on a deployment you control. **Locally, run the server with junk `RESEND_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY`**, which take precedence over `.env.local` at runtime, or intercept `/api/sponsorships` with `page.route`. Otherwise test offers send real email and write to production storage.
+- [ ] After deploying: one real offer lands in `SUMMARY_RECIPIENT_EMAIL` with the attachment, Reply goes to the sponsor, and the files appear under Storage → `sponsor-stickers`.
+
+**QA stand-in, not an asset:** the 2026-10-30 run exercised the 3D path with a box-level GLB that follows LAPTOP_MODEL.md. It was generated with three's `GLTFExporter` in a scratch directory and served only through `page.route`. Never commit a stand-in to `public/`. A stand-in built from three's `PlaneGeometry` needs its V flipped (`v → 1 − v`) and each sticker plane turned 180° to match a real Blender export, or the artwork shows mirrored. The 2026-11-03 run added a bezel, screen, keyboard, trackpad and palm planes to the stand-in (64 browser checks passed); a black bezel only stays black with the specular level at 0 (LAPTOP_MODEL.md step 5).
 
 ## 8. CI (not set up yet; PRD P1-2)
 Proposed `.github/workflows/ci.yml`:

@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-10-21** (branch `security-sweep`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-03** (branch `laptop-sponsorships`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -71,6 +71,7 @@ Legend: ✅ working · ⚠️ working but has a known gap · ❌ missing or brok
 | **Site footer** | `components/onboarding/SiteFooter.tsx` | ✅ | Privacy · Cookie settings · Take the tour, on every public page |
 | **Privacy page** | `/privacy` | ✅ | Plain-language policy covering every storage key and data point (generated from the same constants as the modal), plus a "Manage cookie settings" button |
 | **Cookie settings / erasure** | footer → settings dialog, `DELETE /api/consent` | ✅ | Change the choice any time; "Delete my data" erases this browser's analytics rows |
+| **3D sponsor-sticker laptop** | `/laptop` (`app/laptop/*`, `lib/laptop-stickers.ts`), linked from `/work` | ⚠️ | v1 shipped in code, but **the GLB isn't in `public/` yet**, so visitors see the 2D lid fallback (LAPTOP_MODEL.md). Three.js viewer of a 13-inch 2019 MacBook Pro with four spots on the lid and **two on the palm rest**, an **Open the laptop** animation (lid swing, screen boot, backlit keyboard), **sample** sponsors, spot pickers (radio groups), a details card, and a **"Sponsor a spot" offer form** (email, affiliation, offer, spot, sticker file) that emails the owner (Reply-To: the sponsor) and sends the sponsor a copy, keeping a private copy in Supabase Storage. No payments. ⚠️ The sponsor's copy needs a verified Resend domain (S-2), and the bucket SQL must be run. |
 | Error and 404 pages | none | ❌ | Uses Next.js defaults |
 
 ### 4.2 Admin 🔒
@@ -168,6 +169,26 @@ published: true           # optional: only literal true publishes
 - **TOUR-2** Navigating elsewhere mid-tour is handled: another tour page jumps to that page's first step, and a non-tour page shows "You've stepped off the tour" with a way back. Tour progress survives a reload (sessionStorage) and ends with Esc, ✕, or Finish.
 - **TOUR-3** Spotlights never block clicks, and every target is a `data-tour` anchor that a test verifies exists.
 
+### 5.6b 3D laptop stickers (LAP)
+- **LAP-1** `/laptop` shows a Three.js model of a **13-inch 2019 MacBook Pro**, loaded from `public/models/macbook-pro-13-2019.glb`. The lid's outside is the distinct part `Lid_Outer`, carrying four sticker planes, `Sticker_Slot_1–4`; the lid hangs from the hinge empty `Lid`, which also carries the `Screen`; the base carries the `Keyboard` plane and two palm-rest sticker planes, `Palm_Slot_Left/Right` (contract: LAPTOP_MODEL.md).
+- **LAP-2** Selecting a spot, by clicking the sticker in 3D or using the spot list (mouse or keyboard), shows its sponsor details. The two stay in sync, and the camera moves to the chosen sticker.
+- **LAP-3** Sponsor data shown on the lid is curated sample data, labelled as samples. "Sponsor a spot" opens an offer form (SPN-1 to SPN-6). Nothing is sold or paid for on the site, and the page says so.
+- **LAP-4** States: loading skeleton; a 2D fallback when the model is missing, invalid, WebGL is unavailable, or loading fails (with Try again for failures). The spot picker works in every state.
+- **LAP-5** Keyboard: the spot list is a WAI-ARIA radio group. Reduced motion: the camera jumps instead of gliding, and nothing pulses. Responsive at 360/768/1280+.
+- **LAP-6** Three.js loads only on `/laptop` (client-only dynamic import); the model stays under 1 MB with no Draco, meshopt or KTX2 (CSP).
+- **LAP-7** "Open the laptop" plays a MacBook-style opening: the lid swings to 108° while the camera swings round to the classic front view; the screen lights first (a JAVA.dev boot screen on the first open, then a desktop in the site palette), then the keyboard backlight and Touch Bar fade up. Closing sleeps the display, then lowers the lid. Reduced motion jumps straight to the end state. Without the model, a 2D drawing of the open laptop takes its place.
+- **LAP-8** Two palm-rest spots, left and right of the trackpad, in a second picker section ("Inside the laptop"). Choosing one opens the laptop and focuses it; they're clickable in 3D only while open (the closed lid hides them). The offer form lists all six spots by full name ("Palm rest, left of trackpad"), and both emails name the spot.
+
+### 5.6c Sponsorship offers (SPN)
+- **SPN-1** "Sponsor a spot" opens a dialog with **email**, **affiliation**, **preferred spot** (pre-set to the selected one, or "Any"), **offer in USD** (negotiable), and the **sticker file to print** (PNG, JPG, WebP or PDF, up to 4 MB). Everything is required.
+- **SPN-2** Sending triggers **two separate emails** in the site's look:
+  - (a) To `SUMMARY_RECIPIENT_EMAIL`: "someone is inquiring about a sponsorship", with all details, the sticker attached, and **Reply-To set to the sponsor** so replying continues the negotiation.
+  - (b) To the sponsor: thanks, "I'll get back to you as soon as possible", and a copy of what they sent.
+- **SPN-3** A private copy (file + JSON record) goes to the Supabase bucket `sponsor-stickers`. The form still works if the bucket is missing; the owner's email then says it's the only copy.
+- **SPN-4** The dialog shows a receipt of what was sent, and says honestly whether the email copy went out.
+- **SPN-5** Abuse limits: same-origin, honeypot, 3 offers per hour per client, 2 thank-you emails per day per address, 20 offers per day overall. No web addresses in text. Files are checked by their bytes (SECURITY.md §4.9).
+- **SPN-6** Accessible dialog: focus moves in and is trapped, Esc closes (not while sending), focus returns to the trigger, and errors are tied to their fields. `/privacy` explains what the form collects and keeps.
+
 ### 5.7 Automation endpoints (AUTO)
 - **AUTO-1** `POST /api/docs/upload` takes the header `x-api-key: $DOCS_UPLOAD_SECRET` and the JSON body `{ project: slug, filename: "X.md", content, title?, source? }`. It upserts on `(project_slug, filename)`, stores the SHA-256 `content_hash`, and returns `201 { success, document }`.
 - **AUTO-2** `POST /api/email-summary` takes the header `x-api-key: $EMAIL_SUMMARY_SECRET` and the JSON body `{ subject?, text?, html? }`, where at least one of `text` or `html` is required. It always sends to `SUMMARY_RECIPIENT_EMAIL`; any `to` in the body is ignored. Sends are capped at 10 per hour.
@@ -192,10 +213,13 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 | ID | Action | Acceptance |
 |---|---|---|
 | ~~S-1~~ ✅ | ~~Run `supabase/security-hardening.sql`~~. Done; verified live 2026-10-21 (anon gets `permission denied` on `page_views`). | |
-| **Deploy** | Merge the `security-sweep` PR, then: run `supabase/auth-lockout-schema.sql` (S-4); set `ADMIN_2FA=email` in Netlify (S-6); rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in asks for an emailed code; `auth_failures` fills with hashed keys after a wrong password; `/.well-known/security.txt` loads |
+| **S-38** | **Upgrade `next` + `eslint-config-next` to ≥16.4.1** (critical advisory for 16.0.0–16.4.0, published after the 16.3.8 pin), as its own PR | `npm audit --omit=dev` shows no critical; tests, lint and build pass |
+| **Deploy** | The `security-sweep` PR is merged (2026-10-29); still to do: run `supabase/auth-lockout-schema.sql` (S-4); set `ADMIN_2FA=email` in Netlify (S-6); rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in asks for an emailed code; `auth_failures` fills with hashed keys after a wrong password; `/.well-known/security.txt` loads |
 | S-23 | Run the read-only `supabase/audit-exposure.sql`. Then decide per app whether to disable open Supabase sign-ups and set size/MIME limits on the public storage buckets | Every section matches its "Expect" comment, or the difference is intentional |
 | S-37 | Decide whether the GitHub repo stays public (SECURITY.md lists open issues) | Repo private, or open items kept out of the public copy |
-| S-2 | Verify a sending domain in Resend and set `RESEND_FROM_EMAIL` | A digest reaches a non-owner address |
+| **S-2** | Verify a sending domain in Resend (needs a domain you own, not `*.netlify.app`) and set `RESEND_FROM_EMAIL`. **This now blocks sponsors' thank-you emails** (SPN-2b). | A sponsorship offer from a non-owner address gets its copy (`confirmationSent: true`) |
+| **Sponsor bucket** | Run `supabase/sponsor-stickers-schema.sql` in the SQL editor | Its verify queries show `public = false` and no unscoped storage policies; a test offer appears under Storage → `sponsor-stickers` |
+| S-40 | Add a CAPTCHA (Cloudflare Turnstile) to the sponsorship form | The form refuses submissions without a valid token; CSP and tests updated |
 | ~~S-3~~ ✅ | ~~Key rate limits on a client IP the platform sets~~. Done 2026-10-19: `x-nf-client-connection-ip` plus a global failure ceiling. **After deploy:** confirm `/logistics` shows your real IP even when you send a forged `X-Forwarded-For`. | |
 
 ### P0: Quick correctness fixes (under 1 hour in total)
@@ -264,7 +288,22 @@ Ask before acting on any of these:
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
 
-- 2026-10-31 (branch `next-security-upgrade`): Next.js 16.3.8 → **16.4.2** (and `eslint-config-next`), closing two critical RCE advisories and a high-severity DoS (SECURITY.md S-38). No behaviour changes; tests, build and a browser smoke test pass.
+- 2026-11-03 (branch `laptop-sponsorships`): **Inside the laptop** (LAP-7, LAP-8).
+  - **Opening:** "Open the laptop" swings the lid open with the camera, boots the screen to a JAVA.dev desktop, and lights the backlit keyboard and Touch Bar (artwork drawn in Canvas 2D, `app/laptop/canvas-art.ts`; layout in `lib/laptop-keyboard.ts`).
+  - **Two palm-rest spots** beside the trackpad, with the same offer form; spot names now say which surface ("Lid, upper left").
+  - **Model contract** gains `Lid` (hinge), `Screen`, `Keyboard` and `Palm_Slot_Left/Right`, checked for their side of the hinge (LAPTOP_MODEL.md). Also fixed: the selection frame no longer gets clipped by the sticker's clear margin.
+
+- 2026-10-30 (branch `laptop-sponsorships`): **"Sponsor a spot" offer form** (SPN-1 to SPN-6).
+  - **Flow:** `POST /api/sponsorships` stores a private copy in the `sponsor-stickers` bucket (new `supabase/sponsor-stickers-schema.sql`) and sends two separate site-styled emails (owner notice with Reply-To and attachment; sponsor copy).
+  - **Protection:** abuse caps and file sniffing.
+  - **Accessibility:** the shared `Modal` gained a focus trap and focus return.
+  - **Privacy:** `/privacy` explains offers.
+  - **Tests:** 590 → 697.
+- 2026-10-30 (branch `laptop-sponsorships`): `/laptop` 3D sponsor-sticker experience (LAP-1–6), linked from `/work`.
+  - **Viewer:** plain Three.js (`three` 0.186.1, client-only via `next/dynamic`), with sticker artwork drawn on canvases from sample data, raycast picking, OrbitControls, render-on-demand, and a GLTFLoader texture path that works under the CSP.
+  - **Page:** a spot-picker radio group, a details card, and "Sponsor a spot" → `/contact`; loading, missing, invalid, no-WebGL and error fallbacks; reduced motion.
+  - **Model:** asset contract and Blender workflow in LAPTOP_MODEL.md. **The GLB itself isn't committed yet.**
+  - **Tests:** 554 → 590. Verified in headless Edge against a QA stand-in model.
 
 - 2026-10-21 (branch `security-sweep`):
   - **Admin sign-in:** optional emailed 2FA code (`ADMIN_2FA=email`), with a code step in the sign-in screen; one brute-force lockout shared by every admin-password route and, once its SQL runs, by every server instance; `__Host-` session cookies.

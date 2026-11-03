@@ -136,6 +136,25 @@ export default function PrivacyPage() {
                     </p>
                 </Section>
 
+                <Section title="If you send a sponsorship offer">
+                    <p>
+                        The &ldquo;Sponsor a spot&rdquo; form on the <Link href="/laptop" className="text-[#AFA9EC] underline underline-offset-2 hover:text-[#f0eeff]">laptop page</Link>{" "}
+                        collects what you type and attach: your email address, your affiliation, your offer, your preferred
+                        spot, and your sticker file. It doesn&apos;t use cookies or analytics, and nothing is charged.
+                    </p>
+                    <p>
+                        It&apos;s used only to reply to you about that sponsorship. The details and the file are emailed to the
+                        site owner, a copy is emailed to you, and both are kept in private storage (Supabase) that only the
+                        owner can access. Emails are delivered by Resend. Your IP address is used briefly to stop the form from
+                        being abused, and is never stored with your offer.
+                    </p>
+                    <p>
+                        Offers are kept while we talk and for record-keeping afterwards. Ask through the{" "}
+                        <Link href="/contact" className="text-[#AFA9EC] underline underline-offset-2 hover:text-[#f0eeff]">contact page</Link>{" "}
+                        and your offer and file will be deleted.
+                    </p>
+                </Section>
+
                 <Section title="Your choices and rights">
                     <ul className="space-y-2 list-disc list-inside">
                         <li>Change your choice any time from <span className="text-[#e8e6f0]">Cookie settings</span> at the bottom of every page.</li>

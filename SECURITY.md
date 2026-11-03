@@ -24,7 +24,7 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 ### Attackers & vectors considered
 | Attacker | Vectors |
 |---|---|
-| Anonymous internet | Brute-forcing the admin password (incl. from many IPs / with forged IP headers); flooding `/api/analytics/track`; using the public anon key directly against Supabase; CSRF against a signed-in admin; probing for verbose errors; framework CVEs |
+| Anonymous internet | Brute-forcing the admin password (incl. from many IPs / with forged IP headers); flooding `/api/analytics/track`; **abusing the sponsorship form** to email-bomb or link-spam a third party's address, flood the owner's inbox, burn the Resend quota, or upload malware for the owner to open; using the public anon key directly against Supabase; CSRF against a signed-in admin; probing for verbose errors; framework CVEs |
 | Malicious/compromised content source | Stored XSS via markdown, raw HTML, or JSON-LD fields (post title/excerpt/tags) |
 | Holder of a leaked machine secret | Content injection; **code execution via front-matter parsing**; email spam |
 | Supply chain | Vulnerable dependencies (`npm audit`) |
@@ -37,14 +37,15 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 ## 2. Posture at a glance
 | Area | Status |
 |---|---|
-| Framework & dependencies free of known critical/high runtime advisories | ✅ Next 16.4.2; `npm audit --omit=dev`: 0 critical/high/moderate, 4 low (S-13, S-16, S-38, S-39) |
+| Framework & dependencies free of known critical/high runtime advisories | ❌ **Next 16.3.8 is in a critical advisory range (16.0.0–16.4.0) published after the pin**; upgrade to ≥16.4.1 (S-38). Plus a low-severity `deepmerge` via `resend` (S-39). |
 | Admin auth: password exchanged once for a `__Host-` HttpOnly/SameSite=Strict/Secure session cookie | ✅ |
 | Second factor for admin sign-in | 🟡 built, off by default — set `ADMIN_2FA=email` (S-6) |
 | CSRF protection on cookie-authenticated writes | ✅ SameSite=Strict + Sec-Fetch-Site/Origin check |
 | Timing-safe secret comparison, fail closed when unset | ✅ |
 | Brute-force lockout: per IP (unspoofable on Netlify, IPv6 per /64), global ceiling, **one counter for every admin-password route** | ✅ (S-3, S-25, S-27) |
 | Lockout shared across serverless instances | 🟡 code ready — run `auth-lockout-schema.sql` (S-4) |
-| Public write endpoints rate-limited | ✅ track 30/min/IP · consent 20/min/IP |
+| Public write endpoints rate-limited | ✅ track 30/min/IP · consent 20/min/IP · sponsorships: 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall |
+| Public sponsorship form: uploads + email to a typed address | ✅ same-origin only, honeypot, byte-capped multipart, files judged by their bytes (no SVG), link-free text, escaped emails, private bucket. 🟠 No CAPTCHA (S-40). |
 | Request bodies byte-capped before parsing, on every route | ✅ (S-24) |
 | Analytics only with explicit, server-enforced consent | ✅ (2026-10-20) |
 | Input validation, PATCH whitelists, UUID ids, object-only JSON bodies | ✅ |
@@ -118,6 +119,10 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 | Consent | `consent` × IP bucket | 20 req / min | `/api/consent` |
 | Email sends | `email-send` × `"global"` | 10 successful-path sends / hour | `POST /api/email-summary` |
 | 2FA code sends | `2fa-send` × `"global"` | 5 / 15 min | `POST /api/auth` with `ADMIN_2FA=email` |
+| Sponsorship requests | `sponsorships-requests` × IP bucket | 10 / 10 min, checked **before** reading the body | `POST /api/sponsorships` |
+| Sponsorship offers | `sponsorships-sends` × IP bucket | 3 valid offers / hour | same |
+| Sponsorship recipient | `sponsorships-recipient` × SHA-256 of the email | 2 thank-you emails / day to one address | same (no email-bombing a stranger) |
+| Sponsorship global | `sponsorships-global` × `"all"` | 20 offers / day | same (Resend quota, owner inbox) |
 
 - **Two layers for auth failures.**
   - **Layer 1** is in-process and instant.
@@ -144,6 +149,11 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 - **Tags**: array (or comma string) of non-empty strings; non-strings rejected.
 - **Analytics**: strict types; out-of-range numbers → `null`; UA from the header; **referrer reduced to its origin** (http/https only, else `""`).
 - **Docs filenames**: `^[A-Za-z0-9][A-Za-z0-9._ -]{0,198}\.md$`.
+- **Sponsorship offers** (`lib/sponsorship.ts`, shared by the form and the route):
+  - **Email:** a strict pattern with no spaces, quotes, `?`, `&`, or CR/LF, so no header or mailto tricks.
+  - **Affiliation:** at most 120 characters, control characters stripped, and **no URLs or domain-shaped text**. Mail clients auto-link domains, and this text goes to a typed-in address.
+  - **Offer:** $1–$1,000,000 with at most 2 decimals. **Spot:** from a fixed list (`SPOT_CHOICES`: four lid spots, two palm-rest spots, or "any").
+  - **File:** at most 4 MB, and **sniffed by its magic bytes** (PNG, JPEG, WebP, PDF). SVG and everything else are refused, whatever the name or declared type. The file name is shown only after cleaning (no path or reserved characters).
 - **Front matter** (`/api/blog/upload`): gray-matter called with `MATTER_OPTIONS`, which replaces the `js`/`javascript` engines (gray-matter `eval`s those by default) with a refusal → 400. YAML uses `safeLoad`; JSON is `JSON.parse`; unregistered languages throw → 400. Passing options also disables gray-matter's unbounded per-input cache.
 
 ### 4.5 HTTP headers (`next.config.ts`)
@@ -159,6 +169,10 @@ All routes (`/:path*`):
 | Cross-Origin-Opener-Policy | `same-origin` |
 | X-Permitted-Cross-Domain-Policies | `none` |
 | X-DNS-Prefetch-Control | `on` |
+
+**3D assets (`/laptop`).** No header changes were needed for Three.js. WebGL needs no CSP source. The GLB is a same-origin `fetch`. Sticker, screen and keyboard artwork is drawn on canvases, so it makes no requests. The bezel's `KHR_materials_specular` is a plain material extension that GLTFLoader reads itself (no decoder).
+- **Embedded textures:** `GLTFLoader` normally decodes them by `fetch()`ing a `blob:` URL, which `connect-src 'self'` blocks. The viewer swaps it to `TextureLoader`, which uses an `<img>` that `img-src blob:` already allows. This was verified with a textured QA model: no CSP violations.
+- **Compressed geometry:** Draco, meshopt and KTX2 decoders need WebAssembly and workers, which the CSP doesn't allow (`script-src` has no `wasm-unsafe-eval`, and there is no `worker-src`). LAPTOP_MODEL.md requires uncompressed exports, so **don't loosen the CSP to load a model; re-export it instead.**
 
 **`connect-src`** is built from `NEXT_PUBLIC_SUPABASE_URL` at build time: exactly that origin, https only (http allowed in dev). It used to be `https://*.supabase.co`, which let script that slipped past sanitization send data to *any* Supabase project, including an attacker's. If the variable is unset or malformed, `connect-src` is just `'self'` (fails closed).
 
@@ -178,6 +192,7 @@ Plus: `/api/:path*` → `Cache-Control: no-store, max-age=0`, `X-Robots-Tag: noi
 | `page_views` | ✅ (verified live 2026-10-21) | none | none |
 | `consent_events` | ✅ | none | none |
 | `auth_failures` (after `auth-lockout-schema.sql`) | ✅ | none; its two functions are `service_role`-only | none |
+| Storage bucket `sponsor-stickers` (after `sponsor-stickers-schema.sql`) | n/a | **private** bucket; 4 MB cap; PNG/JPEG/WebP/PDF/JSON only | **none**, so only the service role can read or write. The schema file's verify query lists any unscoped `storage.objects` policy, which would apply to every bucket including this one. |
 
 `update_updated_at()` gets `search_path = ''` (Supabase advisor `function_search_path_mutable`), and so do the lockout functions. Public queries also filter `published = true` in code.
 - **2026-10-19, anon key:** drafts, hidden projects and `project_documents` returned 0 rows, but `page_views` returned 295 rows (S-1).
@@ -192,8 +207,16 @@ The project may be shared with other apps. `supabase/audit-exposure.sql` is a re
 ### 4.8 Information leakage
 DB/provider errors logged server-side with a `[route]` prefix; clients get generic messages. `/api/analytics/stats` returns `yourIp`/`excludedIps` only to an authenticated admin. No `X-Powered-By`. Admin API responses are `no-store`.
 
-### 4.9 Email abuse (`/api/email-summary`)
-Recipient fixed to `SUMMARY_RECIPIENT_EMAIL` (no relay); 10 sends/hour, counted only for valid requests; the Resend client is created per request so a missing `RESEND_API_KEY` returns a 500 instead of crashing the module at import.
+### 4.9 Email abuse (`/api/email-summary`, `/api/sponsorships`)
+**`/api/email-summary`:** the recipient is fixed to `SUMMARY_RECIPIENT_EMAIL` (no relay). Sends are capped at 10 per hour, counted only for valid requests. The Resend client is created per request, so a missing `RESEND_API_KEY` returns a 500 instead of crashing the module at import.
+
+**`/api/sponsorships`** is the one route that emails an address a stranger typed in, so it gets the most guards:
+- **Recipients are fixed per message.** The owner's notice goes to `SUMMARY_RECIPIENT_EMAIL`, with Reply-To set to the sponsor and the sticker attached. The thank-you copy goes **only** to the address in the form, with Reply-To set to the public `/contact` address (or `SPONSOR_REPLY_TO`). The private summary inbox is never exposed.
+- **Caps:** §4.3, including **2 thank-you emails per recipient per day**.
+- **Content:** every visitor value is HTML-escaped. The affiliation can't contain web addresses. The sponsor's copy omits the original file name, which could be domain-shaped. The only link built from input is the owner's `mailto:` to the validated address.
+- **Bots:** a honeypot field gets a fake "ok" and nothing is stored or sent.
+- **Failures:** if the owner's notice fails, the visitor gets a generic 502 and no copy is sent. If only the copy fails, the response says `confirmationSent: false` and the page tells the visitor honestly. With the Resend sandbox sender, that is every time until a domain is verified (S-2).
+- **Limitation:** caps are in-memory per instance, so a distributed attacker gets more. A CAPTCHA is the next step (S-40).
 
 ### 4.10 Analytics privacy
 **Analytics are opt-in since 2026-10-20 (`lib/consent.ts`).**
@@ -216,6 +239,7 @@ Recipient fixed to `SUMMARY_RECIPIENT_EMAIL` (no relay); 10 sends/hour, counted 
 | `/api/blog/upload` | POST | `x-api-key` → `BLOG_UPLOAD_SECRET` | lockout; body ≤4 MB / 1M chars | `posts` upsert on slug |
 | `/api/docs/upload` | POST | `x-api-key` → `DOCS_UPLOAD_SECRET` | lockout; body ≤4 MB / 1M chars | `project_documents` upsert |
 | `/api/email-summary` | POST | `x-api-key` → `EMAIL_SUMMARY_SECRET` | lockout + 10 sends/hr; body ≤4 MB | Resend send |
+| `/api/sponsorships` | POST (multipart) | none (public); same-origin only; honeypot | 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall; body ≤4.25 MB, file ≤4 MB (magic bytes) | private bucket `sponsor-stickers` (`<id>/sticker.*`, `<id>/inquiry.json`); 2 Resend sends (owner notice + sponsor copy) |
 | `/.well-known/security.txt` | GET | none (public) | — | — (RFC 9116 contact; `Expires` 180 days ahead, computed per request) |
 
 Request bodies are additionally capped by the platform (Netlify Functions: ~6 MB).
@@ -275,7 +299,7 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 | ID | Issue | Status | Notes |
 |---|---|---|---|
 | **S-1** | `page_views` RLS disabled → anyone with the public anon key can read/insert/edit/delete analytics (verified live: 295 rows readable) | ✅ | `supabase/security-hardening.sql` was run. Verified live 2026-10-21: anon gets `42501 permission denied` on `page_views`, `consent_events`, `project_documents`. |
-| S-2 | Resend sender domain unverified (sandbox sender) | 🔴 | DNS in Resend dashboard, then set `RESEND_FROM_EMAIL`. Low risk: the route only ever emails the owner. Code now fails closed if the key is missing. |
+| S-2 | Resend sender domain unverified (sandbox sender) | 🔴 | Add DNS records in the Resend dashboard for a domain you own, then set `RESEND_FROM_EMAIL`. A Netlify subdomain can't be verified. **Since 2026-10-30 this also blocks the sponsor's thank-you email**: the sandbox only delivers to the Resend account owner. The owner's notice still works, and the page tells sponsors no copy was sent. Code fails closed if the key is missing. |
 | **S-3** | Rate-limit keys spoofable via `X-Forwarded-For` (verified live: forged XFF accepted as client IP) | ✅ | `getClientIp` prefers Netlify's `x-nf-client-connection-ip`; new global per-route failure ceiling caps guesses regardless of IP. **After deploy, verify**: `/logistics` "Your current IP" shows your real IP even if you send a forged `X-Forwarded-For`. |
 | S-4 | Rate limiting in-memory per serverless instance | 🟡 | **Auth lockouts now have a shared Postgres layer**, with no new account needed (2026-10-21, `lib/auth-lockout.ts`). Run `supabase/auth-lockout-schema.sql` to switch it on; until then it falls back to per-instance counting and warns once. Request limiters (track, consent, email) stay per instance, which is acceptable for flood damping. |
 | S-5 | Analytics privacy / retention / notice | 🟠 | Done: referrer stored as origin only (2026-10-19); **opt-in consent enforced server-side, `/privacy` policy, Cookie settings, and self-service erasure (2026-10-20)**. Ready but commented out in the hardening SQL: a pg_cron retention job. Open: pick a retention window (PRD Q4). This matters more now that IPs are stored for consenting visitors. Not legal advice. |
@@ -323,7 +347,8 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 ### Found after the sweep (2026-10-30)
 | ID | Severity | Issue | Status | Fix |
 |---|---|---|---|---|
-| **S-38** | **Critical** (per advisory) | **`next` 16.0.0–16.4.0**: unauthenticated RCE in the Image Optimization API when SVGs are used (GHSA-2464-fhr4-w9xw); DoS in the App Router via Server Actions (GHSA-p3m5-59mp-jv5r, high); RCE in `use cache` functions returning typed arrays (GHSA-673q-mjm6-r5xr). Published after the 16.3.8 pin. Exposure here was limited (no `next/image`, Server Actions, or `use cache` in the code; Netlify fronts `/_next/image`), but the endpoints existed regardless. | ✅ | **Upgraded `next` and `eslint-config-next` to 16.4.2** (2026-10-31, branch `next-security-upgrade`). 16.4.1 is the security release for all three; 16.4.2 adds only Turbopack fixes, and it is the newest release at least two weeks old. 16.4.3 (2026-10-23) has only bug-fix backports. `npm audit` shows no critical, high, or moderate advisories. |
+| **S-38** | **Critical** (per advisory) | **`next` 16.0.0–16.4.0**: unauthenticated RCE in the Image Optimization API when SVGs are used (GHSA-2464-fhr4-w9xw); DoS in the App Router via Server Actions (GHSA-p3m5-59mp-jv5r); RCE in `use cache` functions returning typed arrays (GHSA-673q-mjm6-r5xr). Published after the 16.3.8 pin. **Exposure here looks limited:** no `next/image`, Server Actions, or `use cache` in the code, and Netlify serves `/_next/image` through its own image CDN. But `public/` holds SVGs, and the endpoints exist regardless. | 🔴 | Upgrade `next` and `eslint-config-next` together to **16.4.1** (released 2026-10-14; the first release outside the advisory range) or later, in its own PR; run tests, lint, build and a browser smoke test. Until then, `images: { unoptimized: true }` in `next.config.ts` would switch the optimizer off, since nothing uses it. |
+| S-40 | Medium | The public sponsorship form has no CAPTCHA. A honeypot, per-client/per-recipient/global caps, link-free text and escaping bound the abuse, but the caps are per serverless instance. A determined, distributed sender could still push some unwanted thank-you emails to strangers. | 🟠 | Add Cloudflare Turnstile, which is free and private. It needs a site key, a server-side verify call, and CSP additions (`script-src` and `frame-src` `https://challenges.cloudflare.com`), with tests. |
 | S-39 | Low | `deepmerge` prototype poisoning (GHSA-gcqx-w48m-w2h4), reached through `resend` → `@react-email/render` → `html-to-text`. Only the React-email rendering path uses it; `/api/email-summary` and the 2FA email send plain text/HTML. | 🔴 | `resend` 6.35+ drops it, but it's a breaking major; upgrade with the email routes' tests. |
 
 ### How to finish the 🟡 items (≈3 minutes)
@@ -333,16 +358,22 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 
 ## 8. History
 
-### 2026-10-31: Next.js 16.3.8 → 16.4.2 (branch `next-security-upgrade`, S-38)
-- **Why:** three advisories (two critical RCEs and a high-severity DoS) affect Next 16.0.0–16.4.0. They were published after the 16.3.8 pin.
-- **Change:** `next` and `eslint-config-next` move to **16.4.2**, both exact-pinned. The bundled docs list only additive 16.4 changes (`ensureStatic`, `navigation`, a bundle analyzer, ESLint 10 support). `experimental.turbopackFileSystemCacheForBuild: false` is still supported, so the Netlify secrets-scan fix holds.
-- **Side effect:** `next dev` on 16.4 rewrites its own managed `nextjs-agent-rules` block at the top of AGENTS.md (from `next/dist/server/lib/generate-agent-files.js`). The new wording is committed so the tree stays clean.
-- **Verification:**
-  - 554 tests, `tsc` and lint pass, and `next build` gives the same 24 routes.
-  - On a local production server: every page returns 200; the CSP and other headers are unchanged; the auth, CSRF, lockout and body-cap responses are unchanged.
-  - `/_next/image` with an SVG returns 400, and a forged `Next-Action` POST returns 400 with the server still up.
-  - Headless Edge: the intro modal and consent flow work, `/blog` reads Supabase under the CSP, and there are no console errors.
-- **Audit:** 0 critical, high or moderate advisories. 4 low remain (S-39).
+### 2026-11-03: inside the laptop (branch `laptop-sponsorships`)
+- **No new attack surface.** The open/close animation, screen and keyboard are client-side drawing from static data; the CSP is unchanged.
+- **The offer form accepts two more spot values** (`palm-left`, `palm-right`), still from the fixed `SPOT_CHOICES` list that the route validates; anything else is refused (tested). Spot labels in emails come from that list, never from input.
+
+### 2026-10-30: "Sponsor a spot" offer form (branch `laptop-sponsorships`)
+The first public route that accepts files and emails a typed-in address. Controls are in §4.3, §4.4, §4.7 and §4.9: same-origin only, honeypot, flood/offer/recipient/global caps, byte-capped multipart parsed only after the cap, magic-byte file checks (no SVG), link-free text, escaped HTML emails, Reply-To routing that never exposes the private inbox, and a **private** bucket with no policies.
+- **No payment, no accounts.** Nothing is public: stored offers are reachable only with the service role.
+- **Verified end to end against a local production server** running with junk Resend and Supabase keys, so nothing could be sent or stored: the 403, 415, 413, 400 (fields and a disguised SVG), honeypot and 502 paths. The form UI was driven in headless Edge with the API intercepted.
+- **The shared `Modal` gained a focus trap and focus return**, closing a long-standing DESIGN_SYSTEM §9.3 gap for every modal.
+- **New open items:** S-40 (CAPTCHA). S-2 now blocks the sponsor's copy.
+
+### 2026-10-30: `/laptop` 3D sponsor stickers (branch `laptop-sponsorships`)
+- **No new attack surface:** no database, payment, upload, or write API.
+- **Sponsor data** is static sample data rendered as text (no HTML injection path). The only call to action links to `/contact`.
+- **Three.js** is a new exact-pinned runtime dependency (`three` 0.186.1). It loads only on `/laptop`, and the CSP is unchanged (§4.5).
+- **`npm audit`** at install time surfaced S-38 and S-39. Neither comes from `three`.
 
 ### 2026-10-21: Security sweep (branch `security-sweep`)
 A whole-app pass covering code, configuration, headers, the live deployment, and the Supabase project as seen from outside. Of 8 open queue items, 2 were confirmed fixed and 2 moved to "ready, needs you". 15 new issues were found; 13 are fixed in code and 2 need your decision (§7).
