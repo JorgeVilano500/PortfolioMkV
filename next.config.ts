@@ -16,6 +16,15 @@ function supabaseOrigin(): string {
     return "";
 }
 
+/**
+ * Cloudflare Turnstile, the sponsorship form's spam check (SECURITY.md S-40),
+ * needs its script and its iframe from this origin. Added only when the
+ * site key is set at build time; otherwise the CSP is unchanged. It has to
+ * be site-wide: a page reached by client-side navigation keeps the CSP of
+ * the page the visit started on.
+ */
+const turnstileOrigin = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ? "https://challenges.cloudflare.com" : "";
+
 // Next.js injects inline scripts for hydration → script-src needs
 // 'unsafe-inline' (and 'unsafe-eval' in dev for HMR). script-src-attr 'none'
 // still blocks inline event-handler attributes (onerror=, onclick=…), which
@@ -25,8 +34,9 @@ function supabaseOrigin(): string {
 // Fonts are self-hosted (next/font), so no third-party font origins are needed.
 const csp = [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+    `script-src 'self' 'unsafe-inline'${turnstileOrigin ? ` ${turnstileOrigin}` : ""}${isDev ? " 'unsafe-eval'" : ""}`,
     "script-src-attr 'none'",
+    ...(turnstileOrigin ? [`frame-src ${turnstileOrigin}`] : []),
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "img-src 'self' data: blob: https:",

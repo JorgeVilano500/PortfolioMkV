@@ -160,3 +160,19 @@ describe("API and admin rules", () => {
         expect(find(await getRule(source), "X-Robots-Tag")).toContain("noindex")
     })
 })
+
+describe("Cloudflare Turnstile in the CSP (SECURITY.md S-40)", () => {
+    it("adds nothing while the spam check is off", async () => {
+        const csp = await cspWith({ NEXT_PUBLIC_TURNSTILE_SITE_KEY: undefined })
+        expect(csp).not.toContain("challenges.cloudflare.com")
+        expect(directive(csp, "frame-src")).toBe("") // falls back to default-src 'self'
+    })
+
+    it("allows only Cloudflare's challenge origin, for its script and iframe, once a site key is set", async () => {
+        const csp = await cspWith({ NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA" })
+        expect(directive(csp, "script-src")).toContain("https://challenges.cloudflare.com")
+        expect(directive(csp, "frame-src")).toBe("frame-src https://challenges.cloudflare.com")
+        expect(directive(csp, "connect-src")).not.toContain("cloudflare") // verification is server-side
+        expect(directive(csp, "script-src-attr")).toBe("script-src-attr 'none'")
+    })
+})

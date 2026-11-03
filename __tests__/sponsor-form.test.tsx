@@ -17,6 +17,13 @@ jest.mock("next/link", () => {
     }
 })
 
+// The Turnstile widget needs Cloudflare's script; the stub hands tests its props.
+const mockTurnstile: { props: { onToken: (token: string | null) => void; resetSignal: number } | null } = { props: null }
+jest.mock("@/app/laptop/Turnstile", () => ({
+    turnstileSiteKey: () => process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "",
+    Turnstile: (props: { onToken: (token: string | null) => void; resetSignal: number }) => { mockTurnstile.props = props; return null },
+}))
+
 import { LaptopExperience } from "@/app/laptop/LaptopExperience"
 
 const fetchMock = jest.fn()
@@ -219,5 +226,43 @@ describe("closing", () => {
         fireEvent.keyDown(document, { key: "Escape" })
         fireEvent.click(screen.getByRole("button", { name: /Sponsor a spot/ }))
         expect(field(/Your email/).value).toBe("")
+    })
+})
+
+describe("spam check (Turnstile), when a site key is configured", () => {
+    beforeEach(() => {
+        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
+        mockTurnstile.props = null
+    })
+    afterEach(() => { delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY })
+
+    it("shows the check, and won't send until it's done", () => {
+        openForm()
+        expect(mockTurnstile.props).not.toBeNull()
+        fillValid()
+        submit()
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(within(dialog()).getByRole("alert").textContent).toMatch(/spam check/)
+    })
+
+    it("sends the token with the offer, and asks for a fresh one after a failure", async () => {
+        openForm()
+        fillValid()
+        act(() => mockTurnstile.props!.onToken("XXXX.DUMMY.TOKEN.XXXX"))
+        respond(400, { error: "Please complete the spam check, then send again.", captcha: true })
+        await act(async () => { submit() })
+        const body = fetchMock.mock.calls[0][1].body as FormData
+        expect(body.get("cf-turnstile-response")).toBe("XXXX.DUMMY.TOKEN.XXXX")
+        expect(mockTurnstile.props!.resetSignal).toBe(1)
+        // The spent token is dropped, so the next send waits for a new one.
+        fetchMock.mockClear()
+        submit()
+        expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it("isn't shown when no site key is set", () => {
+        delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+        openForm()
+        expect(mockTurnstile.props).toBeNull()
     })
 })

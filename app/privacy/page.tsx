@@ -148,6 +148,13 @@ export default function PrivacyPage() {
                         owner can access. Emails are delivered by Resend. Your IP address is used briefly to stop the form from
                         being abused, and is never stored with your offer.
                     </p>
+                    {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() && (
+                        <p>
+                            To keep bots from sending offers, the form runs a spam check by Cloudflare Turnstile when you open
+                            it. Cloudflare processes your IP address and browser details for that check only, under its own
+                            privacy policy. It sets no cookies on this site.
+                        </p>
+                    )}
                     <p>
                         Offers are kept while we talk and for record-keeping afterwards. Ask through the{" "}
                         <Link href="/contact" className="text-[#AFA9EC] underline underline-offset-2 hover:text-[#f0eeff]">contact page</Link>{" "}

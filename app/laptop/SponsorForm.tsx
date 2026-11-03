@@ -4,10 +4,12 @@ import { useState, type ChangeEvent, type FormEvent, type ReactNode } from "reac
 import Link from "next/link"
 import { Modal } from "@/components/features/Modal"
 import { SPONSOR_CTA_HREF } from "@/lib/laptop-stickers"
+import { Turnstile, turnstileSiteKey } from "./Turnstile"
 import {
     SPONSOR_LIMITS,
     SPOT_CHOICES,
     STICKER_ACCEPT,
+    TURNSTILE_FIELD,
     checkStickerFile,
     formatOffer,
     spotLabel,
@@ -56,6 +58,16 @@ export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onC
     const [errors, setErrors]           = useState<SponsorFieldErrors>({})
     const [formError, setFormError]     = useState<string | null>(null)
     const [state, setState]             = useState<SubmitState>({ kind: "editing" })
+    // The spam check (SECURITY.md S-40) shows only when a Turnstile site key is configured.
+    const captchaOn                     = turnstileSiteKey() !== ""
+    const [captcha, setCaptcha]         = useState<string | null>(null)
+    const [captchaReset, setCaptchaReset] = useState(0)
+    // Tokens are single-use: after any failed send, get a fresh one.
+    const renewCaptcha = () => {
+        if (!captchaOn) return
+        setCaptcha(null)
+        setCaptchaReset((n) => n + 1)
+    }
 
     const sending = state.kind === "sending"
     // Closing mid-send would hide the result and invite a duplicate offer.
@@ -86,6 +98,7 @@ export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onC
         const fileError = checkStickerFile(file)
         const problems  = { ...("errors" in result ? result.errors : {}), ...(fileError ? { sticker: fileError } : {}) }
         if (Object.keys(problems).length > 0 || "errors" in result) return showErrors(problems)
+        if (captchaOn && !captcha) return setFormError("Please complete the spam check above the Send button.")
 
         const data = new FormData()
         data.set("email", result.fields.email)
@@ -95,6 +108,7 @@ export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onC
         data.set("sticker", file!)
         const honeypot = (event.currentTarget.elements.namedItem("website") as HTMLInputElement | null)?.value
         if (honeypot) data.set("website", honeypot)
+        if (captcha) data.set(TURNSTILE_FIELD, captcha)
 
         setState({ kind: "sending" })
         try {
@@ -110,10 +124,12 @@ export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onC
                 return
             }
             setState({ kind: "editing" })
+            renewCaptcha()
             if (res.status === 400 && body.fields) showErrors(body.fields)
             setFormError(body.error ?? "Something went wrong. Please try again.")
         } catch {
             setState({ kind: "editing" })
+            renewCaptcha()
             setFormError("Network error. Check your connection and try again.")
         }
     }
@@ -208,6 +224,8 @@ export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onC
                             <p className="text-xs text-[#c4c0d8] mt-1.5 truncate">Selected: {file.name} ({formatSize(file.size)})</p>
                         )}
                     </Field>
+
+                    {captchaOn && <Turnstile onToken={setCaptcha} resetSignal={captchaReset} />}
 
                     {/* Honeypot: hidden from people and assistive tech; bots fill it in. */}
                     <div aria-hidden="true" className="sr-only">

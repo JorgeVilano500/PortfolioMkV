@@ -23,7 +23,7 @@ const bytes = (...values: number[]) => new Uint8Array(values)
 const ascii = (text: string) => new Uint8Array([...text].map((c) => c.charCodeAt(0)))
 
 describe("isValidEmail", () => {
-    it.each(["jane@acme.dev", "j.doe+stickers@mail.example.co.uk", "A_B-c%9@x-y.io"])("accepts %s", (email) => {
+    it.each(["jane@acme.dev", "j.doe+stickers@mail.example.co.uk", "A_B-c9@x-y.io"])("accepts %s", (email) => {
         expect(isValidEmail(email)).toBe(true)
     })
 
@@ -33,6 +33,7 @@ describe("isValidEmail", () => {
         ["spaces", "jane doe@acme.dev"],
         ["a header injection (CRLF)", "jane@acme.dev\r\nBcc: victim@x.com"],
         ["mailto: parameter tricks", "jane@acme.dev?bcc=victim@x.com"],
+        ["percent-encoded mailto tricks (%3F decodes to ?)", "jane%3Fcc%3Dvictim@acme.dev"],
         ["a display name", "Jane <jane@acme.dev>"],
         ["over 254 characters", `${"a".repeat(250)}@acme.dev`],
         ["not a string", 42],
