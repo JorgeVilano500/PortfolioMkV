@@ -54,7 +54,7 @@ export type SupabaseMockState = {
 export function createChain(state: SupabaseMockState) {
     const chain: Record<string, unknown> = {}
     const methods = [
-        "from", "select", "order", "limit", "insert",
+        "from", "select", "order", "limit", "range", "insert",
         "update", "upsert", "delete", "eq", "in", "like", "single", "rpc",
     ]
     for (const m of methods) {

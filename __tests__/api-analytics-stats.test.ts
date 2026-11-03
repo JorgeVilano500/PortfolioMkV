@@ -180,6 +180,22 @@ describe("consent-era fields", () => {
         expect((await res.json()).consent).toBeNull()
     })
 
+    it("reads past Supabase's 1,000-row page cap (it used to stop at 1,000)", async () => {
+        const many = (n: number, offset: number) =>
+            Array.from({ length: n }, (_, i) => view({ session_id: `s${offset + i}` }))
+        mockDb.queue = [
+            { data: many(1000, 0), error: null, count: 1500 },
+            { data: many(500, 1000), error: null, count: 1500 },
+            { data: [], error: null }, // consent log
+        ]
+        const stats = await (await req(auth)).json()
+        expect(stats.totalViews).toBe(1500)
+        expect(stats.uniqueVisitors).toBe(1500)
+        expect(stats.truncated).toBe(false)
+        const ranges = mockDb.calls.filter((c) => c.method === "range").map((c) => c.args)
+        expect(ranges.slice(0, 2)).toEqual([[0, 999], [1000, 1999]])
+    })
+
     it("falls back to the original columns when the new ones don't exist yet", async () => {
         jest.spyOn(console, "warn").mockImplementation(() => {})
         mockDb.queue = [

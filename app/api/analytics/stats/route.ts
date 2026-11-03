@@ -4,8 +4,15 @@ import { getClientIp } from "@/lib/security"
 import { checkAdminAuth } from "@/lib/admin-auth"
 import { isMissingColumn, isMissingTable, warnSchemaOnce } from "@/lib/supabase-errors"
 import { summarizeUserAgent } from "@/lib/user-agent"
+import { fetchAllRows } from "@/lib/fetch-all-rows"
 
 const ROUTE = "analytics/stats"
+
+// Newest rows first, so a cut-off keeps the recent ones. Totals come from an
+// exact count either way.
+const MAX_ROWS = 50_000
+
+type Rows<T> = PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null; count?: number | null }>
 
 const BASE_COLUMNS = "page, session_id, is_new_visitor, load_time, screen_width, referrer, created_at"
 // Added by supabase/consent-schema.sql; only populated for visitors who opted in.
@@ -55,6 +62,8 @@ export type StatsPayload = {
     bounceRate:        number  // % of sessions with only 1 page view
     yourIp:            string  // IP of the dashboard viewer — for exclusion setup
     excludedIps:       string[] // IPs currently blocked via env var
+    /** True when there were more than MAX_ROWS views: the breakdowns cover the newest ones. */
+    truncated:         boolean
 }
 
 function categoriseDevice(w: number | null): "mobile" | "tablet" | "desktop" {
@@ -73,11 +82,13 @@ function getExcludedIps(): string[] {
 
 /** Latest choice per visitor, summed. Null when the consent log doesn't exist yet. */
 async function getConsentSummary(): Promise<ConsentSummary | null> {
-    const { data, error } = await supabaseAdmin
+    type ConsentRow = { visitor_id: string; analytics: boolean; action: string }
+    const { rows, error } = await fetchAllRows<ConsentRow>((from, to) => supabaseAdmin
         .from("consent_events")
-        .select("visitor_id, analytics, action, created_at")
+        .select("visitor_id, analytics, action, created_at", { count: "exact" })
         .order("created_at", { ascending: false })
-        .limit(50000)
+        .order("id", { ascending: false })
+        .range(from, to) as unknown as Rows<ConsentRow>, MAX_ROWS)
 
     if (error) {
         if (isMissingTable(error)) warnSchemaOnce(`${ROUTE}/consent`, "run supabase/consent-schema.sql to see consent stats")
@@ -87,7 +98,7 @@ async function getConsentSummary(): Promise<ConsentSummary | null> {
 
     // Rows are newest-first, so the first row seen per visitor is their current choice.
     const latest = new Map<string, { analytics: boolean; action: string }>()
-    for (const row of (data ?? []) as { visitor_id: string; analytics: boolean; action: string }[]) {
+    for (const row of rows) {
         if (!latest.has(row.visitor_id)) latest.set(row.visitor_id, row)
     }
     const summary: ConsentSummary = { accepted: 0, declined: 0, erased: 0 }
@@ -115,27 +126,26 @@ export async function GET(req: NextRequest) {
     const denied = await checkAdminAuth(req)
     if (denied) return denied
 
-    // Single fetch of all rows (reasonable for a personal portfolio)
-    const fetchViews = (columns: string) => supabaseAdmin
+    // Every row, paged (a single query stops at Supabase's 1,000-row page cap).
+    const fetchViews = (columns: string) => fetchAllRows<PageViewRow>((from, to) => supabaseAdmin
         .from("page_views")
-        .select(columns)
+        .select(columns, { count: "exact" })
         .order("created_at", { ascending: false })
-        .limit(50000)
+        .order("id", { ascending: false })
+        .range(from, to) as unknown as Rows<PageViewRow>, MAX_ROWS)
 
-    let { data, error } = await fetchViews(`${BASE_COLUMNS}, ${CONSENT_COLUMNS}`)
-    if (error && isMissingColumn(error)) {
+    let result = await fetchViews(`${BASE_COLUMNS}, ${CONSENT_COLUMNS}`)
+    if (result.error && isMissingColumn(result.error)) {
         warnSchemaOnce(ROUTE, "run supabase/consent-schema.sql to show IP/browser/language in recent activity")
-        const retry = await fetchViews(BASE_COLUMNS)
-        data = retry.data
-        error = retry.error
+        result = await fetchViews(BASE_COLUMNS)
     }
 
-    if (error) {
-        console.error(`[${ROUTE}]`, error.message)
+    if (result.error) {
+        console.error(`[${ROUTE}]`, result.error.message)
         return NextResponse.json({ error: "DB error" }, { status: 500 })
     }
 
-    const views = (data ?? []) as unknown as PageViewRow[]
+    const views = result.rows
     const consent = await getConsentSummary()
 
     const now = Date.now()
@@ -144,7 +154,7 @@ export async function GET(req: NextRequest) {
     const recent30 = views.filter((v) => new Date(v.created_at).getTime() >= thirtyDaysAgo)
 
     // ── Counts ───────────────────────────────────────────────────────────────
-    const totalViews     = views.length
+    const totalViews     = result.total
     const last30Views    = recent30.length
     const uniqueVisitors = new Set(views.map((v) => v.session_id)).size
     const last30Unique   = new Set(recent30.map((v) => v.session_id)).size
@@ -262,6 +272,7 @@ export async function GET(req: NextRequest) {
         bounceRate,
         yourIp:      getClientIp(req),
         excludedIps: getExcludedIps(),
+        truncated:   result.truncated,
     }
 
     return NextResponse.json(payload)

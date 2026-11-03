@@ -263,7 +263,7 @@ function Dashboard() {
                 <StatCard
                     label="Total Page Views"
                     value={fmtNum(stats.totalViews)}
-                    sub="All time"
+                    sub={stats.truncated ? "All time · charts use the latest 50,000" : "All time"}
                     accent="#7c6dff"
                 />
                 <StatCard
