@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-03** (branch `laptop-sponsorships`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-03** (branch `security-patch`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -60,7 +60,7 @@ flowchart LR
 | Database | Supabase Postgres (`@supabase/supabase-js`) | ^2.104 | Two clients: anon and service role |
 | Markdown | `react-markdown` 10, `remark-gfm` 4, `rehype-raw` 7, `rehype-sanitize` 6, `rehype-highlight` 7 (highlight.js 11) | | Used only in `components/ui/MarkdownRenderer.tsx` |
 | Frontmatter | `gray-matter` | ^4 | Used only by `/api/blog/upload` |
-| Email | `resend` | 4.8 | Used only by `/api/email-summary` |
+| Email | `resend` | 6.34.1 (exact pin) | `/api/email-summary`, `/api/sponsorships`, 2FA codes (`lib/two-factor.ts`) |
 | 3D | `three` (WebGLRenderer, GLTFLoader, OrbitControls, RoomEnvironment) | 0.186.1 (exact pin; `@types/three` 0.186.0) | Used only by `app/laptop/LaptopViewer.tsx`, which loads through `next/dynamic` with `ssr: false`, so it ships only on `/laptop` (~635 KB uncompressed). Three.js breaks APIs between minor versions, so upgrade deliberately. |
 | Icons | `react-icons` (`rx`, `fa6`, `md`, `io5`), plus inline SVG paths in `app/studio/shared.tsx` | ^5.6 | |
 | Tests | Jest 30 with `babel-jest` (inline config) | | See TESTING.md |
@@ -137,7 +137,10 @@ flowchart LR
 │   ├── laptop-stickers.ts         /laptop: sample sponsors, lid + palm-rest slots, GLB contract, radio-key helper (no three import)
 │   ├── laptop-keyboard.ts         /laptop: the 2019 13-inch keyboard layout, drawn by the 3D viewer and the 2D fallback
 │   ├── sponsorship.ts             Offer field rules shared by the form and the route (email, offer, spot, file sniffing)
-│   └── sponsor-email.ts           Server-only HTML + text templates for the two sponsorship emails
+│   ├── sponsor-email.ts           Server-only HTML + text templates for the two sponsorship emails
+│   ├── turnstile.ts               Server-only Cloudflare Turnstile verification for the offer form (S-40)
+│   ├── site.ts                    siteUrl(), CONTACT_EMAIL, mailtoLink(): one definition of the site's address
+│   └── fetch-all-rows.ts          Pages a Supabase query past the 1,000-row-per-request cap
 ├── supabase/                      SQL to run in the Supabase SQL editor (no migration tool)
 ├── __tests__/                     Jest suites + helpers/test-utils.ts
 ├── public/                        resume.pdf + default Next SVGs (unused); models/macbook-pro-13-2019.glb expected (LAPTOP_MODEL.md)
@@ -226,7 +229,7 @@ Since 2026-10-20, `recentActivity[]` items also carry `ip`, `browser`, `os`, `la
 
 Returns `StatsPayload` (exported from the route file, and imported by `app/logistics/page.tsx` as a type):
 `totalViews, last30Views, uniqueVisitors, last30Unique, avgLoadTime, topPages[8], topReferrers[6], newVsReturning, devices, recentActivity[15], dailyViews[30], peakHours[24], bounceRate, yourIp, excludedIps`.
-It reads up to **50,000** newest rows and aggregates in memory. The metric definitions are in PRD.md LOG-2. A DB error returns `500 {error:"DB error"}`.
+It pages through up to **50,000** newest rows with `fetchAllRows()` (a single query stops at Supabase's 1,000-row cap) and aggregates in memory. `totalViews` comes from an exact count, and `truncated: true` means the breakdowns cover only the newest 50,000. The metric definitions are in PRD.md LOG-2. A DB error returns `500 {error:"DB error"}`.
 
 ### 6.3 `/api/blog/posts` (admin)
 | Method | Body | Success | Notes |
@@ -281,8 +284,9 @@ Both methods require a same-origin request (otherwise `403`) and are rate-limite
   4. Body ≤4.25 MB, streamed, else `413`.
   5. A filled honeypot gets a quiet `200 {ok:true}`, and nothing is stored or sent.
   6. Field and file validation, with the file sniffed by its bytes. Failures return `400 {error, fields:{email?, affiliation?, offer?, spot?, sticker?}}`.
-  7. Email configured, else `500`.
-  8. The offer, recipient and global caps, else `429`.
+  7. With `TURNSTILE_SECRET_KEY` set: a valid Cloudflare Turnstile token in `cf-turnstile-response`, else `400 {error, captcha:true}`; `503` if Cloudflare can't be reached (fails closed).
+  8. Email configured, else `500`.
+  9. The offer, recipient and global caps, else `429`.
 - **Side effects, in order:**
   1. Upload `<uuid>/sticker.<ext>` and `<uuid>/inquiry.json` to the **private** bucket `sponsor-stickers`. This isn't fatal: a missing bucket logs one "run sponsor-stickers-schema.sql" warning.
   2. **Email 1** goes to `SUMMARY_RECIPIENT_EMAIL`, with `replyTo` set to the sponsor and the sticker attached (subject `Sponsorship inquiry: <affiliation> ($offer)`). If it fails, the route returns `502` and stops.
@@ -464,7 +468,7 @@ Set these in `.env.local` locally and in **Netlify, under Site settings → Envi
 | `NEXT_PUBLIC_SUPABASE_URL` | public | `lib/supabase.ts`, `lib/supabase-admin.ts` | **Yes**. Import throws without it, and the build fails. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | `lib/supabase.ts` | **Yes** (same reason) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server secret** | `lib/supabase-admin.ts` | Yes, for every API route |
-| `NEXT_PUBLIC_SITE_URL` | public | Metadata, robots, sitemap, JSON-LD | Recommended (`https://javastudios.netlify.app`); falls back to `https://java.dev` |
+| `NEXT_PUBLIC_SITE_URL` | public | Metadata, robots, sitemap, JSON-LD, security.txt, sponsorship emails | Recommended (`https://javastudios.netlify.app`); `siteUrl()` in `lib/site.ts` falls back to that same address |
 | `LOGISTICS_PASSWORD` | server secret | `/api/auth`, `/api/blog/posts`, `/api/projects`, `/api/analytics/stats` (and therefore Studio and Logistics), and the session-signing key | Yes, for admin. Unset means sign-in and every admin call return 401 (fails closed). Changing it signs everyone out. |
 | `SESSION_SECRET` | server secret | `lib/session.ts` | Optional but recommended (`openssl rand -base64 32`). Falls back to `SUPABASE_SERVICE_ROLE_KEY` as signing material. |
 | `BLOG_UPLOAD_SECRET` | server secret | `/api/blog/upload` | Only if you use the upload webhook |
@@ -479,6 +483,8 @@ Set these in `.env.local` locally and in **Netlify, under Site settings → Envi
 | `AUTH_LOCKOUT_STORE` | server | `lib/auth-lockout.ts` | Tests set `memory`; leave unset in production so lockouts are shared |
 | `SECURITY_CONTACT` | server | `/.well-known/security.txt` | Optional; email or `https://` URL (default: the address on `/contact`) |
 | `SPONSOR_REPLY_TO` | server | `/api/sponsorships` | Optional; Reply-To on the sponsor's thank-you copy (default: the public `/contact` address). The sponsorship form also needs `RESEND_API_KEY`, `SUMMARY_RECIPIENT_EMAIL`, and, for the sponsor's copy to arrive, a `RESEND_FROM_EMAIL` on a verified domain. |
+| `TURNSTILE_SECRET_KEY` | server | `/api/sponsorships` (`lib/turnstile.ts`) | Optional. Turns on the offer form's Cloudflare Turnstile check (S-40); set it together with the site key. |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | public, build time | `SponsorForm`, `next.config.ts` CSP, `/privacy` | Optional. Shows the widget, adds `https://challenges.cloudflare.com` to `script-src`/`frame-src`, and adds a line to `/privacy`. Redeploy after changing it. |
 
 To add a new variable, add it to this table **and** to the README env table, read it with `process.env.X` on the server, and check that it is set before use (fail closed for secrets).
 

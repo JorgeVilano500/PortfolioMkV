@@ -1,10 +1,10 @@
 # Security — portfoliomkv
 
-_Last full security pass: **2026-10-21** (security sweep, branch `security-sweep`, see §8). Previous passes: 2026-10-19, 2026-07-06._
+_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06._
 
 Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, and history. **Read §3 before writing any API route, rendering user content, or touching secrets.**
 
-> ⚠️ **The 2026-10-21 sweep is live only after it is merged and deployed.** Two follow-ups need you. First, run `supabase/auth-lockout-schema.sql` in the Supabase SQL editor; until you do, lockouts stay per instance and the logs warn once. Second, set `ADMIN_2FA=email` in Netlify if you want the second factor (§4.1). The 2026-10-19 SQL (`security-hardening.sql`) has been run: anon now gets `permission denied` on `page_views`, `consent_events` and `project_documents` (verified live 2026-10-21).
+> ⚠️ **Still needs you (all in §7):** run `supabase/auth-lockout-schema.sql` in the Supabase SQL editor (S-4; until then lockouts stay per instance and the logs warn once); set `ADMIN_2FA=email` in Netlify for the second factor (S-6); verify a Resend sending domain (S-2); and add the Cloudflare Turnstile keys to switch on the sponsorship form's spam check (S-40). The 2026-10-19 SQL (`security-hardening.sql`) has been run: anon gets `permission denied` on `page_views`, `consent_events` and `project_documents` (verified live 2026-10-21).
 
 ---
 
@@ -37,7 +37,7 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 ## 2. Posture at a glance
 | Area | Status |
 |---|---|
-| Framework & dependencies free of known critical/high runtime advisories | ❌ **Next 16.3.8 is in a critical advisory range (16.0.0–16.4.0) published after the pin**; upgrade to ≥16.4.1 (S-38). Plus a low-severity `deepmerge` via `resend` (S-39). |
+| Framework & dependencies free of known critical/high runtime advisories | ✅ Next 16.4.2 (S-38, PR #5, deployed 2026-11-03); `resend` 6.34.1 (S-39). `npm audit --omit=dev`: 0 critical/high/moderate; the one low (`deepmerge`) is used only by Jest, a dev tool. |
 | Admin auth: password exchanged once for a `__Host-` HttpOnly/SameSite=Strict/Secure session cookie | ✅ |
 | Second factor for admin sign-in | 🟡 built, off by default — set `ADMIN_2FA=email` (S-6) |
 | CSRF protection on cookie-authenticated writes | ✅ SameSite=Strict + Sec-Fetch-Site/Origin check |
@@ -45,7 +45,7 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 | Brute-force lockout: per IP (unspoofable on Netlify, IPv6 per /64), global ceiling, **one counter for every admin-password route** | ✅ (S-3, S-25, S-27) |
 | Lockout shared across serverless instances | 🟡 code ready — run `auth-lockout-schema.sql` (S-4) |
 | Public write endpoints rate-limited | ✅ track 30/min/IP · consent 20/min/IP · sponsorships: 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall |
-| Public sponsorship form: uploads + email to a typed address | ✅ same-origin only, honeypot, byte-capped multipart, files judged by their bytes (no SVG), link-free text, escaped emails, private bucket. 🟠 No CAPTCHA (S-40). |
+| Public sponsorship form: uploads + email to a typed address | ✅ same-origin only, honeypot, byte-capped multipart, files judged by their bytes (no SVG), link-free text, escaped emails, private bucket. 🟡 Cloudflare Turnstile check built, off until its keys are set (S-40). |
 | Request bodies byte-capped before parsing, on every route | ✅ (S-24) |
 | Analytics only with explicit, server-enforced consent | ✅ (2026-10-20) |
 | Input validation, PATCH whitelists, UUID ids, object-only JSON bodies | ✅ |
@@ -150,7 +150,7 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 - **Analytics**: strict types; out-of-range numbers → `null`; UA from the header; **referrer reduced to its origin** (http/https only, else `""`).
 - **Docs filenames**: `^[A-Za-z0-9][A-Za-z0-9._ -]{0,198}\.md$`.
 - **Sponsorship offers** (`lib/sponsorship.ts`, shared by the form and the route):
-  - **Email:** a strict pattern with no spaces, quotes, `?`, `&`, or CR/LF, so no header or mailto tricks.
+  - **Email:** a strict pattern with no spaces, quotes, `?`, `&`, `%`, or CR/LF, so no header or mailto tricks (in a `mailto:` link, `%3F` and `%26` decode to `?` and `&`).
   - **Affiliation:** at most 120 characters, control characters stripped, and **no URLs or domain-shaped text**. Mail clients auto-link domains, and this text goes to a typed-in address.
   - **Offer:** $1–$1,000,000 with at most 2 decimals. **Spot:** from a fixed list (`SPOT_CHOICES`: four lid spots, two palm-rest spots, or "any").
   - **File:** at most 4 MB, and **sniffed by its magic bytes** (PNG, JPEG, WebP, PDF). SVG and everything else are refused, whatever the name or declared type. The file name is shown only after cleaning (no path or reserved characters).
@@ -173,6 +173,8 @@ All routes (`/:path*`):
 **3D assets (`/laptop`).** No header changes were needed for Three.js. WebGL needs no CSP source. The GLB is a same-origin `fetch`. Sticker, screen and keyboard artwork is drawn on canvases, so it makes no requests. The bezel's `KHR_materials_specular` is a plain material extension that GLTFLoader reads itself (no decoder).
 - **Embedded textures:** `GLTFLoader` normally decodes them by `fetch()`ing a `blob:` URL, which `connect-src 'self'` blocks. The viewer swaps it to `TextureLoader`, which uses an `<img>` that `img-src blob:` already allows. This was verified with a textured QA model: no CSP violations.
 - **Compressed geometry:** Draco, meshopt and KTX2 decoders need WebAssembly and workers, which the CSP doesn't allow (`script-src` has no `wasm-unsafe-eval`, and there is no `worker-src`). LAPTOP_MODEL.md requires uncompressed exports, so **don't loosen the CSP to load a model; re-export it instead.**
+
+**Cloudflare Turnstile (the sponsorship form's spam check, S-40).** Only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set at build time, `script-src` gains `https://challenges.cloudflare.com` and `frame-src https://challenges.cloudflare.com` is added; otherwise the CSP is unchanged (a test covers both). It has to be site-wide: a page reached by client-side navigation keeps the CSP of the page the visit started on. The token is verified server-side, so `connect-src` doesn't change. The widget's script loads only when the offer dialog opens.
 
 **`connect-src`** is built from `NEXT_PUBLIC_SUPABASE_URL` at build time: exactly that origin, https only (http allowed in dev). It used to be `https://*.supabase.co`, which let script that slipped past sanitization send data to *any* Supabase project, including an attacker's. If the variable is unset or malformed, `connect-src` is just `'self'` (fails closed).
 
@@ -216,7 +218,8 @@ DB/provider errors logged server-side with a `[route]` prefix; clients get gener
 - **Content:** every visitor value is HTML-escaped. The affiliation can't contain web addresses. The sponsor's copy omits the original file name, which could be domain-shaped. The only link built from input is the owner's `mailto:` to the validated address.
 - **Bots:** a honeypot field gets a fake "ok" and nothing is stored or sent.
 - **Failures:** if the owner's notice fails, the visitor gets a generic 502 and no copy is sent. If only the copy fails, the response says `confirmationSent: false` and the page tells the visitor honestly. With the Resend sandbox sender, that is every time until a domain is verified (S-2).
-- **Limitation:** caps are in-memory per instance, so a distributed attacker gets more. A CAPTCHA is the next step (S-40).
+- **Spam check (optional, S-40):** with `TURNSTILE_SECRET_KEY` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` set, every offer needs a Cloudflare Turnstile token, verified by `lib/turnstile.ts` after field validation (so a typo doesn't spend the single-use token) and before any cap, storage or email. No token or a rejected one → `400 {captcha:true}`; Cloudflare unreachable → `503` (fails closed). A secret without a site key logs once, since nobody could pass.
+- **Limitation:** until those keys are set, the caps are the only limit, and they're in-memory per instance, so a distributed sender gets more.
 
 ### 4.10 Analytics privacy
 **Analytics are opt-in since 2026-10-20 (`lib/consent.ts`).**
@@ -239,7 +242,7 @@ DB/provider errors logged server-side with a `[route]` prefix; clients get gener
 | `/api/blog/upload` | POST | `x-api-key` → `BLOG_UPLOAD_SECRET` | lockout; body ≤4 MB / 1M chars | `posts` upsert on slug |
 | `/api/docs/upload` | POST | `x-api-key` → `DOCS_UPLOAD_SECRET` | lockout; body ≤4 MB / 1M chars | `project_documents` upsert |
 | `/api/email-summary` | POST | `x-api-key` → `EMAIL_SUMMARY_SECRET` | lockout + 10 sends/hr; body ≤4 MB | Resend send |
-| `/api/sponsorships` | POST (multipart) | none (public); same-origin only; honeypot | 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall; body ≤4.25 MB, file ≤4 MB (magic bytes) | private bucket `sponsor-stickers` (`<id>/sticker.*`, `<id>/inquiry.json`); 2 Resend sends (owner notice + sponsor copy) |
+| `/api/sponsorships` | POST (multipart) | none (public); same-origin only; honeypot; a Turnstile token when configured (S-40) | 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall; body ≤4.25 MB, file ≤4 MB (magic bytes) | private bucket `sponsor-stickers` (`<id>/sticker.*`, `<id>/inquiry.json`); 2 Resend sends (owner notice + sponsor copy) |
 | `/.well-known/security.txt` | GET | none (public) | — | — (RFC 9116 contact; `Expires` 180 days ahead, computed per request) |
 
 Request bodies are additionally capped by the platform (Netlify Functions: ~6 MB).
@@ -254,6 +257,7 @@ Request bodies are additionally capped by the platform (Netlify Functions: ~6 MB
 | `DOCS_UPLOAD_SECRET` | Overwrite project docs | `/api/docs/upload` | Netlify env + automation |
 | `EMAIL_SUMMARY_SECRET` | Email the owner | `/api/email-summary` | Netlify env + automation |
 | `RESEND_API_KEY` | Send from the Resend account | `/api/email-summary`, 2FA codes | Resend dashboard |
+| `TURNSTILE_SECRET_KEY` (optional) | Verifying the sponsorship form's spam check | `lib/turnstile.ts` | Cloudflare dashboard → Turnstile → the widget → Rotate secret key |
 
 `NEXT_PUBLIC_SUPABASE_ANON_KEY` is public by design — RLS + grants protect data (hence S-1 matters).
 
@@ -263,6 +267,7 @@ Request bodies are additionally capped by the platform (Netlify Functions: ~6 MB
 |---|---|
 | `ADMIN_2FA` | `email` turns on the emailed second factor for admin sign-in and disables `x-logistics-key`. Any other value or unset means off. |
 | `ADMIN_2FA_EMAIL` | Where 2FA codes go (default `SUMMARY_RECIPIENT_EMAIL`). |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Public. Shows the Turnstile widget on the offer form and adds Cloudflare's origin to the CSP. Baked in at build time, so redeploy after changing it. |
 | `AUTH_LOCKOUT_STORE` | `memory` skips the shared Postgres lockout (tests only). Leave unset in production. |
 | `SECURITY_CONTACT` | Email or `https://` URL for `security.txt` (default: the address on `/contact`). |
 **Rotation procedure**: generate (`openssl rand -base64 32`) → update Netlify env → redeploy → update `.env.local` and external clients → revoke the old value at the provider. Rotate immediately if a secret was ever pasted into a chat, script, shortcut, log, or commit.
@@ -347,16 +352,31 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 ### Found after the sweep (2026-10-30)
 | ID | Severity | Issue | Status | Fix |
 |---|---|---|---|---|
-| **S-38** | **Critical** (per advisory) | **`next` 16.0.0–16.4.0**: unauthenticated RCE in the Image Optimization API when SVGs are used (GHSA-2464-fhr4-w9xw); DoS in the App Router via Server Actions (GHSA-p3m5-59mp-jv5r); RCE in `use cache` functions returning typed arrays (GHSA-673q-mjm6-r5xr). Published after the 16.3.8 pin. **Exposure here looks limited:** no `next/image`, Server Actions, or `use cache` in the code, and Netlify serves `/_next/image` through its own image CDN. But `public/` holds SVGs, and the endpoints exist regardless. | 🔴 | Upgrade `next` and `eslint-config-next` together to **16.4.1** (released 2026-10-14; the first release outside the advisory range) or later, in its own PR; run tests, lint, build and a browser smoke test. Until then, `images: { unoptimized: true }` in `next.config.ts` would switch the optimizer off, since nothing uses it. |
-| S-40 | Medium | The public sponsorship form has no CAPTCHA. A honeypot, per-client/per-recipient/global caps, link-free text and escaping bound the abuse, but the caps are per serverless instance. A determined, distributed sender could still push some unwanted thank-you emails to strangers. | 🟠 | Add Cloudflare Turnstile, which is free and private. It needs a site key, a server-side verify call, and CSP additions (`script-src` and `frame-src` `https://challenges.cloudflare.com`), with tests. |
-| S-39 | Low | `deepmerge` prototype poisoning (GHSA-gcqx-w48m-w2h4), reached through `resend` → `@react-email/render` → `html-to-text`. Only the React-email rendering path uses it; `/api/email-summary` and the 2FA email send plain text/HTML. | 🔴 | `resend` 6.35+ drops it, but it's a breaking major; upgrade with the email routes' tests. |
+| **S-38** | **Critical** (per advisory) | **`next` 16.0.0–16.4.0**: unauthenticated RCE in the Image Optimization API when SVGs are used (GHSA-2464-fhr4-w9xw); DoS in the App Router via Server Actions (GHSA-p3m5-59mp-jv5r); RCE in `use cache` functions returning typed arrays (GHSA-673q-mjm6-r5xr). Published after the 16.3.8 pin. | ✅ | Upgraded `next` and `eslint-config-next` to **16.4.2** (PR #5, merged and deployed 2026-11-03; `/laptop` and the rest of the merged code are live). `npm audit` shows no critical, high or moderate advisories. |
+| S-40 | Medium | The public sponsorship form had no CAPTCHA. A honeypot, per-client/per-recipient/global caps, link-free text and escaping bound the abuse, but the caps are per serverless instance, so a determined, distributed sender could still push unwanted thank-you emails to strangers. | 🟡 | **Built 2026-11-03:** an optional Cloudflare Turnstile check (`lib/turnstile.ts`, `app/laptop/Turnstile.tsx`), verified server-side, failing closed, with the CSP widened only while it's on. Switch it on with two env vars (below). |
+| S-39 | Low | `deepmerge` prototype poisoning (GHSA-gcqx-w48m-w2h4), reached through `resend` → `@react-email/render` → `html-to-text`. | ✅ | `resend` 4.8.0 → **6.34.1** (2026-11-03), where `@react-email/render` is an optional peer that isn't installed. The remaining `deepmerge` is Jest's (dev only). |
+
+### Found in the 2026-11-03 patch
+| ID | Severity | Issue | Status | Fix |
+|---|---|---|---|---|
+| S-41 | Low | `/blog` printed the raw Supabase error message to visitors when loading failed; it can name tables, columns or policies | ✅ | Generic message for visitors; the detail goes to the console |
+| S-42 | Low | The offer form's email pattern allowed `%`, so `%3F` / `%26` could smuggle `?` / `&` into the owner's `mailto:` link | ✅ | `%` refused (test added) |
+| S-43 | Info | Home rendered project rows as stored: a row edited by hand in the Supabase dashboard could crash the page or carry a non-http(s) link | ✅ | `normalizeProject()` coerces status/theme/tags and drops non-http(s) links |
 
 ### How to finish the 🟡 items (≈3 minutes)
 1. **S-4:** Supabase dashboard → **SQL Editor** → New query → paste `supabase/auth-lockout-schema.sql` → **Run**. Its last two result sets should show `rowsecurity = true`, with only `postgres` and `service_role` able to execute the two functions.
 2. **S-6 (optional, recommended):** Netlify → Site configuration → Environment variables → add `ADMIN_2FA` = `email` → redeploy. The next sign-in asks for the emailed code. Scripts using `x-logistics-key` stop working while it's on.
 3. **S-23:** paste `supabase/audit-exposure.sql` the same way and read each result tab. It changes nothing.
+4. **S-40 (optional, recommended once S-2 is done):** Cloudflare dashboard → **Turnstile** → **Add widget** → hostname `javastudios.netlify.app`, widget mode **Managed** → copy the **site key** and **secret key**. In Netlify → Environment variables, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (site key) and `TURNSTILE_SECRET_KEY` (secret) → **redeploy** (the site key and the CSP allowance are built in at build time). The "Sponsor a spot" dialog then shows the check, and an offer without it gets a 400.
 
 ## 8. History
+
+### 2026-11-03: Security patch (branch `security-patch`)
+A whole-app audit after PRs #4 and #5 merged: code, configuration, dependencies, the Supabase SQL, the live deployment's headers and caching, and the full git history.
+- **No open critical issue.** The only critical item, S-38, was fixed by PR #5 and is deployed. No secret was ever committed (the history's `process.env.X = "…"` lines are all test fixtures), the API bypasses Netlify's cache in production, and the lockout functions are executable by `service_role` only.
+- **Fixed:** S-40 built (optional Turnstile, fails closed), S-39 (`resend` 6.34.1), S-41 (raw DB errors on `/blog`), S-42 (`%` in the offer email), S-43 (hand-edited project rows).
+- **Docs:** this file still called S-38 open after the merge; corrected.
+- **Verified:** 783 tests, `tsc`, lint and build; Turnstile end to end in headless Edge with Cloudflare's public test keys (always-pass and always-fail secrets) against a local production server with junk Resend and Supabase keys, so nothing was sent or stored.
 
 ### 2026-11-03: inside the laptop (branch `laptop-sponsorships`)
 - **No new attack surface.** The open/close animation, screen and keyboard are client-side drawing from static data; the CSP is unchanged.

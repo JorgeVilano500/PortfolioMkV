@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-03** (branch `laptop-sponsorships`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-03** (branch `security-patch`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -213,23 +213,23 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 | ID | Action | Acceptance |
 |---|---|---|
 | ~~S-1~~ ✅ | ~~Run `supabase/security-hardening.sql`~~. Done; verified live 2026-10-21 (anon gets `permission denied` on `page_views`). | |
-| **S-38** | **Upgrade `next` + `eslint-config-next` to ≥16.4.1** (critical advisory for 16.0.0–16.4.0, published after the 16.3.8 pin), as its own PR | `npm audit --omit=dev` shows no critical; tests, lint and build pass |
+| ~~S-38~~ ✅ | ~~Upgrade `next` + `eslint-config-next` to ≥16.4.1~~. Done: PR #5 (Next 16.4.2), merged and deployed 2026-11-03. | |
 | **Deploy** | The `security-sweep` PR is merged (2026-10-29); still to do: run `supabase/auth-lockout-schema.sql` (S-4); set `ADMIN_2FA=email` in Netlify (S-6); rotate `LOGISTICS_PASSWORD` (S-12) | Sign-in asks for an emailed code; `auth_failures` fills with hashed keys after a wrong password; `/.well-known/security.txt` loads |
 | S-23 | Run the read-only `supabase/audit-exposure.sql`. Then decide per app whether to disable open Supabase sign-ups and set size/MIME limits on the public storage buckets | Every section matches its "Expect" comment, or the difference is intentional |
 | S-37 | Decide whether the GitHub repo stays public (SECURITY.md lists open issues) | Repo private, or open items kept out of the public copy |
 | **S-2** | Verify a sending domain in Resend (needs a domain you own, not `*.netlify.app`) and set `RESEND_FROM_EMAIL`. **This now blocks sponsors' thank-you emails** (SPN-2b). | A sponsorship offer from a non-owner address gets its copy (`confirmationSent: true`) |
 | **Sponsor bucket** | Run `supabase/sponsor-stickers-schema.sql` in the SQL editor | Its verify queries show `public = false` and no unscoped storage policies; a test offer appears under Storage → `sponsor-stickers` |
-| S-40 | Add a CAPTCHA (Cloudflare Turnstile) to the sponsorship form | The form refuses submissions without a valid token; CSP and tests updated |
+| S-40 | Switch on the sponsorship form's spam check: create a Cloudflare Turnstile widget, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` in Netlify, and redeploy (the code is done, 2026-11-03; steps in SECURITY.md §7) | The dialog shows the check; an offer sent without it gets a 400 |
 | ~~S-3~~ ✅ | ~~Key rate limits on a client IP the platform sets~~. Done 2026-10-19: `x-nf-client-connection-ip` plus a global failure ceiling. **After deploy:** confirm `/logistics` shows your real IP even when you send a forged `X-Forwarded-For`. | |
 
 ### P0: Quick correctness fixes (under 1 hour in total)
 | ID | Action | Acceptance |
 |---|---|---|
 | ~~P0-1~~ ✅ | ~~Fix the lint error at `ProjectWizardModal.tsx:420`~~. Done 2026-10-19. | |
-| P0-2 | **Register the fonts.** Load Syne and DM Sans with `next/font/google` in `app/layout.tsx`, expose them as `--font-syne` and `--font-dm` in `@theme` in `globals.css`, and remove the dead `theme` block in `postcss.config.mjs`. (The unused Google Fonts `<link>` was already removed on 2026-10-19 for SECURITY.md S-11.) Decide whether body text should be DM Sans (the intent) and set `body { font-family }` to match. | `font-syne` headings render in Syne; the CSS output contains `.font-syne` and `.font-dm`; no request to fonts.googleapis.com |
-| P0-3 | On the About page, change the `font-white/65` class to `text-white/65`. (The `http://localhost:3000/blog` link was fixed on 2026-10-19.) | The class renders |
+| ~~P0-2~~ ✅ | ~~Register the fonts~~. Done 2026-11-03: Syne and DM Sans load through `next/font` (variable fonts, self-hosted), registered as `--font-syne` / `--font-dm`; the dead postcss block is gone. | |
+| ~~P0-3~~ ✅ | ~~About: `font-white/65` → `text-white/65`~~. Done 2026-11-03. | |
 | ~~P0-4~~ ✅ | ~~Add `rel="noopener noreferrer"` to every `target="_blank"` link~~. Done 2026-10-19. | |
-| P0-5 | On the Contact page, give Instagram a real URL or remove the card | No `href="#"` remains on public pages |
+| ~~P0-5~~ ✅ | ~~Give Instagram a real URL~~. Done 2026-11-03: it links to the @java.dev_ handle shown on the card (confirm it's the right account). | |
 
 ### P1: Product and engineering gaps
 | ID | Action | Acceptance |
@@ -242,7 +242,7 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 | P1-6 | **Remove dead code:** `ComingSoon` and its barrel export, the default Next SVGs in `public/` (verify they're unused first), the PDF loader rules in `next.config.ts`, `pdf.d.ts`, and the stray `src/**/*` include in `tsconfig.json` | Build, test, and lint are all clean |
 | P1-7 | Make the Home stats real: derive "Projects Built" from the project count and drop or justify the other hard-coded numbers. Review the hero copy with the owner. | The numbers match the data |
 | P1-8 | Accessibility pass. (Done 2026-10-20: Navbar menu labels, `aria-expanded`, an inert closed drawer, and the intro modal's focus trap. `useFocusTrap` in `components/onboarding/` can be reused.) Remaining: focus trap and focus return in `Modal`, visible `focus-visible` rings on interactive cards, `aria-pressed` on the filter pills, and an `aria-label` on the Logistics tracking switch. | Keyboard-only navigation works across all pages; axe shows no critical issues |
-| P1-9 | Surface failures from the Studio card quick actions: wrap the publish toggle and delete calls in `PostGridCard` and `ProjectGridCard` in `try/catch`, show an inline error (or a small toast), and disable the control while the request is in flight | Simulate a failure (devtools offline): the card shows an error and stays consistent |
+| ~~P1-9~~ ✅ | ~~Surface failures from the Studio card quick actions~~. Done 2026-11-03: `useCardAction()` in `app/studio/shared.tsx` shows the reason on the card and disables the toggle while it runs. | |
 
 ### P2: Ops and security (some need external accounts)
 | ID | Action |
@@ -287,6 +287,11 @@ Ask before acting on any of these:
 
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
+
+- 2026-11-03 (branch `security-patch`): **Security patch and bug fixes.**
+  - **Security:** optional Cloudflare Turnstile check on the sponsorship form (S-40); `resend` 6.34.1 (S-39); no raw DB errors on `/blog` (S-41); stricter offer email (S-42); safe project rows on Home (S-43).
+  - **Analytics:** Logistics totals and Studio view counts no longer stop at 1,000 rows; page views after the first no longer repeat the landing referrer and load time.
+  - **UI:** Syne and DM Sans finally load (P0-2); Studio quick actions show failures (P1-9); `/work` cards show their real status and no dead `#` links; the contact form keeps what you typed and Instagram has a real link (P0-5); copy buttons only say "Copied!" when it worked; About's subtitle colour (P0-3); the site URL no longer falls back to `java.dev`.
 
 - 2026-11-03 (branch `laptop-sponsorships`): **Inside the laptop** (LAP-7, LAP-8).
   - **Opening:** "Open the laptop" swings the lid open with the camera, boots the screen to a JAVA.dev desktop, and lights the backlit keyboard and Touch Bar (artwork drawn in Canvas 2D, `app/laptop/canvas-art.ts`; layout in `lib/laptop-keyboard.ts`).
