@@ -6,6 +6,7 @@ import { Navbar } from "@/components"
 import { MarkdownRenderer } from "@/components/ui/MarkdownRenderer"
 import { getPostBySlug, formatDate, themeMap, type PostWithContent } from "@/lib/blog"
 import { MdContentCopy, MdCheck } from "react-icons/md"
+import { useCopyToClipboard } from "@/components/ui/useCopyToClipboard"
 
 function SkeletonPost() {
     return (
@@ -30,17 +31,13 @@ export default function BlogPost() {
     const router = useRouter()
 
     const [post, setPost] = useState<PostWithContent | null | "loading">("loading")
-    const [copied, setCopied] = useState(false)
+    const clipboard = useCopyToClipboard()
 
     useEffect(() => {
         getPostBySlug(slug).then((p) => setPost(p))
     }, [slug])
 
-    const copyLink = () => {
-        navigator.clipboard.writeText(window.location.href)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-    }
+    const copyLink = () => void clipboard.copy(window.location.href)
 
     return (
         <div className="min-h-screen font-dm p-6 md:p-8 bg-[#0a0a0f]">
@@ -63,8 +60,10 @@ export default function BlogPost() {
                             onClick={copyLink}
                             className="flex items-center gap-1.5 text-xs text-[#555370] hover:text-[#c4c0d8] transition-colors cursor-pointer"
                         >
-                            {copied ? <MdCheck size={13} /> : <MdContentCopy size={13} />}
-                            {copied ? "Copied!" : "Copy link"}
+                            {clipboard.state === "copied" ? <MdCheck size={13} /> : <MdContentCopy size={13} />}
+                            <span aria-live="polite">
+                                {clipboard.state === "copied" ? "Copied!" : clipboard.state === "failed" ? "Couldn't copy" : "Copy link"}
+                            </span>
                         </button>
                     )}
                 </div>

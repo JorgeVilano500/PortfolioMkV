@@ -1,10 +1,10 @@
 "use client"
-import { useState } from "react"
 import { Navbar } from "@/components"
 import { FaGithub, FaLinkedin, FaInstagram, FaTwitch } from "react-icons/fa6"
 import { MdEmail, MdContentCopy, MdCheck } from "react-icons/md"
 import { IoLocationSharp } from "react-icons/io5"
 import { CONTACT_EMAIL as EMAIL, mailtoLink } from "@/lib/site"
+import { useCopyToClipboard } from "@/components/ui/useCopyToClipboard"
 
 // Kept short: some mail apps truncate long mailto: links.
 const MAX_NAME = 100
@@ -21,7 +21,7 @@ type Social = {
 }
 
 export default function Contact() {
-    const [copied, setCopied] = useState(false)
+    const clipboard = useCopyToClipboard()
 
     const socials: Social[] = [
         {
@@ -62,11 +62,7 @@ export default function Contact() {
         },
     ]
 
-    const copyEmail = () => {
-        navigator.clipboard.writeText(EMAIL)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-    }
+    const copyEmail = () => void clipboard.copy(EMAIL)
 
     // Both fields are `required`, so the browser stops an empty submit before
     // this runs: React 19 resets a form after its action, which used to wipe
@@ -113,8 +109,10 @@ export default function Contact() {
                             onClick={copyEmail}
                             className="flex items-center gap-2 bg-[#2e1f28] hover:bg-[#3e2535] text-pink-200 text-sm px-4 py-2.5 rounded-full border border-[#3e2535] transition-all duration-200 cursor-pointer"
                         >
-                            {copied ? <MdCheck size={14} /> : <MdContentCopy size={14} />}
-                            {copied ? "Copied!" : "Copy Email"}
+                            {clipboard.state === "copied" ? <MdCheck size={14} /> : <MdContentCopy size={14} />}
+                            <span aria-live="polite">
+                                {clipboard.state === "copied" ? "Copied!" : clipboard.state === "failed" ? "Couldn't copy. Select the address above." : "Copy Email"}
+                            </span>
                         </button>
                     </div>
                     <p className="text-xs text-gray-700">Typically responds within 24 hours</p>
