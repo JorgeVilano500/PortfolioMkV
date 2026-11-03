@@ -140,7 +140,7 @@ export default function About() {
                 </div>
             
                     <p className="font-syne font-extrabold text-xl text-white mb-1">Jorge Alejandro Vilanova Alvarado</p>
-                    <p className="text-sm font-white/65 mb-3">Full Stack Developer</p>
+                    <p className="text-sm text-white/65 mb-3">Full Stack Developer</p>
                     <div className="flex items-center gap-2 text-xs text-white/50">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"/>
                         California, USA · Open To Remote
