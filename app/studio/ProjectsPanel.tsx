@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
-import { Icon, ICON_PATHS } from "./shared"
+import { CardActionError, Icon, ICON_PATHS, failureMessage, useCardAction } from "./shared"
 import { ProjectWizardModal } from "./ProjectWizardModal"
 
 export type ProjectStatus = "live" | "wip" | "planned"
@@ -96,24 +96,32 @@ function ProjectGridCard({
     selected: boolean
     onToggleSelect: (id: string) => void
 }) {
-    const togglePublished = async (e: React.MouseEvent) => {
+    const action = useCardAction()
+
+    const togglePublished = (e: React.MouseEvent) => {
         e.stopPropagation()
-        const res = await fetch("/api/projects", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: project.id, published: !project.published }),
+        void action.run(async () => {
+            const res = await fetch("/api/projects", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: project.id, published: !project.published }),
+            })
+            if (!res.ok) return failureMessage(res, project.published ? "Couldn't hide this project." : "Couldn't publish this project.")
+            onSaved(await res.json())
+            return null
         })
-        if (res.ok) onSaved(await res.json())
     }
 
-    const deleteProject = async () => {
+    const deleteProject = () => action.run(async () => {
         const res = await fetch("/api/projects", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: project.id }),
         })
-        if (res.ok) onDeleted(project.id)
-    }
+        if (!res.ok) return failureMessage(res, "Couldn't delete this project.")
+        onDeleted(project.id)
+        return null
+    })
 
     const status = STATUS_META[project.status]
 
@@ -225,6 +233,8 @@ function ProjectGridCard({
                 </div>
             )}
 
+            <CardActionError message={action.error} />
+
             {/* Footer: status + year + published */}
             <div className="mt-auto pt-3 border-t border-[#2a2840] flex items-center justify-between gap-2">
                 <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${status.text}`}>
@@ -234,7 +244,9 @@ function ProjectGridCard({
                 </span>
                 <button
                     onClick={togglePublished}
-                    className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border shrink-0 transition-colors ${
+                    disabled={action.pending}
+                    aria-busy={action.pending}
+                    className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border shrink-0 transition-colors disabled:opacity-50 disabled:cursor-wait ${
                         project.published
                             ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
                             : "bg-[#1e1c2e] border-[#2a2840] text-[#555370] hover:bg-[#2a2840]"
