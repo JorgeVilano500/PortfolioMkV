@@ -31,7 +31,12 @@ export default function Blog() {
     useEffect(() => {
         getPosts()
             .then(setPosts)
-            .catch((e) => setError(e.message ?? "Failed to load posts"))
+            .catch((e: unknown) => {
+                // The raw Supabase message can name tables, columns or policies:
+                // log it for debugging, show visitors something generic.
+                console.error("[blog] posts failed to load:", e instanceof Error ? e.message : e)
+                setError("Posts couldn't be loaded right now. Please try again in a moment.")
+            })
             .finally(() => setLoading(false))
     }, [])
 
