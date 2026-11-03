@@ -94,11 +94,13 @@ describe("a valid offer", () => {
 
     it("lets the owner reply straight to the sponsor, with the sticker attached", async () => {
         await offer()
-        const owner = sends()[0] as { replyTo: string; attachments: { filename: string; content: Buffer }[] }
+        const owner = sends()[0] as { replyTo: string; attachments: { filename: string; content: string }[] }
         expect(owner.replyTo).toBe("jane@acme.dev")
         expect(owner.attachments).toHaveLength(1)
         expect(owner.attachments[0].filename).toBe("acme-logo.png")
-        expect([...owner.attachments[0].content]).toEqual([...PNG])
+        // Sent as base64 text (a Buffer would be JSON-encoded as a ~3.6x larger number array)
+        expect(typeof owner.attachments[0].content).toBe("string")
+        expect([...Buffer.from(owner.attachments[0].content, "base64")]).toEqual([...PNG])
     })
 
     it("points the sponsor's replies at the public contact address, never the private inbox", async () => {

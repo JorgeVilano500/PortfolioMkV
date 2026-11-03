@@ -148,7 +148,9 @@ export async function POST(req: NextRequest) {
         to: owner,
         replyTo: inquiry.email,
         ...ownerNotificationEmail(inquiry, site, { stored }),
-        attachments: [{ filename: attachmentName, content: Buffer.from(bytes) }],
+        // Base64, not a Buffer: the SDK JSON-encodes a Buffer as an array of
+        // numbers (~3.6 bytes per byte), so a 4 MB sticker became a ~14 MB request.
+        attachments: [{ filename: attachmentName, content: Buffer.from(bytes).toString("base64") }],
     } as EmailMessage)
     if (!ownerSent) {
         return Response.json({ error: "Your offer couldn't be sent right now. Please try again in a few minutes, or email me." }, { status: 502 })
