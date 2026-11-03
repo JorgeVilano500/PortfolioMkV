@@ -53,7 +53,7 @@ flowchart LR
 
 | Layer | Choice | Version (installed) | Notes |
 |---|---|---|---|
-| Framework | Next.js App Router | 16.3.8 | Turbopack by default. Read `node_modules/next/dist/docs/` before using any Next API. |
+| Framework | Next.js App Router | 16.4.2 | Turbopack by default. Read `node_modules/next/dist/docs/` before using any Next API. |
 | UI | React | 19.2.4 | Most pages are client components (see §4) |
 | Language | TypeScript | 5.9 | `strict: true`; path alias `@/*` points at the repo root |
 | Styling | Tailwind CSS (`@tailwindcss/postcss`) | 4.2 | No `tailwind.config.*`. The theme lives in `app/globals.css` (`@theme inline`). See DESIGN_SYSTEM.md. |
@@ -64,7 +64,7 @@ flowchart LR
 | 3D | `three` (WebGLRenderer, GLTFLoader, OrbitControls, RoomEnvironment) | 0.186.1 (exact pin; `@types/three` 0.186.0) | Used only by `app/laptop/LaptopViewer.tsx`, which loads through `next/dynamic` with `ssr: false`, so it ships only on `/laptop` (~635 KB uncompressed). Three.js breaks APIs between minor versions, so upgrade deliberately. |
 | Icons | `react-icons` (`rx`, `fa6`, `md`, `io5`), plus inline SVG paths in `app/studio/shared.tsx` | ^5.6 | |
 | Tests | Jest 30 with `babel-jest` (inline config) | | See TESTING.md |
-| Lint | ESLint 9 flat config + `eslint-config-next` 16.3.8 | | `npm run lint` |
+| Lint | ESLint 9 flat config + `eslint-config-next` 16.4.2 | | `npm run lint` |
 | Hosting | Netlify | | No `netlify.toml`; Netlify's Next.js runtime is auto-detected |
 | Node | 20.9+ required by Next 16 | dev machine: 22.13 | |
 

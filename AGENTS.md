@@ -1,7 +1,11 @@
 <!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
 <!-- END:nextjs-agent-rules -->
 
 # AGENTS.md — start here
@@ -14,7 +18,7 @@ _Last verified against the code: **2026-11-03**, branch `laptop-sponsorships` (o
 
 ## 1. The project in one paragraph
 
-`portfoliomkv` is the personal portfolio site of **Jorge Alejandro Vilanova Alvarado**, branded **JAVA.dev**, live at **https://javastudios.netlify.app**. It is built on Next.js **16.3.8** (App Router), React **19.2**, TypeScript (strict), and Tailwind CSS **4**, with Supabase Postgres as the backend and Netlify for hosting. There are five public pages: Home, Work, About, Blog (with `/blog/[slug]` post pages), and Contact. There are two private, password-gated pages: **`/studio`**, a CMS for blog posts and projects, and **`/logistics`**, a visitor-analytics dashboard. Public reads go straight from the browser to Supabase using the **anon key**, and Row Level Security limits them to published rows. All writes and private reads go through **`app/api/*` route handlers** that use the **service-role key**. Separately, an external automation pushes project docs to `/api/docs/upload` and emails summaries through `/api/email-summary`.
+`portfoliomkv` is the personal portfolio site of **Jorge Alejandro Vilanova Alvarado**, branded **JAVA.dev**, live at **https://javastudios.netlify.app**. It is built on Next.js **16.4.2** (App Router), React **19.2**, TypeScript (strict), and Tailwind CSS **4**, with Supabase Postgres as the backend and Netlify for hosting. There are five public pages: Home, Work, About, Blog (with `/blog/[slug]` post pages), and Contact. There are two private, password-gated pages: **`/studio`**, a CMS for blog posts and projects, and **`/logistics`**, a visitor-analytics dashboard. Public reads go straight from the browser to Supabase using the **anon key**, and Row Level Security limits them to published rows. All writes and private reads go through **`app/api/*` route handlers** that use the **service-role key**. Separately, an external automation pushes project docs to `/api/docs/upload` and emails summaries through `/api/email-summary`.
 
 ## 2. Doc map: read the one you need
 
