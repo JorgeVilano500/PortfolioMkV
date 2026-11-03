@@ -4,8 +4,11 @@ import { Navbar } from "@/components"
 import { FaGithub, FaLinkedin, FaInstagram, FaTwitch } from "react-icons/fa6"
 import { MdEmail, MdContentCopy, MdCheck } from "react-icons/md"
 import { IoLocationSharp } from "react-icons/io5"
+import { CONTACT_EMAIL as EMAIL, mailtoLink } from "@/lib/site"
 
-const EMAIL = "vilanova.jorge50@gmail.com"
+// Kept short: some mail apps truncate long mailto: links.
+const MAX_NAME = 100
+const MAX_MESSAGE = 1500
 
 type Social = {
     icon: React.ReactNode
@@ -43,7 +46,7 @@ export default function Contact() {
             icon: <FaInstagram size={20} />,
             platform: "Instagram",
             handle: "@java.dev_",
-            link: "#",
+            link: "https://www.instagram.com/java.dev_/",
             bg: "bg-[#1a1216]",
             border: "border-[#3e2535]",
             iconColor: "text-pink-400",
@@ -65,11 +68,14 @@ export default function Contact() {
         setTimeout(() => setCopied(false), 2000)
     }
 
+    // Both fields are `required`, so the browser stops an empty submit before
+    // this runs: React 19 resets a form after its action, which used to wipe
+    // whatever had been typed when one field was left empty.
     const handleSubmit = (formData: FormData) => {
-        const name = formData.get("name") as string
-        const message = formData.get("message") as string
+        const name = String(formData.get("name") ?? "").trim()
+        const message = String(formData.get("message") ?? "").trim()
         if (!name || !message) return
-        window.location.href = `mailto:${EMAIL}?subject=Hello from ${encodeURIComponent(name)}&body=${encodeURIComponent(message)}`
+        window.location.href = mailtoLink(`Hello from ${name}`, message)
     }
 
     return (
@@ -143,11 +149,17 @@ export default function Contact() {
                         <input
                             type="text"
                             name="name"
+                            required
+                            maxLength={MAX_NAME}
+                            aria-label="Your name"
                             placeholder="Your name"
                             className="bg-[#1e1c2e] border border-[#2a2840] text-gray-300 text-sm px-4 py-3 rounded-xl placeholder:text-gray-600 focus:outline-none focus:border-violet-500 transition-colors"
                         />
                         <textarea
                             name="message"
+                            required
+                            maxLength={MAX_MESSAGE}
+                            aria-label="Your message"
                             placeholder="What's on your mind?"
                             rows={4}
                             className="bg-[#1e1c2e] border border-[#2a2840] text-gray-300 text-sm px-4 py-3 rounded-xl placeholder:text-gray-600 focus:outline-none focus:border-violet-500 transition-colors resize-none"
@@ -199,7 +211,7 @@ export default function Contact() {
                         <p className="text-sm text-gray-600 mt-1">always on ☕</p>
                     </div>
                     <a
-                        href={`mailto:${EMAIL}?subject=Virtual Coffee`}
+                        href={mailtoLink("Virtual coffee")}
                         className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
                     >
                         Let&apos;s chat →
