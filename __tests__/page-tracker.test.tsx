@@ -21,6 +21,7 @@ function loadTracker() {
     let PageTracker!: typeof import("@/components/ui/PageTracker").PageTracker
     jest.isolateModules(() => {
         jest.doMock("react", () => React)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- a fresh module copy needs require()
         ;({ PageTracker } = require("@/components/ui/PageTracker"))
     })
     const view = render(<PageTracker />)
