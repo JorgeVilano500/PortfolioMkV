@@ -94,11 +94,13 @@ describe("a valid offer", () => {
 
     it("lets the owner reply straight to the sponsor, with the sticker attached", async () => {
         await offer()
-        const owner = sends()[0] as { replyTo: string; attachments: { filename: string; content: Buffer }[] }
+        const owner = sends()[0] as { replyTo: string; attachments: { filename: string; content: string }[] }
         expect(owner.replyTo).toBe("jane@acme.dev")
         expect(owner.attachments).toHaveLength(1)
         expect(owner.attachments[0].filename).toBe("acme-logo.png")
-        expect([...owner.attachments[0].content]).toEqual([...PNG])
+        // Sent as base64 text (a Buffer would be JSON-encoded as a ~3.6x larger number array)
+        expect(typeof owner.attachments[0].content).toBe("string")
+        expect([...Buffer.from(owner.attachments[0].content, "base64")]).toEqual([...PNG])
     })
 
     it("points the sponsor's replies at the public contact address, never the private inbox", async () => {
@@ -284,5 +286,66 @@ describe("abuse limits", () => {
     it("caps raw requests before reading bodies, even invalid ones", async () => {
         for (let i = 0; i < 10; i++) await offer({ email: "bad" }, { ip: "9.9.9.9" })
         expect((await offer({}, { ip: "9.9.9.9" })).status).toBe(429)
+    })
+})
+
+describe("spam check (Cloudflare Turnstile, SECURITY.md S-40)", () => {
+    const realFetch = global.fetch
+    const siteverify = jest.fn()
+    const verdict = (body: unknown, status = 200) => siteverify.mockResolvedValueOnce({ ok: status < 400, status, json: async () => body })
+
+    beforeEach(() => {
+        process.env.TURNSTILE_SECRET_KEY = "1x0000000000000000000000000000000AA"
+        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
+        siteverify.mockReset()
+        global.fetch = siteverify as unknown as typeof fetch
+    })
+
+    afterEach(() => {
+        delete process.env.TURNSTILE_SECRET_KEY
+        delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+        global.fetch = realFetch
+    })
+
+    it("refuses an offer without a token, before storing or emailing anything", async () => {
+        const res = await offer()
+        expect(res.status).toBe(400)
+        expect(await res.json()).toMatchObject({ captcha: true })
+        expect(siteverify).not.toHaveBeenCalled()
+        expect(mockSend).not.toHaveBeenCalled()
+        expect(mockUpload).not.toHaveBeenCalled()
+    })
+
+    it("refuses a token Cloudflare rejects", async () => {
+        verdict({ success: false, "error-codes": ["invalid-input-response"] })
+        const res = await offer({ "cf-turnstile-response": "forged" })
+        expect(res.status).toBe(400)
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("fails closed (503) when Cloudflare can't be reached", async () => {
+        siteverify.mockRejectedValueOnce(new Error("timeout"))
+        const res = await offer({ "cf-turnstile-response": "XXXX.DUMMY.TOKEN.XXXX" })
+        expect(res.status).toBe(503)
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("sends the offer once the token checks out", async () => {
+        verdict({ success: true, "error-codes": [] })
+        const res = await offer({ "cf-turnstile-response": "XXXX.DUMMY.TOKEN.XXXX" })
+        expect(res.status).toBe(200)
+        expect(sends()).toHaveLength(2)
+    })
+
+    it("checks fields first, so a typo doesn't spend the single-use token", async () => {
+        const res = await offer({ email: "nope", "cf-turnstile-response": "XXXX.DUMMY.TOKEN.XXXX" })
+        expect(res.status).toBe(400)
+        expect(siteverify).not.toHaveBeenCalled()
+    })
+
+    it("doesn't count refused bots against the recipient's daily cap", async () => {
+        for (let i = 0; i < 3; i++) await offer({ email: "victim@example.com" }, { ip: `5.5.5.${i}` })
+        verdict({ success: true })
+        expect((await offer({ email: "victim@example.com", "cf-turnstile-response": "ok" }, { ip: "6.6.6.6" })).status).toBe(200)
     })
 })

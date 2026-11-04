@@ -38,7 +38,23 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-11-03, inside the laptop): 723 tests, 36 suites, all passing, about 8 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-11-03, security patch): 783 tests, 46 suites, all passing, about 10 s.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Added or extended on 2026-11-03 (security patch):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-fetch-all-rows.test.ts` (new) | 7 | Paging past the 1,000-row cap with the exact count; a server cap smaller than a page; one request for small tables; the `maxRows` cut-off (`truncated`); no count; an error mid-way; empty tables |
+| `api-analytics-stats.test.ts`, `api-blog-posts.test.ts` | 14, 36 (+1 each) | 1,500 views read in two `.range()` pages; view counts past 1,000 |
+| `page-tracker.test.tsx` (new, jsdom) | 3 | Only the landing view carries the referrer and load time; a later first view gets no load time; admin pages never tracked. Fails on the old code. |
+| `studio-card-actions.test.tsx` (new, jsdom) | 7 | 401 → "session expired"; the server's message; non-JSON fallback; offline → network error; errors clear; one action at a time |
+| `work-component.test.tsx` (new, jsdom) | 3 | Real status on featured/side cards; no `#` links; filters; the laptop card copy |
+| `contact-page.test.tsx` (new, jsdom) | 5 | `mailtoLink` encoding; required fields (no React-19 form wipe); Instagram link; encoded coffee subject |
+| `project-list.test.tsx` (new, jsdom) | 6 | `normalizeProject` coercions and non-http(s) links dropped; a hand-edited row renders instead of crashing; the link shows without hover |
+| `use-copy-to-clipboard.test.tsx` (new, jsdom) | 3 | "copied" only after the write resolves; refused writes; no clipboard API |
+| `lib-site.test.ts` (new) | 4 | `siteUrl()` fallback, trailing slash, blank env; security.txt's defaults |
+| `blog-page.test.tsx` (new, jsdom) | 1 | A failed load shows a generic message, never the DB's |
+| `lib-turnstile.test.ts` (new) | 7 | Off without a secret; missing/oversized tokens never reach Cloudflare; secret, token and IP sent; rejected → invalid; down → unavailable; one misconfiguration warning |
+| `api-sponsorships.test.ts`, `sponsor-form.test.tsx`, `security-headers.test.ts`, `lib-sponsorship.test.ts` | 36, 21, 24, 46 | Turnstile: no token / rejected → 400 with nothing sent; 503 when Cloudflare is down; fields checked before the token is spent; refused bots don't use recipient caps; the form blocks sending until the check is done and resets it after a failure; the CSP widens only with a site key. `%` refused in emails; attachments sent as base64. |
 
 Added or extended on 2026-11-03 (inside the laptop: opening, screen, backlit keyboard, palm-rest spots):
 | Suite | Tests | Covers |
@@ -334,6 +350,7 @@ There's no `chromium-cli` on the dev machine and no Chrome, but Microsoft Edge w
 - [ ] No horizontal overflow at 360 px and 768 px. `/work` downloads no Three.js chunk; it loads only on `/laptop`.
 
 **Sponsor a spot** (form):
+- [ ] **Spam check (S-40):** build with Cloudflare's public test site key `1x00000000000000000000AA` and run the server with secret `1x0000000000000000000000000000000AA` (always passes) or `2x0000000000000000000000000000000AA` (always fails). The widget appears only once the dialog opens; a pass reaches the email step, a fail gives "Please complete the spam check" with the form kept and the widget reset; no CSP errors. Never put real keys in a local build.
 - [ ] The button opens the dialog with the selected spot pre-set (palm-rest spots included, listed by full name); focus starts on Email; Tab stays inside; Esc closes (except while sending), and focus returns to the button.
 - [ ] An empty submit shows four errors and focuses Email. A web address in Affiliation is refused. An SVG renamed `.png` is refused by the server.
 - [ ] A successful send shows the receipt. "A copy is on its way" appears only when the server says `confirmationSent: true`.

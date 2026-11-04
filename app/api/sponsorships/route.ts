@@ -8,6 +8,7 @@ import { BODY_LIMITS, BodyTooLargeError, readBodyBytes } from "@/lib/http"
 import { isMissingBucket, warnSchemaOnce } from "@/lib/supabase-errors"
 import {
     STICKER_FILE_TYPES,
+    TURNSTILE_FIELD,
     checkStickerFile,
     cleanFileName,
     sniffStickerType,
@@ -15,6 +16,8 @@ import {
     type SponsorFieldErrors,
 } from "@/lib/sponsorship"
 import { ownerNotificationEmail, sponsorConfirmationEmail, type SponsorInquiry } from "@/lib/sponsor-email"
+import { CONTACT_EMAIL, siteUrl } from "@/lib/site"
+import { verifyTurnstile } from "@/lib/turnstile"
 
 const ROUTE = "sponsorships"
 
@@ -24,7 +27,7 @@ const BUCKET = "sponsor-stickers"
 // The public address already shown on /contact. Replies to the sponsor's
 // copy go here (override with SPONSOR_REPLY_TO), never to the private
 // SUMMARY_RECIPIENT_EMAIL inbox.
-const PUBLIC_REPLY_TO = "vilanova.jorge50@gmail.com"
+const PUBLIC_REPLY_TO = CONTACT_EMAIL
 
 // This route emails an address a stranger typed in, so it's capped hard.
 // In-memory and per instance (SECURITY.md §4.3): best-effort, but it bounds
@@ -102,7 +105,18 @@ export async function POST(req: NextRequest) {
     const fileType = sniffStickerType(bytes)
     if (!fileType) return invalid({ sticker: "That file isn't a real PNG, JPG, WebP, or PDF." })
 
-    // 6. Configuration: fail closed before storing anything
+    // 6. Human check (Cloudflare Turnstile, SECURITY.md S-40), when configured.
+    // After validation, so fixing a typo doesn't spend the single-use token;
+    // before any cap, storage or email, so a bot can't burn the recipient caps.
+    const human = await verifyTurnstile(form.get(TURNSTILE_FIELD), ip)
+    if (human === "unavailable") {
+        return Response.json({ error: "The spam check couldn't run just now. Please try again in a minute." }, { status: 503 })
+    }
+    if (human !== "ok") {
+        return Response.json({ error: "Please complete the spam check, then send again.", captcha: true }, { status: 400 })
+    }
+
+    // 7. Configuration: fail closed before storing anything
     const resendKey = process.env.RESEND_API_KEY
     const owner     = process.env.SUMMARY_RECIPIENT_EMAIL
     if (!resendKey || !owner) {
@@ -110,7 +124,7 @@ export async function POST(req: NextRequest) {
         return Response.json({ error: "The sponsorship form isn't set up yet. Please email me instead." }, { status: 500 })
     }
 
-    // 7. Send caps, counted only for valid offers
+    // 8. Send caps, counted only for valid offers
     const { fields } = result
     const recipientKey = createHash("sha256").update(fields.email.toLowerCase()).digest("base64url")
     for (const [name, key, limit, windowMs] of [
@@ -132,28 +146,30 @@ export async function POST(req: NextRequest) {
     }
     const ext = STICKER_FILE_TYPES[fileType].ext
 
-    // 8. A private copy (file + JSON record). Not fatal: the owner's email carries everything.
+    // 9. A private copy (file + JSON record). Not fatal: the owner's email carries everything.
     const stored = await storeInquiry(inquiry, bytes, ext)
 
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://javastudios.netlify.app").replace(/\/+$/, "")
+    const site    = siteUrl()
     const from    = process.env.RESEND_FROM_EMAIL || "JAVA.dev <onboarding@resend.dev>"
     const resend  = new Resend(resendKey)
 
-    // 9. Email 1 of 2: the inquiry, to the owner. Reply-To is the sponsor, so
+    // 10. Email 1 of 2: the inquiry, to the owner. Reply-To is the sponsor, so
     // hitting Reply continues the negotiation with them directly.
     const attachmentName = `${inquiry.fileName.replace(/\.[^.]*$/, "") || "sticker"}.${ext}`
     const ownerSent = await sendEmail(resend, "owner", {
         from,
         to: owner,
         replyTo: inquiry.email,
-        ...ownerNotificationEmail(inquiry, siteUrl, { stored }),
-        attachments: [{ filename: attachmentName, content: Buffer.from(bytes) }],
+        ...ownerNotificationEmail(inquiry, site, { stored }),
+        // Base64, not a Buffer: the SDK JSON-encodes a Buffer as an array of
+        // numbers (~3.6 bytes per byte), so a 4 MB sticker became a ~14 MB request.
+        attachments: [{ filename: attachmentName, content: Buffer.from(bytes).toString("base64") }],
     } as EmailMessage)
     if (!ownerSent) {
         return Response.json({ error: "Your offer couldn't be sent right now. Please try again in a few minutes, or email me." }, { status: 502 })
     }
 
-    // 10. Email 2 of 2: the sponsor's thank-you copy, sent separately. With
+    // 11. Email 2 of 2: the sponsor's thank-you copy, sent separately. With
     // Resend's sandbox sender this can only reach the account owner, so it
     // fails until a sending domain is verified (SECURITY.md S-2). The page
     // says so instead of promising a copy that never arrives.
@@ -161,7 +177,7 @@ export async function POST(req: NextRequest) {
         from,
         to: inquiry.email,
         replyTo: process.env.SPONSOR_REPLY_TO?.trim() || PUBLIC_REPLY_TO,
-        ...sponsorConfirmationEmail(inquiry, siteUrl),
+        ...sponsorConfirmationEmail(inquiry, site),
     } as EmailMessage)
 
     return Response.json({ ok: true, reference: inquiry.id.slice(0, 8).toUpperCase(), confirmationSent })

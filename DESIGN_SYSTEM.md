@@ -1,6 +1,6 @@
 # Design System
 
-_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-11-03**._
+_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-11-03** (branch `security-patch`)._
 
 **Read this before building or restyling any UI.** When you introduce a new pattern, add it here.
 
@@ -85,31 +85,15 @@ Swatch hex values used in pickers (Studio theme selector) and in Logistics chart
 
 ## 3. Typography
 
-### 3.1 Intended vs actual (⚠️ known bug)
-| Role | **Intended** | **What actually renders today** |
+### 3.1 Font families
+| Role | Face | How it loads |
 |---|---|---|
-| Display / headings (`font-syne`) | **Syne** 400/700/800 | Inherits the parent font: **Arial** on most pages, **Geist** on Home |
-| Body (`font-dm` on page shells) | **DM Sans** 300/400/500 | **Arial** (the `body` rule in `globals.css`) |
-| Home shell (`font-sans`) | n/a | **Geist** (next/font) |
-| Code (`font-mono`) | Geist Mono | Geist Mono ✅ |
+| Display / headings (`font-syne`) | **Syne** (variable, 400–800) | `next/font/google` in `app/layout.tsx` → `--font-syne-face`, registered as `--font-syne` in `globals.css` `@theme inline` |
+| Body (`font-dm` on page shells) | **DM Sans** (variable) | Same, as `--font-dm-face` → `--font-dm` |
+| Home shell (`font-sans`) | Geist | `next/font` (the Next starter default; Home doesn't use `font-dm`) |
+| Code (`font-mono`) | Geist Mono | `next/font` |
 
-**Why:** Syne and DM Sans were loaded through a Google Fonts `<link>` in `app/layout.tsx`, but no Tailwind utility maps to them. That `<link>` was removed on 2026-10-19 for privacy and CSP (SECURITY.md S-11), which changed nothing visually because the fonts were never applied. `postcss.config.mjs` contains a Tailwind **v3** `theme.extend.fontFamily` block, which Tailwind 4 ignores, and `globals.css` registers only `--font-sans` and `--font-mono`. The compiled CSS has no `.font-syne` or `.font-dm` rules, which was verified against the `.next` output on 2026-10-19.
-
-**The fix (PRD P0-2)** follows the bundled guide `node_modules/next/dist/docs/01-app/03-api-reference/02-components/font.md`, section "With Tailwind CSS":
-```tsx
-// app/layout.tsx
-import { Geist, Geist_Mono, Syne, DM_Sans } from "next/font/google"
-const syne   = Syne({ subsets: ["latin"], weight: ["400", "700", "800"], variable: "--font-syne-face", display: "swap" })
-const dmSans = DM_Sans({ subsets: ["latin"], weight: ["300", "400", "500"], variable: "--font-dm-face", display: "swap" })
-// add `${syne.variable} ${dmSans.variable}` to <html className>. next/font self-hosts the files, so the CSP needs no changes.
-```
-```css
-/* app/globals.css: inside the existing @theme inline block */
---font-syne: var(--font-syne-face);
---font-dm:   var(--font-dm-face);
-/* and decide the global default: body { font-family: var(--font-dm-face), system-ui, sans-serif; } */
-```
-Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a Google Fonts `<link>`, because the CSP no longer allows those origins (a test enforces this). **Check every page visually afterwards**, because headings will become noticeably wider (Syne is a wide face).
+Fixed on 2026-11-03 (PRD P0-2). Until then no Tailwind utility mapped `font-syne` or `font-dm` (a Tailwind v3 block in `postcss.config.mjs` that Tailwind 4 ignored), so both fell back to **Arial**. next/font self-hosts the files, so the CSP needs no font host; **don't** add a Google Fonts `<link>` (the CSP blocks it, and a test enforces this). Syne is a wide face: headings take more room than they did in Arial, so check 360 px layouts when adding long headings. The `body` rule in `globals.css` still says Arial, for anything outside a `font-dm` shell.
 
 ### 3.2 Type scale (as used)
 | Role | Classes |
@@ -198,6 +182,7 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 | `ProjectList` | `components/ui/ProjectList.tsx` | `projects: PublicProject[]`. A compact row list: icon tile, title, category, 2-line description, tags, status, year, and a "View →" link that appears on hover. |
 | `HomeComponent`, `WorkComponent` | `components/ui/` | Page bodies. They are not reusable. |
 | `PageTracker` | `components/ui/PageTracker.tsx` | Invisible; mounted once in the root layout |
+| `useCopyToClipboard` | `components/ui/useCopyToClipboard.ts` | Returns `{ state: "idle" \| "copied" \| "failed", copy(text) }`. Copy buttons show "Copied!" only after the browser accepts the write, otherwise "Couldn't copy", inside an `aria-live="polite"` span; resets after 2 s. |
 | `ComingSoon` | `components/ui/ComingSoon.tsx` | Dead code. Don't use it; delete it (P1-6). |
 
 ### 7.1b Onboarding and tour (`components/onboarding/`, added 2026-10-20)
@@ -233,13 +218,14 @@ Then remove the dead `theme` block from `postcss.config.mjs`. **Don't** re-add a
 ### 7.1d Sponsorship form and emails (added 2026-10-30)
 | Element | Pattern |
 |---|---|
-| Offer dialog | The shared `Modal` (`variant="dark"`, title "Sponsor a spot"). Intro in `text-sm text-[#8a88a0]`. Fields use the **Studio input style**, with labels in `text-xs font-medium text-[#c4c0d8]`, hints in `text-xs text-[#8a88a0]` below, and errors in `text-xs text-pink-400` with a `border-pink-400` field (`aria-invalid`, `aria-describedby` to hint + error). The offer input has a `$` prefix. The file input styles its button with `file:` utilities (`file:bg-[#1e1c2e] file:border-[#2a2840] file:rounded-lg`). The full-width primary submit reads "Sending…" while busy. A ghost line below links to Contact. |
+| Offer dialog | The shared `Modal` (`variant="dark"`, title "Sponsor a spot"). With Turnstile configured (S-40), Cloudflare's widget (`theme: "dark"`, `min-h-16` slot) sits above the privacy line; if its script can't load, a `text-xs text-pink-400` alert says so. Intro in `text-sm text-[#8a88a0]`. Fields use the **Studio input style**, with labels in `text-xs font-medium text-[#c4c0d8]`, hints in `text-xs text-[#8a88a0]` below, and errors in `text-xs text-pink-400` with a `border-pink-400` field (`aria-invalid`, `aria-describedby` to hint + error). The offer input has a `$` prefix. The file input styles its button with `file:` utilities (`file:bg-[#1e1c2e] file:border-[#2a2840] file:rounded-lg`). The full-width primary submit reads "Sending…" while busy. A ghost line below links to Contact. |
 | Receipt | Replaces the form in place: the emerald "Offer sent" status, a Syne title, and an inset `<dl>` (`bg-[#0d0c14]`) of what was sent. The copy says honestly whether an email copy went out. A full-width "Done" button gets focus. |
 | Emails (HTML) | Table layout, inline styles, `color-scheme: dark`. A `#0a0a0f` page; the `JAVA.dev` wordmark (violet dot); a `#13121c` card with a 1 px `#2a2840` border, a **3 px `#7c6dff` top border**, and 16 px radius; a violet uppercase eyebrow, a 24 px `#f0eeff` heading, `#c4c0d8` body; an inset details panel (`#0d0c14`) with `#8a88a0` uppercase labels over `#f0eeff` values; a violet pill button (owner email only); a `#8a88a0` 12 px footer. Plain-text twin always. Reuse `layout()` in `lib/sponsor-email.ts` for new emails. |
 
 ### 7.2 Studio-local primitives (`app/studio/shared.tsx`)
 - The admin gate now lives in `components/features/AdminGate.tsx`, shared by `/studio` and `/logistics`. `<AdminGate title description>` checks the session and otherwise shows a centred card with the "Restricted" eyebrow, a password input, an inline error, and a primary button. `<SignOutButton/>` is a secondary-style button for admin page headers.
 - `Icon({ d, className = "w-4 h-4" })` with `ICON_PATHS` (edit, external, share, link, trash, warning, kebab, close, check, search, plus, chevron, chevronLeft, gear, eye, eyeOff, star, rocket): 24 px outline paths with stroke 2 in the Heroicons style. **Use these for admin UI icons**; add new paths here instead of pulling in another icon set.
+- **Card quick actions:** `useCardAction()` runs a grid card's publish toggle or delete one at a time (the toggle is `disabled` with `disabled:opacity-50 disabled:cursor-wait` meanwhile), and `<CardActionError message>` shows a failure under the card's content in `text-[11px] text-pink-400` (`role="alert"`). A 401 reads "Your session expired. Reload the page to sign in again."
 - Public pages use `react-icons` (`rx`, `fa6`, `md`, `io5`) at sizes 12–20.
 
 ### 7.3 Patterns (copy these class strings)
@@ -363,7 +349,7 @@ fill:  h-full rounded-full bg-violet-500 (or inline background colour), width vi
 ## 10. Known inconsistencies (converge toward the ✅ choice)
 | # | Inconsistency | Where | ✅ Canonical |
 |---|---|---|---|
-| 1 | Display and body fonts don't load (§3.1) | Global | Fix per P0-2 |
+| ~~1~~ ✅ | ~~Display and body fonts don't load~~ | Global | Fixed 2026-11-03 (P0-2, §3.1) |
 | 2 | Violet as `#7c6dff` vs Tailwind `violet-400/500/600` | Home hero card, Contact button, links | `#7c6dff` for fills and borders, `#AFA9EC` for light text. Keep `violet-400` only for markdown links until tokens land. |
 | 3 | Planned status is `orange-400` vs `pink-400` | `ProjectList` uses pink | `orange-400` |
 | 4 | Body grey varies: `#7a7890`, `#6b6880`, `text-gray-500`, and the darker two fail AA on cards | Pages | Body `#8a88a0`, descriptions `#7a7890` (see §9.5) |

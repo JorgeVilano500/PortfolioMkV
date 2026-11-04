@@ -33,6 +33,9 @@ export const STICKER_ACCEPT = ".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,i
 
 export type SponsorSpot = StickerSlotId | "any"
 
+/** The form field carrying the Cloudflare Turnstile token (SECURITY.md S-40), when the check is on. */
+export const TURNSTILE_FIELD = "cf-turnstile-response"
+
 // Full names ("Palm rest, left of trackpad"): the label also goes into both emails.
 export const SPOT_CHOICES: readonly { value: SponsorSpot; label: string }[] = [
     ...STICKER_SLOTS.map((slot) => ({ value: slot.id, label: spotName(slot) })),
@@ -48,9 +51,10 @@ export type SponsorFields = {
 
 export type SponsorFieldErrors = Partial<Record<keyof SponsorFields | "sticker", string>>
 
-// Deliberately strict: no quotes, spaces, or "?"/"&" (no mailto: header tricks),
-// and a dotted domain. It rejects some exotic-but-valid addresses; that's fine here.
-const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/
+// Deliberately strict: no quotes, spaces, "?"/"&", or "%" (the address goes into
+// the owner's mailto: link, where "%3F" / "%26" decode to "?" / "&"), and a dotted
+// domain. It rejects some exotic-but-valid addresses; that's fine here.
+const EMAIL_RE = /^[A-Za-z0-9._+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/
 // The affiliation is echoed into an email sent to whatever address was typed,
 // and mail clients auto-link anything domain-shaped ("Node.js" included).
 // Refusing web addresses keeps the form from becoming a link-spam relay.

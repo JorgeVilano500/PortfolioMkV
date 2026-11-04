@@ -58,7 +58,7 @@ export function ProjectList({ projects }: Props) {
                         </div>
 
                         {/* Right column */}
-                        <div className="flex flex-col items-end gap-2 flex-shrink-0 ml-2">
+                        <div className="flex flex-col items-end gap-2 shrink-0 ml-2">
                             <div className="flex items-center gap-1.5">
                                 <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
                                 <span className={`text-[10px] font-medium ${s.text}`}>{s.label}</span>
@@ -73,7 +73,9 @@ export function ProjectList({ projects }: Props) {
                                     href={p.link}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className={`text-[10px] font-medium ${t.catColor} opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:underline`}
+                                    // Revealed on hover, but always visible on touch screens (no hover)
+                                    // and when focused from the keyboard.
+                                    className={`text-[10px] font-medium ${t.catColor} opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity duration-200 hover:underline focus-visible:outline-none focus-visible:underline`}
                                 >
                                     View →
                                 </a>

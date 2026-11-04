@@ -1,5 +1,7 @@
 "use client"
 
+import { useState } from "react"
+
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
 export function Icon({ d, className = "w-4 h-4" }: { d: string; className?: string }) {
@@ -33,4 +35,51 @@ export const ICON_PATHS = {
 
 export function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+}
+
+// ─── Card quick actions ───────────────────────────────────────────────────────
+
+/** Why a Studio API call failed, in words for the card. */
+export async function failureMessage(res: Response, fallback: string): Promise<string> {
+    if (res.status === 401) return "Your session expired. Reload the page to sign in again."
+    try {
+        const body = (await res.json()) as { error?: unknown }
+        if (typeof body.error === "string" && body.error) return body.error
+    } catch { /* not JSON, e.g. a gateway error page */ }
+    return fallback
+}
+
+/**
+ * A grid card's quick action (publish toggle, delete). One runs at a time, and
+ * a failure stays on the card: these used to fail silently, so a post could
+ * look unpublished or deleted when the request had been refused.
+ * `action` returns an error message, or null on success.
+ */
+export function useCardAction() {
+    const [pending, setPending] = useState(false)
+    const [error, setError]     = useState<string | null>(null)
+
+    const run = async (action: () => Promise<string | null>) => {
+        if (pending) return
+        setPending(true)
+        setError(null)
+        try {
+            setError(await action())
+        } catch {
+            setError("Network error. Check your connection and try again.")
+        } finally {
+            setPending(false)
+        }
+    }
+    return { pending, error, run }
+}
+
+/** The inline error under a card's content. Clicking it doesn't open the card. */
+export function CardActionError({ message }: { message: string | null }) {
+    if (!message) return null
+    return (
+        <p role="alert" onClick={(e) => e.stopPropagation()} className="text-[11px] text-pink-400 leading-snug">
+            {message}
+        </p>
+    )
 }

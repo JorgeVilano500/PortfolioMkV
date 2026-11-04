@@ -56,7 +56,7 @@ npm install
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Supabase project URL (the app and build fail without it) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Public anon key; RLS limits it to published content |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Server-only key used by the API routes. **Never expose it.** |
-| `NEXT_PUBLIC_SITE_URL` | recommended | Canonical URL for metadata and the sitemap, e.g. `http://localhost:3000` |
+| `NEXT_PUBLIC_SITE_URL` | recommended | Canonical URL for metadata and the sitemap, e.g. `http://localhost:3000` (falls back to `https://javastudios.netlify.app`) |
 | `LOGISTICS_PASSWORD` | for admin | Password for `/studio` and `/logistics`, exchanged for an 8-hour HttpOnly session cookie. Changing it signs everyone out. |
 | `SESSION_SECRET` | recommended | Random string used to sign admin sessions (`openssl rand -base64 32`); falls back to the service-role key |
 | `BLOG_UPLOAD_SECRET` | optional | Secret for `POST /api/blog/upload` |
@@ -70,6 +70,7 @@ npm install
 | `ADMIN_2FA_EMAIL` | optional | Send 2FA codes somewhere other than `SUMMARY_RECIPIENT_EMAIL` |
 | `SECURITY_CONTACT` | optional | Contact for `/.well-known/security.txt` (default: the `/contact` email) |
 | `SPONSOR_REPLY_TO` | optional | Reply-To on the sponsor's thank-you email from the "Sponsor a spot" form (default: the `/contact` email) |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | optional | Cloudflare Turnstile spam check on the "Sponsor a spot" form (SECURITY.md S-40). Set both, then redeploy. Off when unset. |
 
 **3. Run it.**
 ```bash

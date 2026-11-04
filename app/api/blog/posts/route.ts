@@ -13,8 +13,10 @@ import {
     normalizeTheme,
     estimateReadingTime,
 } from "@/lib/validation"
+import { fetchAllRows } from "@/lib/fetch-all-rows"
 
 const ROUTE = "blog/posts"
+const MAX_VIEW_ROWS = 100_000 // one short column; bounds the work if analytics ever balloon
 
 const checkAuth = (req: NextRequest) => checkAdminAuth(req)
 
@@ -103,15 +105,20 @@ export async function GET(req: NextRequest) {
 
     // Attach per-post view counts from analytics so the editor can sort by
     // popularity. Degrade to 0 on error — post listing must not depend on it.
+    // Paged: a single query stops at Supabase's 1,000-row page cap.
+    type ViewRow = { page?: string }
     const viewsBySlug: Record<string, number> = {}
-    const { data: viewRows, error: viewError } = await supabaseAdmin
+    const { rows: viewRows, error: viewError } = await fetchAllRows<ViewRow>((from, to) => supabaseAdmin
         .from("page_views")
-        .select("page")
+        .select("page", { count: "exact" })
         .like("page", "/blog/%")
+        .order("id")
+        .range(from, to) as unknown as PromiseLike<{ data: ViewRow[] | null; error: { message: string } | null; count?: number | null }>,
+        MAX_VIEW_ROWS)
     if (viewError) {
         console.error(`[${ROUTE}] GET view counts:`, viewError.message)
     } else {
-        for (const row of (viewRows ?? []) as { page?: string }[]) {
+        for (const row of viewRows) {
             if (typeof row.page !== "string") continue
             const slug = row.page.slice("/blog/".length).replace(/\/+$/, "")
             if (slug) viewsBySlug[slug] = (viewsBySlug[slug] ?? 0) + 1

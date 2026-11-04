@@ -101,6 +101,17 @@ describe("GET", () => {
         ])
     })
 
+    it("counts views past Supabase's 1,000-row page cap", async () => {
+        const hits = (n: number) => Array.from({ length: n }, () => ({ page: "/blog/hi" }))
+        mockDb.queue = [
+            { data: [{ id: "1", title: "Hi", slug: "hi" }], error: null },
+            { data: hits(1000), error: null, count: 1200 },
+            { data: hits(200), error: null, count: 1200 },
+        ]
+        const res = await GET(makeRequest(URL, { headers: { "x-logistics-key": KEY } }))
+        expect(await res.json()).toEqual([{ id: "1", title: "Hi", slug: "hi", view_count: 1200 }])
+    })
+
     it("still returns posts (view_count 0) when the analytics query fails", async () => {
         mockDb.queue = [
             { data: [{ id: "1", title: "Hi", slug: "hi" }], error: null },

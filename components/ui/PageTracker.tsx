@@ -19,6 +19,24 @@ function getOrCreateSessionId(): string {
     }
 }
 
+// The referrer and load timing describe how this document was reached, so they
+// belong to its first tracked view only. Client-side navigations keep both
+// values unchanged, which used to credit every page of a visit to the landing
+// referrer and give every page the landing page's load time.
+let documentViewSent = false
+
+/** Load time of the initial hard load, if `pathname` is the page that was loaded. */
+function initialLoadTime(pathname: string): number | null {
+    try {
+        const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined
+        if (!nav || nav.loadEventEnd <= 0) return null
+        if (new URL(nav.name).pathname !== pathname) return null
+        return Math.round(nav.loadEventEnd - nav.fetchStart)
+    } catch {
+        return null
+    }
+}
+
 function checkIsNewVisitor(): boolean {
     try {
         const key = "_pv_seen"
@@ -58,18 +76,10 @@ export function PageTracker() {
 
         const sessionId    = getOrCreateSessionId()
         const isNewVisitor = checkIsNewVisitor()
-        const referrer     = document.referrer ?? ""
-
-        // Navigation timing — only available on initial hard load
-        let loadTime: number | null = null
-        try {
-            const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined
-            if (nav && nav.loadEventEnd > 0) {
-                loadTime = Math.round(nav.loadEventEnd - nav.fetchStart)
-            }
-        } catch {
-            // ignore
-        }
+        const firstView    = !documentViewSent
+        documentViewSent   = true
+        const referrer     = firstView ? document.referrer ?? "" : ""
+        const loadTime     = firstView ? initialLoadTime(pathname) : null
 
         let timezone: string | null = null
         try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? null } catch { /* ignore */ }

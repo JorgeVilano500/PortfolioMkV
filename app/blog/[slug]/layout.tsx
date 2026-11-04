@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { cache } from "react"
 import { getPostBySlug } from "@/lib/blog"
 import { serializeJsonLd } from "@/lib/json-ld"
+import { siteUrl } from "@/lib/site"
 
 // Deduplicate the DB call between generateMetadata and the layout render
 const fetchPost = cache((slug: string) => getPostBySlug(slug))
@@ -65,7 +66,7 @@ export default async function BlogPostLayout({ params, children }: Props) {
               author: {
                   "@type": "Person",
                   name: "Jorge Alejandro Vilanova Alvarado",
-                  url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://java.dev",
+                  url: siteUrl(),
               },
           }
         : null

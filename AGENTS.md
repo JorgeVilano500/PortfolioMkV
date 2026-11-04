@@ -12,7 +12,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 This is the entry point for AI coding agents. Claude Code loads it through `CLAUDE.md` (`@AGENTS.md`); most other agents read it automatically. Read this whole file first, then open only the doc your task needs. This file stays short on purpose. The details are in the linked docs.
 
-_Last verified against the code: **2026-11-03**, branch `laptop-sponsorships` (on top of `650ad51`, which merged the 2026-10-21 security sweep)._
+_Last verified against the code: **2026-11-03**, branch `security-patch` (on top of `7759667`, which merged PRs #4 and #5)._
 
 ---
 
@@ -48,11 +48,11 @@ npm run build        # production build. Needs Supabase env vars (see §6)
 
 | Check | Result on 2026-11-03 |
 |---|---|
-| `npm test` | ✅ **723 tests, 36 suites** (incl. four jsdom component suites), about 8 s |
+| `npm test` | ✅ **783 tests, 46 suites** (incl. jsdom component suites), about 10 s |
 | `npx tsc --noEmit` | ✅ clean |
 | `npm run lint` | ✅ clean |
-| `npm run build` | ✅ (Next 16.3.8) |
-| `npm audit --omit=dev` | ⚠️ **1 critical: `next` ≤16.4.0** (advisories published after the 16.3.8 pin; fix is 16.4.1+, SECURITY.md S-38) + 4 low (`deepmerge` via `resend`, S-39) |
+| `npm run build` | ✅ (Next 16.4.2) |
+| `npm audit --omit=dev` | ✅ 0 critical/high/moderate. 1 low: `deepmerge`, used only by Jest (dev tooling); `resend` 6.34.1 no longer pulls it in (S-39) |
 
 If you run these checks, update this table.
 
@@ -98,7 +98,7 @@ app/                      routes (App Router)
                           lid hinge, screen boot, keyboard backlight) + canvas-art.ts (2D artwork). Model contract: LAPTOP_MODEL.md
                           SponsorForm: "Sponsor a spot" offer dialog → POST /api/sponsorships (private bucket + 2 emails)
   robots.ts sitemap.ts opengraph-image.tsx
-components/               index.tsx barrel · ui/* (Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, ComingSoon†) · features/Modal, features/AdminGate (password gate + sign-out)
+components/               index.tsx barrel · ui/* (Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, useCopyToClipboard, ComingSoon†) · features/Modal, features/AdminGate (password gate + sign-out)
   onboarding/             first-visit intro + consent + guided tour: OnboardingProvider (state), IntroModal, SitePreviews,
                           TourToolbar, TourSpotlight, SiteFooter, Toast, PrivacyActions, useFocusTrap
 lib/                      supabase (anon) · supabase-admin (service role) · blog · projects-data (Supabase) · projects (hard-coded, used only by /work)
@@ -107,7 +107,8 @@ lib/                      supabase (anon) · supabase-admin (service role) · bl
                           consent (cookie model) · tour (steps) · analytics (shared rules) · theme · user-agent · random-id · supabase-errors
                           laptop-stickers (sample sponsors + GLB contract for /laptop) · laptop-keyboard (key layout)
                           sponsorship (offer rules, shared)
-                          sponsor-email (server-only email templates)
+                          sponsor-email (server-only email templates) · turnstile (server-only spam check, S-40)
+                          site (siteUrl() + contact email) · fetch-all-rows (paging past Supabase's 1,000-row cap)
 public/models/            (expected) macbook-pro-13-2019.glb — not committed yet; /laptop falls back to 2D until it is
 supabase/*.sql            schema for posts, projects, page_views, project_documents, consent-schema.sql (consent_events + page_views
                           opt-in columns) + security-hardening.sql (run once on an existing DB) + auth-lockout-schema.sql
@@ -120,14 +121,16 @@ __tests__/                Jest suites + helpers/ (test-utils.ts Supabase chain m
 ## 6. Gotchas that will bite you
 
 - **Two project data sources.** Home reads the Supabase `projects` table, which Studio edits. `/work` reads the **hard-coded** `lib/projects.ts`, so projects edited in Studio **do not appear on `/work`**. Migrating `/work` is roadmap item P1-1 in PRD.md.
-- **The `font-syne` and `font-dm` classes compile to nothing.** `postcss.config.mjs` contains a Tailwind v3-style `theme.extend` that Tailwind 4 ignores, and `globals.css` never registers those fonts. As a result, most pages render in **Arial** and Home renders in **Geist**. The unused Google Fonts `<link>` was removed for privacy and CSP (SECURITY.md S-11), so the fix is `next/font` (DESIGN_SYSTEM.md §3).
+- **Fonts:** Syne (`font-syne`) and DM Sans (`font-dm`) load through `next/font` in `app/layout.tsx`, self-hosted, so the CSP needs no font host. Home still renders in Geist (`font-sans`). Don't add a Google Fonts `<link>` (the CSP blocks it; SECURITY.md S-11).
 - **Analytics are opt-in, and the server enforces it.** `/api/analytics/track` stores nothing unless the request carries a current `java_consent` cookie with analytics on (`lib/consent.ts`). The browser's `PageTracker` also waits for consent. Never add tracking that bypasses `allowsAnalytics()`. If you change what is collected, bump `CONSENT_VERSION` (everyone is asked again) and update `ANALYTICS_DATA_POINTS`, which both the modal and `/privacy` render.
 - **Tour steps live in `lib/tour.ts`** and spotlight elements marked `data-tour="…"`. A test fails if a step's target anchor disappears from the source, so move the attribute when you restructure a page.
 - **Layering (z-index):** spotlight 45 · highlighted nav tab 46 · tour bar 47 · docked tour bar 48 · mobile drawer 55 · intro modal 60 · toast 70. Keep new overlays inside this scale.
 - **Admin auth is a session cookie.** `/studio` and `/logistics` share one password (`LOGISTICS_PASSWORD`), which `<AdminGate>` sends once to `POST /api/auth`. That returns an HttpOnly session cookie (8 h) that the browser attaches to same-origin `fetch` calls automatically. It is named `__Host-admin_session` in production and `admin_session` in dev, so always use the `SESSION_COOKIE` constant. With `ADMIN_2FA=email`, the password step is followed by an emailed 6-digit code (`lib/two-factor.ts`), and `x-logistics-key` is refused. **Don't** add `x-logistics-key` headers or store the password client-side. Changing `LOGISTICS_PASSWORD` signs everyone out.
 - **Server-only modules stay server-only.** Any `lib/` file that reads a secret or imports `supabase-admin` starts with `import "server-only"`. `__tests__/server-boundary.test.ts` fails if a `"use client"` file can reach one through its imports.
 - **Cookie-authenticated writes must be same-origin.** `checkAdminAuth` returns 403 when `Sec-Fetch-Site`/`Origin` says the request came from another site, so call admin APIs only from this app's pages.
-- **The analytics skip-list is duplicated** in `components/ui/PageTracker.tsx` (`SKIP_PREFIXES`) and `app/api/analytics/track/route.ts` (`BLOCKED_PREFIXES`). Change both or neither.
+- **The analytics skip-list lives in `lib/analytics.ts`** (`ANALYTICS_SKIP_PREFIXES`), shared by `PageTracker` and the track route.
+- **Supabase returns at most 1,000 rows per request**, whatever `.limit()` asks for. To read a whole table, use `fetchAllRows()` (`lib/fetch-all-rows.ts`) with an order that ends in a unique column (`id`).
+- **The site URL and contact email come from `lib/site.ts`** (`siteUrl()`, `CONTACT_EMAIL`, `mailtoLink()`). Don't hard-code either.
 - **Types and helpers are duplicated:** `Post` (in `lib/blog.ts` and `app/studio/BlogsPanel.tsx`), `Project` (in `lib/projects-data.ts` and `app/studio/ProjectsPanel.tsx`), `slugify` (in `lib/validation.ts` and `BlogsPanel.tsx`, and the two behave slightly differently), and the theme colour maps (in `lib/blog.ts` and `lib/projects-data.ts`).
 - **A missing Supabase env var throws at import time.** `lib/supabase.ts` calls `createClient("")`, which throws `supabaseUrl is required.`. `sitemap.ts` fetches posts, so `next build` fails without `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 - **Public pages are client-rendered.** Blog post bodies are fetched in the browser, so they are not in the server HTML. Metadata, JSON-LD, and OG images are server-rendered.
@@ -147,7 +150,7 @@ __tests__/                Jest suites + helpers/ (test-utils.ts Supabase chain m
 The full prioritized list, with acceptance criteria, is in [PRD.md §7](PRD.md#7-roadmap-next-best-actions). The top items:
 
 1. **Owner actions, outside the repo:**
-   - **Upgrade `next` and `eslint-config-next` to ≥16.4.1** (S-38: a critical advisory affects 16.0.0–16.4.0, published after the 16.3.8 pin). Do it as its own PR.
+   - Optional: switch on the sponsorship form's spam check by adding the Cloudflare Turnstile keys (S-40; steps in SECURITY.md §7).
    - Run `supabase/sponsor-stickers-schema.sql` (the private bucket for sponsorship offers), and verify a Resend sending domain (S-2) so sponsors receive their copy.
    - Build the 13-inch 2019 MacBook Pro model per LAPTOP_MODEL.md and commit it as `public/models/macbook-pro-13-2019.glb`. `/laptop` shows its 2D fallback until then.
    - Run `supabase/auth-lockout-schema.sql` (S-4) and the read-only `supabase/audit-exposure.sql` (S-23).
@@ -155,7 +158,7 @@ The full prioritized list, with acceptance criteria, is in [PRD.md §7](PRD.md#7
    - Rotate `LOGISTICS_PASSWORD` (S-12), and optionally set `SESSION_SECRET`.
    - Review Supabase sign-ups and storage buckets (S-23), and decide whether the repo stays public (S-37).
    - Decide an analytics retention window (S-5), since IP addresses are now stored for visitors who opt in.
-2. **P0 quick fixes still open:** the font registration (P0-2); the About page's `font-white/65` typo; the Contact page's Instagram `href="#"`.
+2. **P0 quick fixes:** all done (P0-2 fonts, P0-3 and P0-5 on 2026-11-03).
 3. **P1-1:** move `/work` onto the Supabase `projects` table and retire `lib/projects.ts`.
 4. **P1-2:** add CI (GitHub Actions: lint, tsc, test). The baseline is now green, so CI can start green.
 5. **P1-3:** add `not-found.tsx` and `error.tsx`. The `noindex` half is done.

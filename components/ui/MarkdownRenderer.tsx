@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
@@ -9,11 +8,12 @@ import rehypeSanitize from "rehype-sanitize"
 import { markdownSanitizeSchema } from "@/lib/markdown-sanitize"
 import type { Components } from "react-markdown"
 import { MdContentCopy, MdCheck } from "react-icons/md"
+import { useCopyToClipboard } from "./useCopyToClipboard"
 
 // ─── Code block: language badge + copy button ────────────────────────────────
 
 function CodeBlock({ children }: { children: React.ReactNode }) {
-    const [copied, setCopied] = useState(false)
+    const clipboard = useCopyToClipboard()
 
     // Pull language from the inner <code> element's className (set by rehype-highlight)
     const codeEl = Array.isArray(children) ? children[0] : children
@@ -31,11 +31,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
         return ""
     }
 
-    const copy = () => {
-        navigator.clipboard.writeText(getText(children))
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-    }
+    const copy = () => void clipboard.copy(getText(children))
 
     return (
         <div className="group relative mb-4">
@@ -48,8 +44,10 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
                     onClick={copy}
                     className="flex items-center gap-1.5 text-[10px] text-[#555370] hover:text-[#c4c0d8] transition-colors cursor-pointer"
                 >
-                    {copied ? <MdCheck size={12} /> : <MdContentCopy size={12} />}
-                    {copied ? "Copied!" : "Copy"}
+                    {clipboard.state === "copied" ? <MdCheck size={12} /> : <MdContentCopy size={12} />}
+                    <span aria-live="polite">
+                        {clipboard.state === "copied" ? "Copied!" : clipboard.state === "failed" ? "Couldn't copy" : "Copy"}
+                    </span>
                 </button>
             </div>
             {/* Code area */}
