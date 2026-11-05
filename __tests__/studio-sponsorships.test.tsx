@@ -5,19 +5,21 @@
  * that records its props (as in laptop-experience.test.tsx), and fetch is a
  * stub that plays the admin API. Covers loading, stats, the hidden-sticker
  * preview, the two-way highlight between the preview and the spot list, the
- * visibility switch, editing, placing an offer's sticker, the two-step
- * delete, the setup banner, and failures shown in words.
+ * lid moved by hand, the visibility switch, editing, placing an offer's
+ * sticker, the two-step delete, the setup banner, and failures shown in words.
  */
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { STICKER_SLOTS, type StickerSlot } from "@/lib/laptop-stickers"
 
 type MockViewerProps = {
-    slots:      readonly StickerSlot[]
-    selectedId: string | null
-    hoveredId:  string | null
-    onSelect:   (id: string) => void
-    onHover:    (id: string | null) => void
-    onStatus:   (status: string) => void
+    slots:        readonly StickerSlot[]
+    open:         boolean
+    selectedId:   string | null
+    hoveredId:    string | null
+    onSelect:     (id: string) => void
+    onHover:      (id: string | null) => void
+    onStatus:     (status: string) => void
+    onOpenChange: (open: boolean) => void
 }
 const mockViewer: { props: MockViewerProps | null } = { props: null }
 
@@ -181,6 +183,17 @@ describe("the 3D preview", () => {
         act(() => viewer().onHover("palm-left"))
         expect(tileOf(/Edit Palm rest, left/).style.borderColor).not.toBe("")
         expect(tileOf(/Edit Palm rest, left/).style.boxShadow).toBe("")
+    })
+
+    it("follows the lid when it's moved by hand, keeping the spot editor open", async () => {
+        await renderPanel()
+        act(() => viewer().onSelect("palm-right"))
+        act(() => viewer().onOpenChange(false))
+        expect(viewer().open).toBe(false)
+        expect(screen.getByRole("button", { name: "Open the laptop" })).toBeTruthy()
+        expect(viewer().selectedId).toBe("palm-right")
+        act(() => viewer().onOpenChange(true))
+        expect(screen.getByRole("button", { name: "Close the laptop" })).toBeTruthy()
     })
 })
 

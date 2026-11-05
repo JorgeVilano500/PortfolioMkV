@@ -2,7 +2,7 @@
 
 /**
  * The laptop itself: the Three.js viewer (or a 2D drawing when the model or
- * WebGL isn't available), its status line, and the open/close and reset
+ * WebGL isn't available), its status line, and the lid, open/close and reset
  * controls. Used by /laptop (LaptopExperience) and by Studio's Sponsorships
  * tab, so both show exactly the same laptop from the same slot data.
  */
@@ -17,6 +17,7 @@ import {
     type StickerSlotId,
 } from "@/lib/laptop-stickers"
 import { KEYBOARD_UNITS, KEY_ROWS, TOUCH_BAR } from "@/lib/laptop-keyboard"
+import { LID_ANGLE, describeLid } from "@/lib/laptop-lid"
 import type { ViewerStatus } from "./LaptopViewer"
 
 // Three.js touches `window` and WebGL, so the viewer never renders on the
@@ -48,12 +49,8 @@ function usePrefersReducedMotion(): boolean {
 
 // ─── Fallback copy ────────────────────────────────────────────────────────────
 
+// A missing GLB isn't here: the viewer builds its own stand-in model then.
 const FALLBACK: Record<Exclude<ViewerStatus, "loading" | "ready">, { title: string; body: string; retry: boolean }> = {
-    missing: {
-        title: "3D model coming soon",
-        body:  `The ${LAPTOP_MODEL.label} model hasn't been uploaded yet. The sponsor spots work the same below.`,
-        retry: false,
-    },
     invalid: {
         title: "3D model needs an update",
         body:  "The model file is missing the parts this page expects, so the 2D layout is shown instead.",
@@ -94,6 +91,8 @@ export type LaptopStageProps = {
     slots:          readonly StickerSlot[]
     open:           boolean
     onToggleOpen:   () => void
+    /** The visitor moved the lid (a drag, or the lid slider) past open or closed. */
+    onOpenChange:   (open: boolean) => void
     selectedId:     StickerSlotId | null
     onSelect:       (id: StickerSlotId) => void
     /** The spot being pointed at (here or in a list): its sticker lights up faintly. */
@@ -110,17 +109,22 @@ export function LaptopStage({
     slots,
     open,
     onToggleOpen,
+    onOpenChange,
     selectedId,
     onSelect,
     hoveredId = null,
     onHover,
-    readyHint = "Drag to rotate, scroll or pinch to zoom, and click a sticker to see its sponsor.",
+    readyHint = "Drag the lid to open or close it, drag beside the laptop to rotate, scroll or pinch to zoom, and click a sticker to see its sponsor.",
     extraControls,
     className = "",
 }: LaptopStageProps) {
     const [status, setStatus]         = useState<ViewerStatus>("loading")
     const [attempt, setAttempt]       = useState(0)
     const [resetToken, setResetToken] = useState(0)
+    // The lid slider shows where the lid is heading (the viewer reports it as
+    // it moves) and sends the viewer each new value.
+    const [lidDegrees, setLidDegrees] = useState<number>(LID_ANGLE.rest)
+    const [lidRequest, setLidRequest] = useState<{ degrees: number } | null>(null)
     const reducedMotion = usePrefersReducedMotion()
 
     const selected = selectedId ? slots.find((slot) => slot.id === selectedId) ?? null : null
@@ -128,7 +132,12 @@ export function LaptopStage({
 
     const retry = () => {
         setStatus("loading")
+        setLidRequest(null)
         setAttempt((n) => n + 1) // a new key remounts the viewer from scratch
+    }
+    const turnLid = (degrees: number) => {
+        setLidDegrees(degrees)
+        setLidRequest({ degrees })
     }
 
     const sceneLabel = `3D model of a ${LAPTOP_MODEL.label}, ${open
@@ -154,9 +163,12 @@ export function LaptopStage({
                         hoveredId={hoveredId}
                         resetToken={resetToken}
                         reducedMotion={reducedMotion}
+                        lidRequest={lidRequest}
                         onSelect={onSelect}
                         onHover={onHover}
                         onStatus={setStatus}
+                        onOpenChange={onOpenChange}
+                        onLidAngle={setLidDegrees}
                     />
                 )}
                 {status === "loading" && <ViewerSkeleton />}
@@ -177,6 +189,24 @@ export function LaptopStage({
                     {fallback && <><span className="text-[#c4c0d8] font-medium">{fallback.title}.</span> {fallback.body}</>}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
+                    {/* The keyboard's way to move the lid by degrees, as a drag does */}
+                    {status === "ready" && (
+                        <label className="flex items-center gap-2 text-xs text-[#8a88a0]">
+                            Lid
+                            <input
+                                type="range"
+                                min={LID_ANGLE.closed}
+                                max={LID_ANGLE.open}
+                                step={1}
+                                value={lidDegrees}
+                                onChange={(event) => turnLid(Number(event.target.value))}
+                                aria-label="Lid angle"
+                                aria-valuetext={describeLid(lidDegrees)}
+                                style={{ ["--fill" as string]: `${(lidDegrees / LID_ANGLE.open) * 100}%` }}
+                                className="lid-slider w-24 sm:w-28 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c6dff]/60 focus-visible:ring-offset-4 focus-visible:ring-offset-[#13121c]"
+                            />
+                        </label>
+                    )}
                     <button
                         type="button"
                         onClick={onToggleOpen}

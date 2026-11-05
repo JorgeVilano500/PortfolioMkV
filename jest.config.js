@@ -13,7 +13,12 @@ module.exports = {
     moduleNameMapper: {
         "^@/(.*)$": "<rootDir>/$1",
         "^server-only$": "<rootDir>/__tests__/helpers/server-only.ts",
+        // three ships ES modules only: its CommonJS entry re-exports them through
+        // Node's require(esm), which Jest's module loader can't follow. Use the ES
+        // build and let Babel compile it (transformIgnorePatterns below).
+        "^three$": "<rootDir>/node_modules/three/build/three.module.js",
     },
+    transformIgnorePatterns: ["/node_modules/(?!three/)"],
     setupFiles: ["<rootDir>/__tests__/helpers/setup-env.ts"],
     clearMocks: true,
     transform: {

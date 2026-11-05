@@ -180,6 +180,8 @@ export function SponsorshipsPanel() {
                     slots={slots}
                     open={open}
                     onToggleOpen={() => { setOpen((o) => !o); setSelectedId(null) }}
+                    // Moving the lid by hand keeps the spot editor open, even for a palm spot the lid now covers.
+                    onOpenChange={setOpen}
                     selectedId={selectedId}
                     onSelect={select}
                     hoveredId={hoveredId}

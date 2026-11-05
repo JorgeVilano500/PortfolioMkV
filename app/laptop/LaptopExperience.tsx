@@ -46,6 +46,12 @@ export function LaptopExperience({ slots = STICKER_SLOTS }: { slots?: readonly S
         setOpen((current) => !current)
         setSelectedId(null)
     }
+    // The visitor moved the lid past open or closed. The camera stays put, so
+    // the selection does too, unless the closed lid now hides it.
+    const lidMoved = (nowOpen: boolean) => {
+        setOpen(nowOpen)
+        if (!nowOpen) setSelectedId((id) => (slots.find((slot) => slot.id === id)?.surface === "palm-rest" ? null : id))
+    }
 
     const openForm = () => {
         setFormKey((n) => n + 1) // a fresh form each time, pre-set to the chosen spot
@@ -65,6 +71,7 @@ export function LaptopExperience({ slots = STICKER_SLOTS }: { slots?: readonly S
                 slots={slots}
                 open={open}
                 onToggleOpen={toggleOpen}
+                onOpenChange={lidMoved}
                 selectedId={selectedId}
                 onSelect={select}
                 hoveredId={hoveredId}
