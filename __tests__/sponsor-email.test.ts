@@ -83,9 +83,15 @@ describe("owner's inquiry notice", () => {
         expect(mail.text).toMatch(/sponsor-stickers/)
     })
 
+    it("points to the offer in Studio, and to its file under offers/", () => {
+        expect(mail.text).toContain(`Studio → Sponsorships (${SITE}/studio)`)
+        expect(mail.text).toMatch(/under offers\/[^/\s]+\//)
+    })
+
     it("admits when storage failed, so the email is known to be the only copy", () => {
         const unstored = ownerNotificationEmail(inquiry(), SITE, { stored: false })
         expect(unstored.text).toMatch(/could NOT be saved/)
+        expect(unstored.text).toMatch(/won't appear in Studio/)
     })
 
     it("names a palm-rest spot by its surface, so it can't be mistaken for a lid corner", () => {

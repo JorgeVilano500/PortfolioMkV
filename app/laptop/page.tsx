@@ -2,7 +2,12 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { Navbar } from "@/components"
 import { LAPTOP_MODEL } from "@/lib/laptop-stickers"
+import { getPublicSlots } from "@/lib/sponsor-spots-server"
 import { LaptopExperience } from "./LaptopExperience"
+
+// The spots come from the sponsor_spots table (Studio → Sponsorships). Studio
+// refreshes this page on every save (revalidatePath); this is the fallback.
+export const revalidate = 300
 
 const DESCRIPTION =
     `A Three.js ${LAPTOP_MODEL.label} with sponsor-sticker spots on the lid and the palm rest. Rotate it, open it up, and see who's on it.`
@@ -23,9 +28,10 @@ export const metadata: Metadata = {
     },
 }
 
-// A Server Component: the static shell renders on the server, and only
-// LaptopExperience (the client boundary) ships JavaScript to the browser.
-export default function LaptopPage() {
+// A Server Component: the shell and the spot data render on the server, and
+// only LaptopExperience (the client boundary) ships JavaScript to the browser.
+export default async function LaptopPage() {
+    const slots = await getPublicSlots()
     return (
         <div className="min-h-screen font-dm p-6 md:p-8 bg-[#0a0a0f]">
             <Navbar currentLink="Work" />
@@ -44,7 +50,7 @@ export default function LaptopPage() {
                     The stickers shown are samples.
                 </p>
             </section>
-            <LaptopExperience />
+            <LaptopExperience slots={slots} />
         </div>
     )
 }

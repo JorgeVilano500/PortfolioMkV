@@ -210,7 +210,7 @@ export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onC
                         </Field>
                     </div>
 
-                    <Field id={FIELD_IDS.sticker} label="Sticker file to print" error={errors.sticker} hint="PNG, JPG, WebP, or PDF, up to 4 MB. A vector PDF prints sharpest.">
+                    <Field id={FIELD_IDS.sticker} label="Sticker file to print" error={errors.sticker} hint="PNG or JPG, up to 4 MB. At least 1,000 px across prints crisply.">
                         <input
                             id={FIELD_IDS.sticker}
                             type="file"

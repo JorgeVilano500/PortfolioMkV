@@ -6,8 +6,11 @@
  * Three.js. The model contract below must match the GLB in public/ — the
  * full asset spec and Blender workflow are in LAPTOP_MODEL.md.
  *
- * The sponsors are curated SAMPLE data (fictional names), not real sponsors,
- * and nothing here takes payment: an offer starts an email conversation.
+ * STICKER_SLOTS holds the layout (which spot is where on the model) and the
+ * curated SAMPLE sponsors (fictional names) shown until the sponsor_spots
+ * table says otherwise. Studio edits that table (lib/sponsor-spots.ts), and
+ * /laptop renders the result. Nothing here takes payment: an offer starts an
+ * email conversation.
  */
 import type { PostTheme } from "./theme"
 
@@ -43,13 +46,18 @@ export const SURFACE_LABELS: Record<SpotSurface, string> = {
 
 export type StickerSlotId = "slot-1" | "slot-2" | "slot-3" | "slot-4" | "palm-left" | "palm-right"
 
-export type SampleSponsor = {
+export type Sponsor = {
     name:        string
-    /** Short wordmark drawn on the sticker (keep it to a few characters). */
+    /** Short wordmark drawn on the sticker when there's no image (keep it to a few characters). */
     mark:        string
     tagline:     string
     description: string
+    /** Accent colours, and the sticker's background behind an image. */
     theme:       PostTheme
+    /** Curated sample data, labelled as such on the page. */
+    sample?:     boolean
+    /** The sticker image (same-origin URL). When absent, the mark is drawn instead. */
+    imageUrl?:   string | null
 }
 
 export type StickerSlot = {
@@ -65,7 +73,7 @@ export type StickerSlot = {
     /** The plane's width ÷ height, so artwork is drawn without stretching. */
     aspect:   number
     /** null = the spot is open. */
-    sponsor:  SampleSponsor | null
+    sponsor:  Sponsor | null
 }
 
 export const STICKER_SLOTS: readonly StickerSlot[] = [
@@ -81,6 +89,7 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
             tagline: "Tools for shipping on time",
             description: "A sample sponsor showing how a developer-tools brand would look on the lid. Stickers render from data, so swapping a sponsor is a one-line change.",
             theme: "purple",
+            sample: true,
         },
     },
     {
@@ -95,6 +104,7 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
             tagline: "Deploys that just work",
             description: "A sample hosting sponsor. Each spot can carry a name, a short tagline, and a few lines about the sponsor.",
             theme: "green",
+            sample: true,
         },
     },
     {
@@ -109,6 +119,7 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
             tagline: "Design systems, on tap",
             description: "A sample design-studio sponsor, using the site's pink accent so you can compare the three sticker styles.",
             theme: "pink",
+            sample: true,
         },
     },
     {
@@ -131,6 +142,7 @@ export const STICKER_SLOTS: readonly StickerSlot[] = [
             tagline: "Robots that read the manual",
             description: "A sample palm-rest sponsor. The spots beside the trackpad are smaller and landscape, like the badges that ship on new laptops, and they're in view every time the laptop is open.",
             theme: "purple",
+            sample: true,
         },
     },
     {
@@ -149,6 +161,15 @@ export const STICKER_COLORS: Record<PostTheme, { fill: string; ink: string }> = 
     purple: { fill: "#7c6dff", ink: "#ffffff" },
     green:  { fill: "#97C459", ink: "#0f1a14" },
     pink:   { fill: "#ED93B1", ink: "#1a1216" },
+}
+
+/**
+ * A spot's highlight colour: its sponsor's sticker colour, or violet when
+ * open. The 3D frame, the spot tiles and the details card all light up in it,
+ * so a sticker and its tile visibly belong together.
+ */
+export function spotAccent(slot: Pick<StickerSlot, "sponsor">): string {
+    return slot.sponsor ? STICKER_COLORS[slot.sponsor.theme].fill : "#7c6dff"
 }
 
 export const LID_SLOTS  = STICKER_SLOTS.filter((slot) => slot.surface === "lid")
@@ -185,9 +206,8 @@ export function spotName(slot: StickerSlot): string {
 
 /** One-line description of a spot, for screen readers and the 3D view's label. */
 export function describeSlot(slot: StickerSlot): string {
-    return slot.sponsor
-        ? `${spotName(slot)}: ${slot.sponsor.name} (sample sponsor)`
-        : `${spotName(slot)}: open`
+    if (!slot.sponsor) return `${spotName(slot)}: open`
+    return `${spotName(slot)}: ${slot.sponsor.name}${slot.sponsor.sample ? " (sample sponsor)" : ""}`
 }
 
 /**

@@ -30,6 +30,15 @@ BEGIN
         EXECUTE 'ALTER TABLE public.consent_events ENABLE ROW LEVEL SECURITY';
         EXECUTE 'REVOKE ALL ON public.consent_events FROM anon, authenticated';
     END IF;
+    -- sponsor_offers / sponsor_spots (created by sponsorships-schema.sql): service role only.
+    IF to_regclass('public.sponsor_offers') IS NOT NULL THEN
+        EXECUTE 'ALTER TABLE public.sponsor_offers ENABLE ROW LEVEL SECURITY';
+        EXECUTE 'REVOKE ALL ON public.sponsor_offers FROM anon, authenticated';
+    END IF;
+    IF to_regclass('public.sponsor_spots') IS NOT NULL THEN
+        EXECUTE 'ALTER TABLE public.sponsor_spots ENABLE ROW LEVEL SECURITY';
+        EXECUTE 'REVOKE ALL ON public.sponsor_spots FROM anon, authenticated';
+    END IF;
 END $$;
 
 -- ─── Supabase security advisor "function_search_path_mutable": pin the
@@ -42,7 +51,7 @@ ALTER FUNCTION public.update_updated_at() SET search_path = '';
 SELECT tablename, rowsecurity
 FROM pg_tables
 WHERE schemaname = 'public'
-  AND tablename IN ('posts', 'projects', 'page_views', 'project_documents', 'consent_events');
+  AND tablename IN ('posts', 'projects', 'page_views', 'project_documents', 'consent_events', 'sponsor_offers', 'sponsor_spots');
 
 -- Remaining anon/authenticated privileges → only SELECT on posts and projects
 SELECT table_name, grantee, privilege_type

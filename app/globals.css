@@ -42,3 +42,11 @@ body {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* /laptop spot highlight: a short glow in the spot's colour (--spot-accent)
+   when a sticker and its tile are selected (motion-safe:animate-[spot-glow_…]) */
+@keyframes spot-glow {
+  0%   { box-shadow: 0 0 0 0 var(--spot-accent); }
+  35%  { box-shadow: 0 0 0 5px color-mix(in srgb, var(--spot-accent) 40%, transparent), 0 0 28px var(--spot-accent); }
+  100% { box-shadow: 0 0 0 1px var(--spot-accent), 0 0 16px color-mix(in srgb, var(--spot-accent) 45%, transparent); }
+}
