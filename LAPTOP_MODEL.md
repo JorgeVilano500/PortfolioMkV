@@ -1,8 +1,8 @@
 # Laptop model: asset contract and Blender workflow
 
-_The 3D asset behind `/laptop`: what the code expects, how to build it in Blender, and the exact export settings. Last verified: **2026-11-03**._
+_The 3D asset behind `/laptop`: what the code expects, how to build it in Blender, and the exact export settings. Last verified: **2026-11-05**._
 
-**Status: the asset doesn't exist yet.** Until `public/models/macbook-pro-13-2019.glb` is committed, `/laptop` shows its 2D fallback ("3D model coming soon"): a drawing of the lid, or of the open laptop after "Open the laptop". The spot pickers work as normal. The code was verified against a throwaway box-level stand-in that follows this contract. That stand-in was served by intercepting the browser's request, and was never added to the repo.
+**Status: the asset doesn't exist yet.** Until `public/models/macbook-pro-13-2019.glb` is committed, the viewer builds a simpler laptop in code, `app/laptop/built-in-model.ts`, that follows the contract below: rounded aluminium slabs, the same named parts, real dimensions. So `/laptop` and Studio already show the full 3D experience (drag the lid, rotate, stickers). The real model takes over automatically once it's committed. `__tests__/laptop-built-in-model.test.ts` holds the built-in model to this contract, so it's also a working reference for the node tree and image orientations. Browsers without WebGL get a 2D drawing instead.
 
 **Model:** 13-inch MacBook Pro (2019, Touch Bar), exported **closed**. Apple's dimensions: **30.41 cm wide × 21.24 cm deep × 1.49 cm thick**. The site opens the lid itself.
 
@@ -14,11 +14,11 @@ _The 3D asset behind `/laptop`: what the code expects, how to build it in Blende
 
 | Requirement | Value | Why |
 |---|---|---|
-| File | `public/models/macbook-pro-13-2019.glb` (one binary file, everything embedded) | The viewer fetches exactly this URL. A 404 shows the fallback. |
+| File | `public/models/macbook-pro-13-2019.glb` (one binary file, everything embedded) | The viewer fetches exactly this URL. On a 404 it builds the built-in model instead. |
 | Units and scale | 1 unit = 1 metre, real size, **all object scales applied (1.0)** | Camera framing and sticker size come from real dimensions |
 | Up axis | Exported **+Y up** (Blender's default "+Y Up" export option, from Blender's Z-up scene) | glTF convention |
 | Facing | The laptop's **front (trackpad edge) faces −Y in Blender**, so it becomes +Z in glTF. The hinge is at the back. | The closed view looks from the hinge side and the open view from the front, so artwork reads upright in both |
-| State | **Lid closed** | The site opens it: it turns `Lid` around its local X axis by `LAPTOP_MODEL.openAngle` (108°) |
+| State | **Lid closed** | The site opens it by turning `Lid` around its local X axis, anywhere from 0 to `LAPTOP_MODEL.openAngle` (108°). Visitors drag it, and the page starts with it 12° open. |
 | Hinge | An empty named **`Lid`** with its origin **on the hinge axis**, **no rotation** (0, 0, 0), parent of everything that moves with the lid | Opening is a rotation of this one node. The viewer checks which direction lifts the lid, so a sign slip won't sink it into the base. |
 | Lid outside | A separate mesh named **`Lid_Outer`** with **one** material, inside `Lid` | The lid's outer surface is its own named part |
 | Lid stickers | Four square planes named **`Sticker_Slot_1`…`Sticker_Slot_4`**, children of `Lid_Outer`, **one** material each, origin at the plane's centre, UVs filling 0–1 | The viewer swaps each plane's material for the sticker artwork and raycasts against them |
@@ -157,18 +157,19 @@ Select the `MacBookPro13_2019` hierarchy (right-click the root, then Select Hier
 Save it as **`public/models/macbook-pro-13-2019.glb`**, then:
 
 ```bash
-npm run dev    # open http://localhost:3000/laptop: the 3D view should load, and "Open the laptop" should swing it open
+npm run dev    # open http://localhost:3000/laptop: the 3D view should load, and dragging the lid (or "Open the laptop") should open it
 ```
 
 Optional: `npx @gltf-transform/cli inspect public/models/macbook-pro-13-2019.glb` prints the size, triangle count, node names, and extensions (it runs locally). The `Bezel` material should list `KHR_materials_specular`. If it doesn't, the bezel will look dark grey rather than black; that's cosmetic only.
 
 ## 4. What the site does with each part
 
-- **Opening:** "Open the laptop", or choosing a palm-rest spot, turns `Lid` 108° over about 1.3 s while the camera swings round to the front. As on a real MacBook, the laptop wakes as the lid lifts:
+- **Opening:** visitors drag the lid itself, by mouse or touch, or use the Lid slider or "Open the laptop". Only `Lid` turns, around its own origin, between 0° and 108°. The lid starts 12° open. Up opens and down closes; from behind, once the lid leans toward the viewer, it's the other way round, so the grabbed edge follows the hand. The button, or choosing a palm-rest spot, carries it fully open in about a second while the camera swings round to the front. As on a real MacBook, the laptop wakes as the lid lifts past 30°:
   - The **screen** comes up first. On the first open it shows a JAVA.dev boot screen, then fades to a desktop in the site's colours, with a menu bar, the time, and a dock. Later opens wake straight to the desktop.
   - Then the **keyboard backlight** and the **Touch Bar** fade up. They're the keyboard texture's emissive layer, so only the legends and key edges glow.
-  - **Closing** puts the display to sleep first, then lowers the lid.
-- **Reduced motion:** the lid, lights and camera jump straight to their end state.
+  - **Closing** sleeps it as the lid falls below 18° (the button puts the display to sleep first, then lowers the lid).
+- **The 108° limit** is the angle step 8 checks for clipping. A real 2019 MacBook Pro opens further. To allow that, raise `openAngle` in `lib/laptop-stickers.ts` and repeat step 8 at the new angle.
+- **Reduced motion:** the button's lid moves, the lights and the camera jump straight to their end state, and a dragged lid follows the pointer with no settling.
 - **Stickers:**
   - Lid stickers are visible in both states. With the lid open, choosing one moves the camera behind the screen, the way someone across the table sees it.
   - The palm-rest spots are only visible, and clickable, while the laptop is open.
@@ -177,7 +178,8 @@ Optional: `npx @gltf-transform/cli inspect public/models/macbook-pro-13-2019.glb
 ## 5. QA once the asset exists
 
 TESTING.md §7.8 lists the full checklist. In short:
-- The page loads the 3D view, and the status says "Drag to rotate…".
+- The page loads the 3D view, and the status says "Drag the lid to open or close it…".
+- Drag the lid up and down: only the lid moves, the stickers stay put on it, and nothing pokes through the base at any angle.
 - Closed: the four stickers sit in the right corners, and their artwork reads normally.
 - "Open the laptop": the lid swings up, the camera ends straight in front, the screen boots to the desktop, and the keys light up. The bezel is black, and nothing pokes through the lid or the deck.
 - Both palm stickers can be clicked while open; choosing either in the list opens the laptop and focuses it. Reset view returns to the current overview.
