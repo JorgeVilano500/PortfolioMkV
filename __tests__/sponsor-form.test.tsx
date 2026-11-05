@@ -82,7 +82,11 @@ describe("opening", () => {
         for (const label of [/Your email/, /Affiliation/, /Your offer \(USD\)/, /Sticker file to print/, /Preferred spot/]) {
             expect(field(label)).toBeTruthy()
         }
-        expect(field(/Sticker file/).getAttribute("accept")).toMatch(/\.png.*\.pdf/)
+        const accept = field(/Sticker file/).getAttribute("accept") ?? ""
+        expect(accept).toMatch(/\.png/)
+        expect(accept).toMatch(/\.jpg/)
+        expect(accept).not.toMatch(/pdf|webp/)
+        expect(document.body.textContent).toMatch(/PNG or JPG, up to 4 MB/)
     })
 
     it("hides the honeypot from people and assistive tech", () => {

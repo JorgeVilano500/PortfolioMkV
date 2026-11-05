@@ -148,6 +148,10 @@ export default function PrivacyPage() {
                         owner can access. Emails are delivered by Resend. Your IP address is used briefly to stop the form from
                         being abused, and is never stored with your offer.
                     </p>
+                    <p>
+                        If we agree on a sponsorship, your sticker image and your affiliation are shown publicly on the laptop
+                        page until the sponsorship ends. Your email address and your offer are never shown.
+                    </p>
                     {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() && (
                         <p>
                             To keep bots from sending offers, the form runs a spam check by Cloudflare Turnstile when you open

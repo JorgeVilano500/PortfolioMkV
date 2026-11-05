@@ -4,13 +4,20 @@ import { Resend } from "resend"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { getClientIp, isSameOriginRequest } from "@/lib/security"
 import { rateLimit } from "@/lib/rate-limit"
-import { BODY_LIMITS, BodyTooLargeError, readBodyBytes } from "@/lib/http"
-import { isMissingBucket, warnSchemaOnce } from "@/lib/supabase-errors"
+import { BODY_LIMITS, BodyTooLargeError, readBodyBytes, readJsonBody } from "@/lib/http"
+import { isMissingBucket, isMissingTable, warnSchemaOnce } from "@/lib/supabase-errors"
+import { checkAdminAuth } from "@/lib/admin-auth"
+import { isJsonObject, isUuid } from "@/lib/validation"
+import { fetchAllRows } from "@/lib/fetch-all-rows"
+import { OFFERS_TABLE, STICKER_BUCKET } from "@/lib/sponsor-spots-server"
+import { STORED_FILE_RE, adminFileUrl } from "@/lib/sponsor-spots"
 import {
     STICKER_FILE_TYPES,
     TURNSTILE_FIELD,
     checkStickerFile,
+    checkStickerPixels,
     cleanFileName,
+    imageSize,
     sniffStickerType,
     validateSponsorFields,
     type SponsorFieldErrors,
@@ -20,9 +27,6 @@ import { CONTACT_EMAIL, siteUrl } from "@/lib/site"
 import { verifyTurnstile } from "@/lib/turnstile"
 
 const ROUTE = "sponsorships"
-
-/** Private bucket created by supabase/sponsor-stickers-schema.sql. */
-const BUCKET = "sponsor-stickers"
 
 // The public address already shown on /contact. Replies to the sponsor's
 // copy go here (override with SPONSOR_REPLY_TO), never to the private
@@ -103,7 +107,10 @@ export async function POST(req: NextRequest) {
     }
     const bytes = new Uint8Array(await sticker!.arrayBuffer())
     const fileType = sniffStickerType(bytes)
-    if (!fileType) return invalid({ sticker: "That file isn't a real PNG, JPG, WebP, or PDF." })
+    if (!fileType) return invalid({ sticker: "That file isn't a real PNG or JPG." })
+    // The image is drawn on /laptop once published: refuse sizes that would stall a browser.
+    const pixelError = checkStickerPixels(imageSize(bytes, fileType))
+    if (pixelError) return invalid({ sticker: pixelError })
 
     // 6. Human check (Cloudflare Turnstile, SECURITY.md S-40), when configured.
     // After validation, so fixing a typo doesn't spend the single-use token;
@@ -146,8 +153,9 @@ export async function POST(req: NextRequest) {
     }
     const ext = STICKER_FILE_TYPES[fileType].ext
 
-    // 9. A private copy (file + JSON record). Not fatal: the owner's email carries everything.
-    const stored = await storeInquiry(inquiry, bytes, ext)
+    // 9. Saved for Studio: a sponsor_offers row, and the file in the private
+    // bucket. Not fatal: the owner's email carries everything.
+    const stored = await storeOffer(inquiry, bytes, ext)
 
     const site    = siteUrl()
     const from    = process.env.RESEND_FROM_EMAIL || "JAVA.dev <onboarding@resend.dev>"
@@ -183,20 +191,33 @@ export async function POST(req: NextRequest) {
     return Response.json({ ok: true, reference: inquiry.id.slice(0, 8).toUpperCase(), confirmationSent })
 }
 
-async function storeInquiry(inquiry: SponsorInquiry, bytes: Uint8Array, ext: string): Promise<boolean> {
+/** Saves the offer for Studio. True only when both the row and the file were saved. */
+async function storeOffer(inquiry: SponsorInquiry, bytes: Uint8Array, ext: string): Promise<boolean> {
     try {
-        const bucket = supabaseAdmin.storage.from(BUCKET)
-        const file = await bucket.upload(`${inquiry.id}/sticker.${ext}`, bytes, { contentType: inquiry.fileType, upsert: false })
-        const record = file.error ? null : await bucket.upload(
-            `${inquiry.id}/inquiry.json`,
-            JSON.stringify({ ...inquiry, receivedAt: inquiry.receivedAt.toISOString() }, null, 2),
-            { contentType: "application/json", upsert: false },
-        )
-        const error = file.error ?? record?.error
-        if (!error) return true
-        if (isMissingBucket(error)) warnSchemaOnce(ROUTE, "run supabase/sponsor-stickers-schema.sql to keep private copies of sponsorship offers")
-        else console.error(`[${ROUTE}] storage:`, error.message)
-        return false
+        let filePath: string | null = `offers/${inquiry.id}/sticker.${ext}`
+        const file = await supabaseAdmin.storage.from(STICKER_BUCKET).upload(filePath, bytes, { contentType: inquiry.fileType, upsert: false })
+        if (file.error) {
+            if (isMissingBucket(file.error)) warnSchemaOnce(`${ROUTE}/bucket`, "run supabase/sponsorships-schema.sql to keep sticker files")
+            else console.error(`[${ROUTE}] storage:`, file.error.message)
+            filePath = null
+        }
+        const { error } = await supabaseAdmin.from(OFFERS_TABLE).insert({
+            id:          inquiry.id,
+            email:       inquiry.email,
+            affiliation: inquiry.affiliation,
+            offer_usd:   inquiry.offer,
+            spot:        inquiry.spot,
+            file_path:   filePath,
+            file_type:   inquiry.fileType,
+            file_bytes:  inquiry.fileBytes,
+            file_name:   inquiry.fileName,
+        })
+        if (error) {
+            if (isMissingTable(error)) warnSchemaOnce(`${ROUTE}/offers`, "run supabase/sponsorships-schema.sql so offers appear in Studio")
+            else console.error(`[${ROUTE}] offers:`, error.message)
+            return false
+        }
+        return filePath !== null
     } catch (err) {
         console.error(`[${ROUTE}] storage:`, err instanceof Error ? err.message : err)
         return false
@@ -213,4 +234,96 @@ async function sendEmail(resend: Resend, label: string, message: EmailMessage): 
         console.error(`[${ROUTE}] ${label} email:`, err instanceof Error ? err.message : err)
         return false
     }
+}
+
+// ─── Studio (admin): the offers inbox ─────────────────────────────────────────
+// GET    → { offers: AdminOffer[], setup }   newest first; setup: false until the schema has run
+// PATCH  { id, status?, notes? }            → the updated offer
+// DELETE { id }                             → removes the offer and its file
+
+const OFFER_COLUMNS = "id, email, affiliation, offer_usd, spot, file_path, file_type, file_bytes, file_name, status, notes, created_at"
+const OFFER_STATUSES = ["new", "accepted", "declined"] as const
+const MAX_NOTES = 2000
+const MAX_OFFERS = 5000
+
+type OfferRow = {
+    id: string; email: string; affiliation: string; offer_usd: number | string; spot: string
+    file_path: string | null; file_type: string | null; file_bytes: number | null; file_name: string | null
+    status: (typeof OFFER_STATUSES)[number]; notes: string; created_at: string
+}
+
+/** An offer as Studio sees it: the stored file becomes a same-origin URL behind admin auth. */
+const toAdminOffer = (row: OfferRow) => ({
+    ...row,
+    offer_usd: Number(row.offer_usd),
+    fileUrl:   row.file_path && STORED_FILE_RE.test(row.file_path) ? adminFileUrl(row.file_path) : null,
+})
+export type AdminOffer = ReturnType<typeof toAdminOffer>
+
+const dbError = (context: string, message: string) => {
+    console.error(`[${ROUTE}] ${context}:`, message)
+    return Response.json({ error: "Database error" }, { status: 500 })
+}
+
+export async function GET(req: NextRequest) {
+    const denied = await checkAdminAuth(req)
+    if (denied) return denied
+
+    const { rows, error } = await fetchAllRows<OfferRow>((from, to) => supabaseAdmin
+        .from(OFFERS_TABLE)
+        .select(OFFER_COLUMNS, { count: "exact" })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, to) as unknown as PromiseLike<{ data: OfferRow[] | null; error: { message: string; code?: string } | null; count?: number | null }>, MAX_OFFERS)
+    if (error) {
+        if (isMissingTable(error)) return Response.json({ offers: [], setup: false })
+        return dbError("GET", error.message)
+    }
+    return Response.json({ offers: rows.map(toAdminOffer), setup: true })
+}
+
+export async function PATCH(req: NextRequest) {
+    const denied = await checkAdminAuth(req)
+    if (denied) return denied
+    const parsed = await readJsonBody(req, BODY_LIMITS.admin)
+    if (!parsed.ok) return Response.json({ error: parsed.error }, { status: parsed.status })
+    const body = parsed.body
+    if (!isJsonObject(body) || !isUuid(body.id)) return Response.json({ error: "Missing or invalid id" }, { status: 400 })
+
+    // Whitelist: only these two fields are ever written.
+    const fields: Partial<Pick<OfferRow, "status" | "notes">> = {}
+    if ("status" in body) {
+        if (!OFFER_STATUSES.includes(body.status as OfferRow["status"])) return Response.json({ error: "status must be new, accepted, or declined" }, { status: 400 })
+        fields.status = body.status as OfferRow["status"]
+    }
+    if ("notes" in body) {
+        if (typeof body.notes !== "string" || body.notes.length > MAX_NOTES) return Response.json({ error: `notes must be a string (max ${MAX_NOTES} chars)` }, { status: 400 })
+        fields.notes = body.notes
+    }
+    if (Object.keys(fields).length === 0) return Response.json({ error: "No updatable fields provided" }, { status: 400 })
+
+    const { data, error } = await supabaseAdmin.from(OFFERS_TABLE).update(fields).eq("id", body.id).select(OFFER_COLUMNS).single()
+    if (error) return dbError("PATCH", error.message)
+    return Response.json(toAdminOffer(data as unknown as OfferRow))
+}
+
+export async function DELETE(req: NextRequest) {
+    const denied = await checkAdminAuth(req)
+    if (denied) return denied
+    const parsed = await readJsonBody(req, BODY_LIMITS.admin)
+    if (!parsed.ok) return Response.json({ error: parsed.error }, { status: parsed.status })
+    const body = parsed.body
+    if (!isJsonObject(body) || !isUuid(body.id)) return Response.json({ error: "Missing or invalid id" }, { status: 400 })
+
+    const { data, error } = await supabaseAdmin.from(OFFERS_TABLE).delete().eq("id", body.id).select("file_path")
+    if (error) return dbError("DELETE", error.message)
+    // A spot showing this sticker keeps its own copy (spots/…), so only the offer's file goes.
+    const paths = ((data ?? []) as { file_path: string | null }[])
+        .map((row) => row.file_path)
+        .filter((p): p is string => typeof p === "string" && p.startsWith("offers/") && STORED_FILE_RE.test(p))
+    if (paths.length > 0) {
+        const removed = await supabaseAdmin.storage.from(STICKER_BUCKET).remove(paths)
+        if (removed.error) console.error(`[${ROUTE}] DELETE file:`, removed.error.message)
+    }
+    return Response.json({ success: true, deleted: (data ?? []).length })
 }

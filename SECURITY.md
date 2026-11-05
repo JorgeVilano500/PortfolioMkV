@@ -1,10 +1,10 @@
 # Security — portfoliomkv
 
-_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06._
+_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-03** (Studio sponsorships, branch `studio-sponsorships`)._
 
 Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, and history. **Read §3 before writing any API route, rendering user content, or touching secrets.**
 
-> ⚠️ **Still needs you (all in §7):** run `supabase/auth-lockout-schema.sql` in the Supabase SQL editor (S-4; until then lockouts stay per instance and the logs warn once); set `ADMIN_2FA=email` in Netlify for the second factor (S-6); verify a Resend sending domain (S-2); and add the Cloudflare Turnstile keys to switch on the sponsorship form's spam check (S-40). The 2026-10-19 SQL (`security-hardening.sql`) has been run: anon gets `permission denied` on `page_views`, `consent_events` and `project_documents` (verified live 2026-10-21).
+> ⚠️ **Still needs you (all in §7):** run `supabase/auth-lockout-schema.sql` in the Supabase SQL editor (S-4; until then lockouts stay per instance and the logs warn once); set `ADMIN_2FA=email` in Netlify for the second factor (S-6); verify a Resend sending domain (S-2); add the Cloudflare Turnstile keys to switch on the sponsorship form's spam check (S-40); and run `supabase/sponsorships-schema.sql` so offers and spots are saved for Studio ([SPONSORSHIPS.md](SPONSORSHIPS.md) §2). The 2026-10-19 SQL (`security-hardening.sql`) has been run: anon gets `permission denied` on `page_views`, `consent_events` and `project_documents` (verified live 2026-10-21).
 
 ---
 
@@ -45,7 +45,8 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 | Brute-force lockout: per IP (unspoofable on Netlify, IPv6 per /64), global ceiling, **one counter for every admin-password route** | ✅ (S-3, S-25, S-27) |
 | Lockout shared across serverless instances | 🟡 code ready — run `auth-lockout-schema.sql` (S-4) |
 | Public write endpoints rate-limited | ✅ track 30/min/IP · consent 20/min/IP · sponsorships: 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall |
-| Public sponsorship form: uploads + email to a typed address | ✅ same-origin only, honeypot, byte-capped multipart, files judged by their bytes (no SVG), link-free text, escaped emails, private bucket. 🟡 Cloudflare Turnstile check built, off until its keys are set (S-40). |
+| Public sponsorship form: uploads + email to a typed address | ✅ same-origin only, honeypot, byte-capped multipart, files judged by their bytes (PNG/JPEG only, no SVG) and their pixel size (S-44), link-free text, escaped emails, private bucket and tables. 🟡 Cloudflare Turnstile check built, off until its keys are set (S-40). |
+| Sponsor stickers on `/laptop`, managed in Studio | ✅ offers, unplaced files and hidden spots are never public; a shown spot's image is served from this origin by `/laptop/stickers/<spot>` (bucket stays private, no signed URLs, CSP unchanged); Studio's routes use `checkAdminAuth` and whitelist every field. |
 | Request bodies byte-capped before parsing, on every route | ✅ (S-24) |
 | Analytics only with explicit, server-enforced consent | ✅ (2026-10-20) |
 | Input validation, PATCH whitelists, UUID ids, object-only JSON bodies | ✅ |
@@ -153,7 +154,10 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
   - **Email:** a strict pattern with no spaces, quotes, `?`, `&`, `%`, or CR/LF, so no header or mailto tricks (in a `mailto:` link, `%3F` and `%26` decode to `?` and `&`).
   - **Affiliation:** at most 120 characters, control characters stripped, and **no URLs or domain-shaped text**. Mail clients auto-link domains, and this text goes to a typed-in address.
   - **Offer:** $1–$1,000,000 with at most 2 decimals. **Spot:** from a fixed list (`SPOT_CHOICES`: four lid spots, two palm-rest spots, or "any").
-  - **File:** at most 4 MB, and **sniffed by its magic bytes** (PNG, JPEG, WebP, PDF). SVG and everything else are refused, whatever the name or declared type. The file name is shown only after cleaning (no path or reserved characters).
+  - **File:** at most 4 MB, and **sniffed by its magic bytes**: PNG or JPEG only (WebP and PDF were dropped on 2026-11-03, since every sticker can now be drawn on `/laptop`). SVG and everything else are refused, whatever the name or declared type. The file name is shown only after cleaning (no path or reserved characters).
+  - **Pixel size (S-44):** read from the PNG `IHDR` chunk or the JPEG frame header without decoding: 64–8,000 px on a side and at most 40 megapixels. A few-KB file can declare a huge canvas that would stall every visitor's browser once drawn on `/laptop`.
+- **Studio spot edits** (`lib/sponsor-spots.ts`, `app/api/sponsorships/spots`): the spot id must be one of the six (`isSlotId`), offer ids must be UUIDs, and the sponsor text is bounded (name 60, mark 6, tagline 80, description 400) with `theme` from the three accents. The PATCH builds the row from those fields only, and every check that can refuse the request runs **before** a file is copied or a row is written. Uploaded spot images get the same type and pixel checks as offers.
+- **Stored file paths:** the file routes serve only `offers/<id>/sticker.(png|jpg)` or `spots/<spot>/<id>.(png|jpg)` (`STORED_FILE_RE`, lowercase, no `..`), whether the path comes from a query string or from a row edited by hand.
 - **Front matter** (`/api/blog/upload`): gray-matter called with `MATTER_OPTIONS`, which replaces the `js`/`javascript` engines (gray-matter `eval`s those by default) with a refusal → 400. YAML uses `safeLoad`; JSON is `JSON.parse`; unregistered languages throw → 400. Passing options also disables gray-matter's unbounded per-input cache.
 
 ### 4.5 HTTP headers (`next.config.ts`)
@@ -173,6 +177,8 @@ All routes (`/:path*`):
 **3D assets (`/laptop`).** No header changes were needed for Three.js. WebGL needs no CSP source. The GLB is a same-origin `fetch`. Sticker, screen and keyboard artwork is drawn on canvases, so it makes no requests. The bezel's `KHR_materials_specular` is a plain material extension that GLTFLoader reads itself (no decoder).
 - **Embedded textures:** `GLTFLoader` normally decodes them by `fetch()`ing a `blob:` URL, which `connect-src 'self'` blocks. The viewer swaps it to `TextureLoader`, which uses an `<img>` that `img-src blob:` already allows. This was verified with a textured QA model: no CSP violations.
 - **Compressed geometry:** Draco, meshopt and KTX2 decoders need WebAssembly and workers, which the CSP doesn't allow (`script-src` has no `wasm-unsafe-eval`, and there is no `worker-src`). LAPTOP_MODEL.md requires uncompressed exports, so **don't loosen the CSP to load a model; re-export it instead.**
+
+**Sponsor sticker images.** No header changes. `/laptop` and the 3D viewer load sticker images from this origin (`/laptop/stickers/<spot>`, Studio's `/api/sponsorships/file`), so `img-src 'self'` covers them, WebGL textures aren't tainted, and the private bucket never needs CORS. The public route sits outside `/api` so it can carry its own `Cache-Control: public, max-age=300`; it 404s anything not currently shown.
 
 **Cloudflare Turnstile (the sponsorship form's spam check, S-40).** Only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set at build time, `script-src` gains `https://challenges.cloudflare.com` and `frame-src https://challenges.cloudflare.com` is added; otherwise the CSP is unchanged (a test covers both). It has to be site-wide: a page reached by client-side navigation keeps the CSP of the page the visit started on. The token is verified server-side, so `connect-src` doesn't change. The widget's script loads only when the offer dialog opens.
 
@@ -194,7 +200,9 @@ Plus: `/api/:path*` → `Cache-Control: no-store, max-age=0`, `X-Robots-Tag: noi
 | `page_views` | ✅ (verified live 2026-10-21) | none | none |
 | `consent_events` | ✅ | none | none |
 | `auth_failures` (after `auth-lockout-schema.sql`) | ✅ | none; its two functions are `service_role`-only | none |
-| Storage bucket `sponsor-stickers` (after `sponsor-stickers-schema.sql`) | n/a | **private** bucket; 4 MB cap; PNG/JPEG/WebP/PDF/JSON only | **none**, so only the service role can read or write. The schema file's verify query lists any unscoped `storage.objects` policy, which would apply to every bucket including this one. |
+| `sponsor_offers` (after `sponsorships-schema.sql`) | ✅ | none | none (service role only: the public form inserts through the API) |
+| `sponsor_spots` (after `sponsorships-schema.sql`) | ✅ | none | none (`/laptop` reads it server-side and shows visible spots only) |
+| Storage bucket `sponsor-stickers` (after `sponsorships-schema.sql`) | n/a | **private** bucket; 4 MB cap; PNG/JPEG only | **none**, so only the service role can read or write. The schema file's verify query lists any unscoped `storage.objects` policy, which would apply to every bucket including this one. |
 
 `update_updated_at()` gets `search_path = ''` (Supabase advisor `function_search_path_mutable`), and so do the lockout functions. Public queries also filter `published = true` in code.
 - **2026-10-19, anon key:** drafts, hidden projects and `project_documents` returned 0 rows, but `page_views` returned 295 rows (S-1).
@@ -242,7 +250,12 @@ DB/provider errors logged server-side with a `[route]` prefix; clients get gener
 | `/api/blog/upload` | POST | `x-api-key` → `BLOG_UPLOAD_SECRET` | lockout; body ≤4 MB / 1M chars | `posts` upsert on slug |
 | `/api/docs/upload` | POST | `x-api-key` → `DOCS_UPLOAD_SECRET` | lockout; body ≤4 MB / 1M chars | `project_documents` upsert |
 | `/api/email-summary` | POST | `x-api-key` → `EMAIL_SUMMARY_SECRET` | lockout + 10 sends/hr; body ≤4 MB | Resend send |
-| `/api/sponsorships` | POST (multipart) | none (public); same-origin only; honeypot; a Turnstile token when configured (S-40) | 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall; body ≤4.25 MB, file ≤4 MB (magic bytes) | private bucket `sponsor-stickers` (`<id>/sticker.*`, `<id>/inquiry.json`); 2 Resend sends (owner notice + sponsor copy) |
+| `/api/sponsorships` | POST (multipart) | none (public); same-origin only; honeypot; a Turnstile token when configured (S-40) | 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall; body ≤4.25 MB, file ≤4 MB (magic bytes, pixel size) | `sponsor_offers` insert + private bucket `sponsor-stickers` (`offers/<id>/sticker.*`); 2 Resend sends (owner notice + sponsor copy) |
+| `/api/sponsorships` | GET, PATCH, DELETE | session cookie **or** `x-logistics-key` (header refused under 2FA) | shared admin lockout; cookie writes same-origin only; body ≤1 MB | `sponsor_offers` (`status`, `notes` only); DELETE also removes the offer's `offers/` file |
+| `/api/sponsorships/spots` | GET, PATCH, POST (multipart) | session cookie **or** `x-logistics-key` (header refused under 2FA) | shared admin lockout; cookie writes same-origin only; JSON ≤1 MB, image ≤4 MB | `sponsor_spots` upsert; bucket `spots/<spot>/<id>.*` (copy or upload, old image removed); offer marked accepted; revalidates `/laptop` |
+| `/api/sponsorships/file` | GET | session cookie **or** `x-logistics-key` | shared admin lockout; `path` must match `STORED_FILE_RE` | — |
+| `/api/laptop/spots` | GET | none (public) | served from the ISR cache (≤1 rebuild/min) | — (visible spots only) |
+| `/laptop/stickers/<spot>` | GET | none (public) | cached 5 min | — (a visible spot's image; otherwise 404) |
 | `/.well-known/security.txt` | GET | none (public) | — | — (RFC 9116 contact; `Expires` 180 days ahead, computed per request) |
 
 Request bodies are additionally capped by the platform (Netlify Functions: ~6 MB).
@@ -363,6 +376,11 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 | S-42 | Low | The offer form's email pattern allowed `%`, so `%3F` / `%26` could smuggle `?` / `&` into the owner's `mailto:` link | ✅ | `%` refused (test added) |
 | S-43 | Info | Home rendered project rows as stored: a row edited by hand in the Supabase dashboard could crash the page or carry a non-http(s) link | ✅ | `normalizeProject()` coerces status/theme/tags and drops non-http(s) links |
 
+### Found while building Studio sponsorships (2026-11-03)
+| ID | Severity | Issue | Status | Fix |
+|---|---|---|---|---|
+| S-44 | Low | Sticker uploads were checked for type and byte size, but not pixel size. Once stickers are drawn on `/laptop`, a small PNG declaring a 50,000 × 50,000 canvas (a "decompression bomb") would make every visitor's browser try to allocate gigabytes. | ✅ | `imageSize()` reads the declared size from the header without decoding; the form route and Studio's upload refuse anything outside 64–8,000 px a side or over 40 MP (tests added). |
+
 ### How to finish the 🟡 items (≈3 minutes)
 1. **S-4:** Supabase dashboard → **SQL Editor** → New query → paste `supabase/auth-lockout-schema.sql` → **Run**. Its last two result sets should show `rowsecurity = true`, with only `postgres` and `service_role` able to execute the two functions.
 2. **S-6 (optional, recommended):** Netlify → Site configuration → Environment variables → add `ADMIN_2FA` = `email` → redeploy. The next sign-in asks for the emailed code. Scripts using `x-logistics-key` stop working while it's on.
@@ -370,6 +388,15 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 4. **S-40 (optional, recommended once S-2 is done):** Cloudflare dashboard → **Turnstile** → **Add widget** → hostname `javastudios.netlify.app`, widget mode **Managed** → copy the **site key** and **secret key**. In Netlify → Environment variables, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (site key) and `TURNSTILE_SECRET_KEY` (secret) → **redeploy** (the site key and the CSP allowance are built in at build time). The "Sponsor a spot" dialog then shows the check, and an offer without it gets a 400.
 
 ## 8. History
+
+### 2026-11-03: Studio sponsorships (branch `studio-sponsorships`)
+Offers are now saved for Studio, and Studio controls what `/laptop` shows.
+- **New data, all private:** `sponsor_offers` and `sponsor_spots` (RLS on, no policies, anon/authenticated revoked, also covered by `security-hardening.sql`), and the `sponsor-stickers` bucket narrowed to PNG/JPEG. Run `supabase/sponsorships-schema.sql` ([SPONSORSHIPS.md](SPONSORSHIPS.md)); until then the form still emails and `/laptop` shows the built-in samples.
+- **New routes (§5):** admin `GET/PATCH/DELETE /api/sponsorships`, `/api/sponsorships/spots` and `/api/sponsorships/file`, all behind `checkAdminAuth`; public `/api/laptop/spots` and `/laptop/stickers/<spot>`, which expose only visible spots.
+- **What the public can now see:** a shown sponsor's name, mark, tagline, description, colour and image. Never: offers, emails, amounts, notes, hidden spots, or files that haven't been placed and shown. Placing an offer's sticker starts it **hidden**, so nothing reaches `/laptop` without a second, deliberate switch.
+- **Spot images are copies** (`spots/…`), so deleting an offer can't break `/laptop`, and clearing a spot can't delete an offer's file.
+- **Fixed:** S-44 (pixel limits). An offer row holds what the form asked for and nothing else: no IP address or user agent (tested).
+- **Verified:** 915 tests, `tsc`, lint and build.
 
 ### 2026-11-03: Security patch (branch `security-patch`)
 A whole-app audit after PRs #4 and #5 merged: code, configuration, dependencies, the Supabase SQL, the live deployment's headers and caching, and the full git history.

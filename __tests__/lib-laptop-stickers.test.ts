@@ -17,6 +17,7 @@ import {
     getSlot,
     missingModelNodes,
     nextSlotId,
+    spotAccent,
     spotName,
 } from "@/lib/laptop-stickers"
 import { themeMap } from "@/lib/theme"
@@ -62,6 +63,22 @@ describe("sticker slots", () => {
         }
         expect(LID_SLOTS.some((s) => s.sponsor === null)).toBe(true)
         expect(PALM_SLOTS.some((s) => s.sponsor === null)).toBe(true)
+    })
+
+    it("flags every built-in sponsor as a sample, with no uploaded image", () => {
+        const sponsors = STICKER_SLOTS.flatMap((s) => (s.sponsor ? [s.sponsor] : []))
+        expect(sponsors).toHaveLength(4)
+        for (const sponsor of sponsors) {
+            expect(sponsor.sample).toBe(true)
+            expect(sponsor.imageUrl).toBeUndefined()
+        }
+    })
+
+    it("gives each spot the accent its tile lights up in: the sticker's colour, or violet when open", () => {
+        expect(spotAccent(getSlot("slot-2"))).toBe(STICKER_COLORS.green.fill)
+        expect(spotAccent(getSlot("slot-3"))).toBe(STICKER_COLORS.pink.fill)
+        expect(spotAccent(getSlot("slot-4"))).toBe("#7c6dff")
+        expect(spotAccent({ sponsor: null })).toBe("#7c6dff")
     })
 
     it("offers the contact page to people who'd rather write, not a checkout", () => {
@@ -115,6 +132,11 @@ describe("names and descriptions", () => {
         expect(describeSlot(getSlot("slot-1"))).toBe("Lid, upper left: Acme Dev Tools (sample sponsor)")
         expect(describeSlot(getSlot("slot-4"))).toBe("Lid, lower right: open")
         expect(describeSlot(getSlot("palm-left"))).toBe("Palm rest, left of trackpad: Demo Robotics (sample sponsor)")
+    })
+
+    it("doesn't call a real sponsor a sample", () => {
+        const real = { ...getSlot("slot-1"), sponsor: { name: "Real Co", mark: "RC", tagline: "", description: "", theme: "pink" as const } }
+        expect(describeSlot(real)).toBe("Lid, upper left: Real Co")
     })
 })
 

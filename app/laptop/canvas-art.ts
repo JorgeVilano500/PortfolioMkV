@@ -43,25 +43,54 @@ function fillFittedText(ctx: CanvasRenderingContext2D, text: string, x: number, 
 
 export function drawSticker(slot: StickerSlot): HTMLCanvasElement {
     const canvas = makeCanvas(Math.round(STICKER_PX * slot.aspect), STICKER_PX)
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return canvas
+    paintSticker(canvas, slot)
+    return canvas
+}
 
-    const inset = 18
-    const width = canvas.width - inset * 2
-    const size  = STICKER_PX - inset * 2
-    const midX  = canvas.width / 2
-    const mid   = STICKER_PX / 2
+/**
+ * (Re)draw a sticker into its canvas, so the viewer can update it in place
+ * when Studio edits a spot. With `image` (the sponsor's sticker file), the
+ * image is fitted inside the die-cut shape on the theme colour, never
+ * cropped; without it, the sponsor's mark and name are drawn instead.
+ */
+export function paintSticker(canvas: HTMLCanvasElement, slot: StickerSlot, image?: HTMLImageElement | null) {
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    const inset  = 18
+    const width  = canvas.width - inset * 2
+    const size   = STICKER_PX - inset * 2
+    const midX   = canvas.width / 2
+    const mid    = STICKER_PX / 2
+    const radius = slot.aspect > 1 ? 72 : 96
     ctx.beginPath()
-    ctx.roundRect(inset, inset, width, size, slot.aspect > 1 ? 72 : 96)
+    ctx.roundRect(inset, inset, width, size, radius)
     ctx.textAlign    = "center"
     ctx.textBaseline = "middle"
 
-    if (slot.sponsor) {
+    if (slot.sponsor && image && image.naturalWidth > 0) {
+        ctx.fillStyle = STICKER_COLORS[slot.sponsor.theme].fill
+        ctx.fill()
+        ctx.save()
+        ctx.clip()
+        const pad   = 26
+        const scale = Math.min((width - pad * 2) / image.naturalWidth, (size - pad * 2) / image.naturalHeight)
+        const w = image.naturalWidth * scale
+        const h = image.naturalHeight * scale
+        ctx.drawImage(image, midX - w / 2, mid - h / 2, w, h)
+        ctx.restore()
+        ctx.beginPath()
+        ctx.roundRect(inset, inset, width, size, radius)
+        ctx.lineWidth   = 14
+        ctx.strokeStyle = "#f0eeff" // a white die-cut edge, like a real vinyl sticker
+        ctx.stroke()
+    } else if (slot.sponsor) {
         const colors = STICKER_COLORS[slot.sponsor.theme]
         ctx.fillStyle = colors.fill
         ctx.fill()
         ctx.lineWidth   = 14
-        ctx.strokeStyle = "#f0eeff" // a white die-cut edge, like a real vinyl sticker
+        ctx.strokeStyle = "#f0eeff"
         ctx.stroke()
         ctx.fillStyle = colors.ink
         fillFittedText(ctx, slot.sponsor.mark, midX, mid - 30, width - 90, 190, "800")
@@ -80,7 +109,17 @@ export function drawSticker(slot: StickerSlot): HTMLCanvasElement {
         ctx.fillStyle = "#c4c0d8"
         fillFittedText(ctx, "Open spot", midX, mid + 140, width - 120, 40, "600")
     }
-    return canvas
+}
+
+/** Load an image for a sticker (same-origin URLs, so the canvas stays usable by WebGL). */
+export function loadStickerImage(url: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const image = new Image()
+        image.decoding = "async"
+        image.onload  = () => resolve(image)
+        image.onerror = () => reject(new Error(`sticker image failed to load: ${url}`))
+        image.src = url
+    })
 }
 
 /** A rounded frame in white (the material tints it), shown around the selected sticker. */

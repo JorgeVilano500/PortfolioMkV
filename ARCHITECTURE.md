@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-03** (branch `security-patch`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-03** (branch `studio-sponsorships`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -80,10 +80,12 @@ flowchart LR
 │   ├── opengraph-image.tsx        Site OG image (ImageResponse, 1200×630)
 │   ├── robots.ts, sitemap.ts      SEO (sitemap includes published posts)
 │   ├── privacy/ page.tsx (server): privacy & cookie policy, generated from lib/consent constants
-│   ├── laptop/  page.tsx (server + metadata) → LaptopExperience.tsx (client boundary: open/close toggle,
-│   │               lid + palm-rest spot pickers, details, loading/2D fallbacks) → LaptopViewer.tsx (Three.js;
-│   │               next/dynamic, ssr: false: hinge, power-on timeline, camera) + canvas-art.ts (stickers,
-│   │               screen, keyboard drawn in Canvas 2D); SponsorForm.tsx ("Sponsor a spot" offer dialog)
+│   ├── laptop/  page.tsx (server, ISR 5 min: reads sponsor_spots) → LaptopExperience.tsx (client: spot pickers,
+│   │               details, offer form) → LaptopStage.tsx (shared with Studio: toolbar, status, 2D fallback
+│   │               drawings, spotTileStyle) → LaptopViewer.tsx (Three.js; next/dynamic, ssr: false: hinge,
+│   │               power-on timeline, camera, sticker highlight) + canvas-art.ts (stickers incl. uploaded
+│   │               images, screen, keyboard drawn in Canvas 2D); SponsorForm.tsx ("Sponsor a spot" dialog);
+│   │               stickers/[spot]/route.ts (public: a visible spot's image, from the private bucket)
 │   ├── about/   page.tsx (client) + layout.tsx (metadata only)
 │   ├── work/    page.tsx (client) + layout.tsx (metadata only)
 │   ├── contact/ page.tsx (client) + layout.tsx (metadata only)
@@ -91,6 +93,7 @@ flowchart LR
 │   │   └── [slug]/ page.tsx (client), layout.tsx (server: generateMetadata + BlogPosting JSON-LD),
 │   │               opengraph-image.tsx (per-post OG)
 │   ├── studio/  🔒 page.tsx (gate + tabs), BlogsPanel.tsx, ProjectsPanel.tsx, ProjectWizardModal.tsx,
+│   │               SponsorshipsPanel.tsx (laptop preview, spots, offers inbox),
 │   │               shared.tsx (Icon + ICON_PATHS, formatDate), layout.tsx (noindex)
 │   ├── logistics/ 🔒 page.tsx (AdminGate + Dashboard), layout.tsx (noindex)
 │   └── api/
@@ -103,7 +106,11 @@ flowchart LR
 │       ├── projects/route.ts          GET/POST/PATCH/DELETE (admin)
 │       ├── docs/upload/route.ts       POST (x-api-key = DOCS_UPLOAD_SECRET)
 │       ├── email-summary/route.ts     POST (x-api-key = EMAIL_SUMMARY_SECRET)
-│       └── sponsorships/route.ts      POST (public multipart: sponsorship offer → private bucket + 2 emails)
+│       ├── sponsorships/route.ts      POST (public multipart: offer → sponsor_offers + private bucket + 2 emails);
+│       │                              GET/PATCH/DELETE (admin: the offers inbox)
+│       ├── sponsorships/spots/route.ts GET/PATCH/POST (admin: what each /laptop spot shows; revalidates /laptop)
+│       ├── sponsorships/file/route.ts GET (admin: streams a stored sticker)
+│       └── laptop/spots/route.ts      GET (public JSON: the spots as /laptop shows them; ISR 1 min)
 ├── components/
 │   ├── index.tsx                  Barrel: Navbar, HomeComponent, WorkComponent, ComingSoon, ProjectList, MarkdownRenderer, Modal
 │   ├── ui/                        Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, ComingSoon (dead)
@@ -134,9 +141,11 @@ flowchart LR
 │   ├── rate-limit.ts              In-memory fixed-window limiter (10k-key cap) + per-IP and global auth lockout
 │   ├── validation.ts              LIMITS, type-guard validators, normalizers, slugify, estimateReadingTime
 │   ├── markdown-sanitize.ts       rehype-sanitize allowlist schema
-│   ├── laptop-stickers.ts         /laptop: sample sponsors, lid + palm-rest slots, GLB contract, radio-key helper (no three import)
+│   ├── laptop-stickers.ts         /laptop: slot layout + sample sponsors, spotAccent, GLB contract, radio-key helper (no three import)
 │   ├── laptop-keyboard.ts         /laptop: the 2019 13-inch keyboard layout, drawn by the 3D viewer and the 2D fallback
-│   ├── sponsorship.ts             Offer field rules shared by the form and the route (email, offer, spot, file sniffing)
+│   ├── sponsorship.ts             Offer field rules shared by the form and the route (email, offer, spot, file sniffing, pixel size)
+│   ├── sponsor-spots.ts           sponsor_spots row type → slots (hidden = open), stored-path pattern, Studio input rules (client-safe)
+│   ├── sponsor-spots-server.ts    Server-only: table/bucket names, readSpotRecords, getPublicSlots (samples until the table exists)
 │   ├── sponsor-email.ts           Server-only HTML + text templates for the two sponsorship emails
 │   ├── turnstile.ts               Server-only Cloudflare Turnstile verification for the offer form (S-40)
 │   ├── site.ts                    siteUrl(), CONTACT_EMAIL, mailtoLink(): one definition of the site's address
@@ -164,11 +173,11 @@ The app currently follows a **"client pages + server metadata"** pattern. Each p
 | `/blog/[slug]/opengraph-image` | Server | `getPostBySlug` | anon | `await params` (Next 16) |
 | `/sitemap.xml` | Server | `getPosts()` | anon | **Static** (`○` in the 2026-10-19 build), so new posts appear only after a redeploy. |
 | `/privacy` | **Server** (static) with a client `PrivacyActions` child | `lib/consent` constants | none | The intro modal never auto-opens here, so the policy stays readable |
-| `/laptop` | **Server** (static) shell with a client `LaptopExperience` child; the Three.js viewer is client-only (`next/dynamic`, `ssr: false`) | Sample stickers in `lib/laptop-stickers.ts`; the GLB is fetched from `/models/macbook-pro-13-2019.glb` | none | **Download first, WebGL second:** a 404 shows the 2D fallback without creating a WebGL context. Render on demand (no animation loop; frames run only while the camera or the lid timeline moves). Statuses: loading, ready, missing, invalid, unsupported, error. **Open/closed** is page state passed to the viewer as `open`: opening turns the `Lid` node 108°, boots the screen and fades up the keyboard backlight; choosing a palm-rest spot opens it. "Sponsor a spot" opens an offer form (`SponsorForm.tsx`, in the shared `Modal`) that posts to `/api/sponsorships` (§6.9). Sponsors on the lid stay sample data; no payments. |
+| `/laptop` | **Server** shell, **ISR** (`revalidate = 300`, plus `revalidatePath` on every Studio save), with a client `LaptopExperience` child; the Three.js viewer is client-only (`next/dynamic`, `ssr: false`) | `getPublicSlots()`: `sponsor_spots` (visible spots only), falling back to the samples in `lib/laptop-stickers.ts` until the table exists; sticker images from `/laptop/stickers/<spot>`; the GLB from `/models/macbook-pro-13-2019.glb` | service role (server-side) | **Download first, WebGL second:** a 404 shows the 2D fallback without creating a WebGL context. Render on demand (no animation loop; frames run only while the camera or the lid timeline moves). Statuses: loading, ready, missing, invalid, unsupported, error. **Open/closed** is page state passed to the viewer as `open`: opening turns the `Lid` node 108°, boots the screen and fades up the keyboard backlight; choosing a palm-rest spot opens it. "Sponsor a spot" opens an offer form (`SponsorForm.tsx`, in the shared `Modal`) that posts to `/api/sponsorships` (§6.9). **Highlight sync:** the selected spot lights up in its sponsor's colour on the sticker (halo + emissive glow), its tile and the details card; hovering any of them lights the others faintly (`hoveredId` is page state, reported back by the viewer). No payments. |
 | All pages | `OnboardingProvider` (client) wraps everything in the root layout | `document.cookie` / storage after hydration | none | The modal, tour bar, and footer render client-side only, so static pages stay static (`○`) |
 | `/studio`, `/logistics` | Client, wrapped in `<AdminGate>` | `fetch('/api/...')`; the browser attaches the HttpOnly session cookie | service role (server-side) | Renders nothing until `GET /api/auth` answers, then shows the password form or the page |
 
-There are no Server Actions, `use cache`, `revalidate*` calls, `proxy.ts`, or route-segment config anywhere. Every API route is a plain route handler.
+There are no Server Actions, `use cache`, or `proxy.ts`. The only route-segment config is `revalidate` on `/laptop` (300 s) and `/api/laptop/spots` (60 s), and the only `revalidatePath` calls are in `/api/sponsorships/spots`. Every API route is a plain route handler.
 
 ## 5. Data-access layer
 
@@ -288,11 +297,27 @@ Both methods require a same-origin request (otherwise `403`) and are rate-limite
   8. Email configured, else `500`.
   9. The offer, recipient and global caps, else `429`.
 - **Side effects, in order:**
-  1. Upload `<uuid>/sticker.<ext>` and `<uuid>/inquiry.json` to the **private** bucket `sponsor-stickers`. This isn't fatal: a missing bucket logs one "run sponsor-stickers-schema.sql" warning.
+  1. Save it for Studio: upload `offers/<uuid>/sticker.<ext>` to the **private** bucket `sponsor-stickers`, then insert the `sponsor_offers` row (`file_path` null if the upload failed). Not fatal: a missing bucket or table logs one "run supabase/sponsorships-schema.sql" warning, and the owner email says the offer wasn't saved.
   2. **Email 1** goes to `SUMMARY_RECIPIENT_EMAIL`, with `replyTo` set to the sponsor and the sticker attached (subject `Sponsorship inquiry: <affiliation> ($offer)`). If it fails, the route returns `502` and stops.
   3. **Email 2**, sent separately, goes to the sponsor: a thank-you plus a copy of what they sent, with `replyTo` set to `SPONSOR_REPLY_TO` or the public `/contact` address.
 - **Response:** `200 {ok:true, reference:"3F2B6C1E", confirmationSent:boolean}`. `confirmationSent` is false when email 2 failed, which with Resend's sandbox sender is always (SECURITY.md S-2).
 - **Templates:** `lib/sponsor-email.ts` builds table-based HTML in the site palette, with plain-text twins. All visitor input is escaped.
+
+### 6.10 `/api/sponsorships` GET, PATCH, DELETE (admin): the offers inbox
+- `GET` → `{ offers: AdminOffer[], setup }`, newest first (paged past 1,000 rows, up to 5,000). Each offer carries `fileUrl` (`/api/sponsorships/file?path=…`) when its stored path matches `STORED_FILE_RE`. `setup: false` (and no offers) until the table exists.
+- `PATCH { id, status?, notes? }` → the updated offer. Only those two fields are written; `status` is `new`, `accepted` or `declined`; notes ≤2,000 characters.
+- `DELETE { id }` → `{ success, deleted }`. Also removes the offer's `offers/` file. A copy already placed on a spot (`spots/…`) stays.
+
+### 6.11 `/api/sponsorships/spots` (admin): what each spot on `/laptop` shows
+- `GET` → `{ spots: AdminSpot[], setup }`: always all six, in layout order. A spot without a row returns its built-in sample (or open). `AdminSpot` = `{ id, sponsor: {name, mark, tagline, description, theme} | null, visible, sample, offerId, imageUrl, updatedAt }`, with `imageUrl` on the admin file route.
+- `PATCH { id, visible?, sponsor?, offerId?, removeImage? }` → the updated spot. `sponsor: null` clears it (open). `sponsor: {…}` is validated by `validateSponsorInput` (name ≤60, mark ≤6, tagline ≤80, description ≤400, theme). `offerId` copies that offer's file to `spots/<spot>/<uuid>.<ext>`, names the spot after the offer's affiliation (unless `sponsor` is sent too), starts it **hidden** (unless `visible` is sent), and marks the offer accepted. Every refusal (400) happens before any copy or write; `409` until the table exists.
+- `POST` multipart `{ id, sticker }` → the updated spot: a new image (PNG/JPEG, ≤4 MB, pixel limits) for a spot that already has a sponsor name.
+- Every write upserts the row, deletes the spot's previous `spots/` image (never an `offers/` file), and calls `revalidatePath` for `/laptop` and `/api/laptop/spots`.
+
+### 6.12 Sticker files and the public spot list
+- `GET /api/sponsorships/file?path=<stored path>` (admin): streams a file from the bucket for Studio's thumbnails and 3D preview (same origin, so no CORS or signed URLs). `&download=1` sends it as an attachment. `400` unless the path matches `STORED_FILE_RE`; `404` if it's missing.
+- `GET /laptop/stickers/<spot>` (public): a **visible** spot's image, `Cache-Control: public, max-age=300, s-maxage=300`. Outside `/api` so it can be cached (`/api/*` is `no-store`). Hidden, open or image-less spots, and unknown ids, get `404`. The page links it as `?v=<updated_at>`, so a new image is fetched at once.
+- `GET /api/laptop/spots` (public): `{ spots: [{ id, surface, position, sponsor }] }`, the same data `/laptop` renders (hidden sponsors as `null`). Served from the ISR cache (`revalidate = 60`), refreshed by Studio's saves.
 
 ## 7. Data model (Supabase)
 
@@ -342,12 +367,17 @@ RLS is **enabled with no policies**, so only the service role can touch it. It i
 
 Used by `lib/auth-lockout.ts`. The app works without this table, falling back to in-memory counting.
 
-### Storage bucket `sponsor-stickers` (from `supabase/sponsor-stickers-schema.sql`)
-The bucket is **private**, capped at 4 MB per object, and accepts only `image/png`, `image/jpeg`, `image/webp`, `application/pdf` and `application/json`. It has **no** `storage.objects` policies, so only the service role can touch it. Each offer stores two objects under a random id:
-- `<id>/sticker.<ext>`: the sticker file.
-- `<id>/inquiry.json`: email, affiliation, offer, spot, file name/type/size, and `receivedAt`. It never includes the IP.
+### Sponsorships (from `supabase/sponsorships-schema.sql`; setup steps in [SPONSORSHIPS.md](SPONSORSHIPS.md))
+All three are private: RLS on with no policies, anon/authenticated revoked, service role only. The app works before the file runs: offers still arrive by email, and `/laptop` shows the built-in samples.
 
-Written only by `/api/sponsorships`. Download files from the Supabase dashboard (Storage). The app works before the bucket exists, because the owner's email carries the file.
+**`sponsor_offers`**: one row per offer from the form. `id uuid PK` (also the folder name in the bucket), `email` (≤254), `affiliation` (≤120), `offer_usd numeric(10,2)` (1–1,000,000), `spot` (a spot id or `any`), `file_path` (null if the upload failed), `file_type` (`image/png` | `image/jpeg`), `file_bytes`, `file_name` (≤120), `status` (`new` | `accepted` | `declined`, default `new`), `notes` (≤2,000, default `''`), `created_at`. Index on `created_at desc`. No IP or user agent.
+
+**`sponsor_spots`**: what each spot shows. `id text PK`, one of the six slot ids (CHECK), `sponsor_name` (≤60; null = open), `mark` (≤6), `tagline` (≤80), `description` (≤400), `theme` (`purple` | `green` | `pink`), `image_path`, `visible bool` (false = shown as open on `/laptop`, kept in Studio), `sample bool` (labelled "Sample sponsor"), `offer_id uuid` → `sponsor_offers(id)` `ON DELETE SET NULL`, `updated_at` (also the image cache-buster). Seeded with the four sample sponsors and two open spots, `ON CONFLICT DO NOTHING`, so re-running never overwrites Studio edits. Read by `lib/sponsor-spots-server.ts`; written only by `/api/sponsorships/spots`.
+
+**Storage bucket `sponsor-stickers`**: private, 4 MB per object, `image/png` and `image/jpeg` only, **no** `storage.objects` policies.
+- `offers/<offer id>/sticker.<png|jpg>`: what a sponsor uploaded (written by the form, deleted with the offer).
+- `spots/<spot id>/<uuid>.<png|jpg>`: the image a spot shows, a **copy** made when an offer is placed (or an upload from Studio), so deleting an offer never breaks `/laptop`. Replaced images are deleted.
+- Paths outside these two shapes are never served (`STORED_FILE_RE` in `lib/sponsor-spots.ts`).
 
 **`supabase/audit-exposure.sql`** is read-only. It lists tables without RLS, policies, anon/authenticated grants, functions anon can call, views that bypass RLS, storage buckets and write policies, and Auth accounts by provider. Fixes are included, commented out.
 
@@ -434,8 +464,27 @@ sequenceDiagram
 ```
 On later visits, a cookie with the current `CONSENT_VERSION` means no modal and no tour offer. A cookie with an older version re-opens only the Privacy step.
 
+### 8.6 Sponsorship: offer → Studio → `/laptop`
+```mermaid
+sequenceDiagram
+    participant V as Visitor (/laptop)
+    participant F as POST /api/sponsorships
+    participant DB as sponsor_offers / sponsor_spots + bucket
+    participant S as Owner (/studio → Sponsorships)
+    participant L as /laptop (ISR)
+    V->>F: offer + PNG/JPG
+    F->>DB: offers/<id>/sticker.* + sponsor_offers row
+    F-->>S: owner email (sticker attached, link to Studio)
+    S->>DB: PATCH /api/sponsorships/spots {id, offerId}: copy to spots/…, hidden, offer accepted
+    S->>S: preview on Studio's laptop ("Show hidden stickers")
+    S->>DB: PATCH {id, visible: true}
+    DB-->>L: revalidatePath("/laptop"): next visit re-renders with the spot
+    L-->>V: sticker drawn from /laptop/stickers/<spot>?v=<updated_at>
+```
+Studio's laptop is the same `LaptopStage` as `/laptop`, fed from `GET /api/sponsorships/spots` with image URLs on the admin file route, so hidden stickers can be previewed without ever being public. Owner steps: [SPONSORSHIPS.md](SPONSORSHIPS.md).
+
 ## 9. Auth model (summary)
-- **Admin humans** share one secret, `LOGISTICS_PASSWORD`, sent once to `POST /api/auth` and exchanged for an HttpOnly, SameSite=Strict session cookie (`__Host-admin_session` in production, 8 h, HMAC-signed and stateless). The cookie guards `/api/blog/posts`, `/api/projects`, and `/api/analytics/stats` through `checkAdminAuth`. Cookie-authenticated writes must be same-origin. Changing the password signs everyone out. Scripts may still send the password as `x-logistics-key`, unless 2FA is on.
+- **Admin humans** share one secret, `LOGISTICS_PASSWORD`, sent once to `POST /api/auth` and exchanged for an HttpOnly, SameSite=Strict session cookie (`__Host-admin_session` in production, 8 h, HMAC-signed and stateless). The cookie guards `/api/blog/posts`, `/api/projects`, `/api/analytics/stats`, and Studio's sponsorship routes (`/api/sponsorships` GET/PATCH/DELETE, `/api/sponsorships/spots`, `/api/sponsorships/file`) through `checkAdminAuth`. Cookie-authenticated writes must be same-origin. Changing the password signs everyone out. Scripts may still send the password as `x-logistics-key`, unless 2FA is on.
 - **Machines** each get their own secret in the `x-api-key` header: `BLOG_UPLOAD_SECRET`, `DOCS_UPLOAD_SECRET`, and `EMAIL_SUMMARY_SECRET`.
 - **The page "gates"** (`components/features/AdminGate.tsx`) are UX only. The real protection is that every data call needs a valid session or secret.
 - **Second factor (opt-in):** `ADMIN_2FA=email` adds an emailed 6-digit code after the password and disables `x-logistics-key` (S-6).
@@ -536,14 +585,15 @@ Do all of the following together: add the SQL `alter table` (and update the sche
 | First-party analytics in Postgres | Privacy, no third-party scripts, portfolio value | Volume nears 50k rows in the stats window, at which point stats need SQL aggregation |
 | Jest with a Babel transform, not `next/jest` | Avoids a root Babel config that would disable SWC | Adopting Vitest per the bundled guide |
 | Plain Three.js for `/laptop` (no react-three-fiber), with sticker, screen and keyboard art drawn on canvases from data | Demonstrates the Three.js concepts directly; adds one dependency; no image assets or network calls for artwork; the GLB stays a few flat planes (no modelled keycaps), and sponsors, keys or the desktop change without a re-export | Several 3D scenes, or declarative scene composition becomes worth a framework |
-| Sample sponsor data in code; offers by email plus a private bucket (no database table, no payments) | Negotiation happens by email, so the inbox is the workflow. The bucket keeps a durable copy, and there's no new schema to secure. | Real sponsors (then: a `sponsors` table with RLS public-read and Studio editing), or offers that need tracking or statuses (then: an `inquiries` table) |
+| Sponsor spots and offers in private tables, read server-side; images served same-origin; no payments | `/laptop` stays one cached server render with no public Supabase read, so hidden spots and offers can't leak through RLS mistakes. Same-origin images keep the bucket private, need no CORS for WebGL textures, and leave the CSP alone. Negotiation still happens by email. | Many more spots or sponsors (then: paginated Studio lists), or self-serve sponsorship with payment |
+| Placing an offer's sticker copies its file and starts the spot hidden | A deliberate second step before anything a stranger uploaded goes public; deleting an offer can't break the laptop | Never, unless offers are pre-approved elsewhere |
 
 ## 16. Tech-debt register
 | ID | Debt | Impact | Fix |
 |---|---|---|---|
 | TD-1 | `/work` uses static `lib/projects.ts` | Studio edits never reach /work | PRD P1-1 |
 | TD-2 | Client-rendered blog content | SEO and LCP; the post is fetched twice | P1-4 |
-| TD-3 | Duplicated types, slugify, skip prefixes, and theme maps (PasswordGate and the admin `checkAuth` were unified on 2026-10-19) | Drift bugs | P1-5 |
+| TD-3 | Duplicated types, slugify, skip prefixes, and theme maps (PasswordGate and the admin `checkAuth` were unified on 2026-10-19). Also: the six slot ids are listed in both `lib/laptop-stickers.ts` and the `sponsor_spots` CHECK constraint, and the sample sponsors in both `STICKER_SLOTS` and the schema's seed | Drift bugs | P1-5 |
 | TD-4 | `/api/analytics/stats` loads up to 50k rows and aggregates in JS | Will slow down and eventually truncate | A SQL view or RPC that aggregates in Postgres |
 | TD-5 | View counts scan all `/blog/%` rows on every Studio load | Same | Aggregate with SQL `group by page` |
 | TD-6 | A duplicate slug returns a generic 500 | Confusing editor error | Map Postgres `23505` to `409 {error:"Slug already exists"}` |

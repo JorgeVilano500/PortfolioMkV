@@ -4,11 +4,14 @@
  * caps (the route emails an address a stranger typed); byte-capped multipart;
  * honeypot; files judged by their bytes; nothing stored or sent for invalid
  * input; provider errors never reach the visitor. Behaviour: two separate
- * emails (owner with Reply-To + attachment, sponsor's copy), a private
- * storage copy that's optional, and an honest confirmationSent flag.
+ * emails (owner with Reply-To + attachment, sponsor's copy), a saved copy
+ * for Studio (a sponsor_offers row + the file in the private bucket) that's
+ * optional, and an honest confirmationSent flag.
+ * Also the admin inbox (GET/PATCH/DELETE): auth, whitelist, no DB errors leaked.
  */
 import { NextRequest } from "next/server"
 import { resetRateLimits } from "@/lib/rate-limit"
+import { jsonRequest, makeRequest, type SupabaseMockState } from "./helpers/test-utils"
 
 jest.mock("resend", () => {
     const send = jest.fn()
@@ -19,19 +22,40 @@ jest.mock("resend", () => {
 })
 
 jest.mock("@/lib/supabase-admin", () => {
+    const { createChain } = jest.requireActual("./helpers/test-utils")
+    const state = { result: { data: null, error: null }, calls: [] }
     const upload = jest.fn()
-    const from = jest.fn(() => ({ upload }))
-    return { supabaseAdmin: { storage: { from } }, __upload: upload, __from: from }
+    const remove = jest.fn()
+    const from = jest.fn(() => ({ upload, remove }))
+    const db = createChain(state)
+    db.storage = { from }
+    return { supabaseAdmin: db, __state: state, __upload: upload, __remove: remove, __from: from }
 })
 
-import { POST } from "@/app/api/sponsorships/route"
+import { DELETE, GET, PATCH, POST } from "@/app/api/sponsorships/route"
 
+const admin      = jest.requireMock("@/lib/supabase-admin") as { __state: SupabaseMockState; __upload: jest.Mock; __remove: jest.Mock; __from: jest.Mock }
 const mockSend   = (jest.requireMock("resend") as { __mockSend: jest.Mock }).__mockSend
-const mockUpload = (jest.requireMock("@/lib/supabase-admin") as { __upload: jest.Mock }).__upload
-const mockFrom   = (jest.requireMock("@/lib/supabase-admin") as { __from: jest.Mock }).__from
+const mockDb     = admin.__state
+const mockUpload = admin.__upload
+const mockRemove = admin.__remove
+const mockFrom   = admin.__from
 
 const URL = "http://localhost/api/sponsorships"
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+
+/** The smallest bytes that read as a PNG of the given size (signature + IHDR). */
+function png(width: number, height: number): Uint8Array<ArrayBuffer> {
+    const bytes = new Uint8Array(33)
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+    const view = new DataView(bytes.buffer)
+    view.setUint32(16, width)
+    view.setUint32(20, height)
+    return bytes
+}
+const PNG = png(1200, 1200)
+
+/** The row inserted into sponsor_offers, if any. */
+const insertedRow = () => mockDb.calls.find((call) => call.method === "insert")?.args[0] as Record<string, unknown> | undefined
 
 type Fields = Record<string, string | undefined>
 
@@ -61,7 +85,12 @@ beforeEach(() => {
     mockSend.mockResolvedValue({ data: { id: "email-1" }, error: null })
     mockUpload.mockReset()
     mockUpload.mockResolvedValue({ data: { path: "x" }, error: null })
+    mockRemove.mockReset()
+    mockRemove.mockResolvedValue({ data: [], error: null })
     mockFrom.mockClear()
+    mockDb.result = { data: null, error: null }
+    mockDb.queue = []
+    mockDb.calls = []
     jest.spyOn(console, "error").mockImplementation(() => {})
     jest.spyOn(console, "warn").mockImplementation(() => {})
 })
@@ -117,29 +146,49 @@ describe("a valid offer", () => {
         expect(sends()[1].replyTo).toBe("sponsors@javastudios.dev")
     })
 
-    it("keeps a private copy: the file and a JSON record under one random id", async () => {
+    it("saves it for Studio: the file in the private bucket and a sponsor_offers row, under one random id", async () => {
         await offer()
         expect(mockFrom).toHaveBeenCalledWith("sponsor-stickers")
-        const [[filePath, fileBody, fileOpts], [recordPath, recordBody, recordOpts]] = mockUpload.mock.calls
-        expect(filePath).toMatch(/^[0-9a-f-]{36}\/sticker\.png$/)
+        expect(mockUpload).toHaveBeenCalledTimes(1)
+        const [[filePath, fileBody, fileOpts]] = mockUpload.mock.calls
+        expect(filePath).toMatch(/^offers\/[0-9a-f-]{36}\/sticker\.png$/)
         expect(fileOpts).toEqual({ contentType: "image/png", upsert: false })
         expect([...fileBody]).toEqual([...PNG])
-        expect(recordPath).toBe(filePath.replace("sticker.png", "inquiry.json"))
-        expect(recordOpts).toEqual({ contentType: "application/json", upsert: false })
-        expect(JSON.parse(recordBody)).toMatchObject({ email: "jane@acme.dev", affiliation: "Acme Dev Tools", offer: 1500, spot: "slot-2", fileType: "image/png" })
+        expect(mockDb.calls).toContainEqual({ method: "from", args: ["sponsor_offers"] })
+        expect(insertedRow()).toEqual({
+            id:          filePath.split("/")[1],
+            email:       "jane@acme.dev",
+            affiliation: "Acme Dev Tools",
+            offer_usd:   1500,
+            spot:        "slot-2",
+            file_path:   filePath,
+            file_type:   "image/png",
+            file_bytes:  PNG.byteLength,
+            file_name:   "acme-logo.png",
+        })
+        expect(String(sends()[0].text)).toMatch(/saved in Studio/)
     })
 
     it("accepts an offer for a palm-rest spot and names it in both emails", async () => {
         const res = await offer({ spot: "palm-right" })
         expect(res.status).toBe(200)
-        expect(JSON.parse(mockUpload.mock.calls[1][1])).toMatchObject({ spot: "palm-right" })
+        expect(insertedRow()).toMatchObject({ spot: "palm-right" })
         for (const mail of sends()) expect(mail.html).toContain("Palm rest, right of trackpad")
     })
 
     it("never stores the visitor's IP with the offer", async () => {
         await offer({}, { ip: "203.0.113.77" })
         expect(JSON.stringify(mockUpload.mock.calls)).not.toContain("203.0.113.77")
+        expect(JSON.stringify(mockDb.calls)).not.toContain("203.0.113.77")
         expect(JSON.stringify(sends())).not.toContain("203.0.113.77")
+    })
+
+    it("accepts a JPG", async () => {
+        // SOI, then a SOF0 segment: 8-bit, 1200 x 1200, 3 components
+        const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 0x04, 0xb0, 0x04, 0xb0, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1])
+        const res = await offer({}, { file: new Blob([jpeg], { type: "image/jpeg" }), fileName: "logo.jpg" })
+        expect(res.status).toBe(200)
+        expect(mockUpload.mock.calls[0][0]).toMatch(/\/sticker\.jpg$/)
     })
 
     it("names the attachment after the detected type, whatever extension was claimed", async () => {
@@ -177,8 +226,16 @@ describe("delivery problems", () => {
         mockUpload.mockResolvedValue({ data: null, error: { message: "Bucket not found", statusCode: "404" } })
         const res = await offer()
         expect(res.status).toBe(200)
+        expect(insertedRow()).toMatchObject({ file_path: null }) // the offer still reaches Studio, without its file
         expect(String(sends()[0].text)).toMatch(/could NOT be saved/)
-        expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("sponsor-stickers-schema.sql"))
+        expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("sponsorships-schema.sql"))
+    })
+
+    it("still delivers when the offers table doesn't exist yet", async () => {
+        mockDb.result = { data: null, error: { message: "relation \"sponsor_offers\" does not exist", code: "42P01" } }
+        const res = await offer()
+        expect(res.status).toBe(200)
+        expect(String(sends()[0].text)).toMatch(/could NOT be saved/)
     })
 
     it("still delivers when storage throws", async () => {
@@ -191,6 +248,7 @@ describe("delivery problems", () => {
         const res = await offer()
         expect(res.status).toBe(500)
         expect(mockUpload).not.toHaveBeenCalled()
+        expect(insertedRow()).toBeUndefined()
         expect(mockSend).not.toHaveBeenCalled()
     })
 })
@@ -198,6 +256,7 @@ describe("delivery problems", () => {
 describe("rejected requests store and send nothing", () => {
     afterEach(() => {
         expect(mockUpload).not.toHaveBeenCalled()
+        expect(insertedRow()).toBeUndefined()
         expect(mockSend).not.toHaveBeenCalled()
     })
 
@@ -236,6 +295,24 @@ describe("rejected requests store and send nothing", () => {
         const res = await offer({}, { file: new Blob([content], { type: "image/png" }), fileName: "logo.png" })
         expect(res.status).toBe(400)
         expect((await res.json()).fields.sticker).toMatch(/isn't a real/)
+    })
+
+    it.each([
+        ["a WebP", new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20])],
+        ["a PDF", new TextEncoder().encode("%PDF-1.7\n%\u00e2\u00e3\n")],
+    ])("refuses %s, even labelled as a PNG (stickers are PNG or JPG only)", async (_label, bytes) => {
+        const res = await offer({}, { file: new Blob([bytes], { type: "image/png" }), fileName: "logo.png" })
+        expect(res.status).toBe(400)
+        expect((await res.json()).fields.sticker).toMatch(/PNG or JPG/)
+    })
+
+    it.each([
+        ["too small to print", png(32, 32)],
+        ["too large to draw", png(9000, 9000)],
+    ])("refuses an image %s", async (_label, bytes) => {
+        const res = await offer({}, { file: new Blob([bytes], { type: "image/png" }) })
+        expect(res.status).toBe(400)
+        expect((await res.json()).fields.sticker).toMatch(/px/)
     })
 
     it("refuses a link in the affiliation (no spam relay to a typed-in address)", async () => {
@@ -347,5 +424,91 @@ describe("spam check (Cloudflare Turnstile, SECURITY.md S-40)", () => {
         for (let i = 0; i < 3; i++) await offer({ email: "victim@example.com" }, { ip: `5.5.5.${i}` })
         verdict({ success: true })
         expect((await offer({ email: "victim@example.com", "cf-turnstile-response": "ok" }, { ip: "6.6.6.6" })).status).toBe(200)
+    })
+})
+
+// ─── Studio: the offers inbox ─────────────────────────────────────────────────
+
+describe("admin inbox", () => {
+    const KEY = "test-logistics-password"
+    const ID  = "3f2b6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f"
+    const auth = { "x-logistics-key": KEY }
+    const row = (extra: Record<string, unknown> = {}) => ({
+        id: ID, email: "jane@acme.dev", affiliation: "Acme Dev Tools", offer_usd: "1500.00", spot: "slot-2",
+        file_path: `offers/${ID}/sticker.png`, file_type: "image/png", file_bytes: 1234, file_name: "acme.png",
+        status: "new", notes: "", created_at: "2026-11-01T12:00:00Z", ...extra,
+    })
+
+    beforeEach(() => {
+        process.env.LOGISTICS_PASSWORD = KEY
+        delete process.env.ADMIN_2FA
+    })
+
+    it.each([["GET", GET], ["PATCH", PATCH], ["DELETE", DELETE]] as const)("%s needs the admin session", async (method, handler) => {
+        const res = await handler(makeRequest(URL, { method }))
+        expect(res.status).toBe(401)
+        expect(mockDb.calls).toHaveLength(0)
+    })
+
+    it("lists offers newest first, each with a same-origin file link", async () => {
+        mockDb.result = { data: [row()], error: null, count: 1 }
+        const res = await GET(makeRequest(URL, { headers: auth }))
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.setup).toBe(true)
+        expect(body.offers).toHaveLength(1)
+        expect(body.offers[0]).toMatchObject({ id: ID, offer_usd: 1500, fileUrl: `/api/sponsorships/file?path=${encodeURIComponent(`offers/${ID}/sticker.png`)}` })
+        expect(mockDb.calls).toContainEqual({ method: "order", args: ["created_at", { ascending: false }] })
+    })
+
+    it("never links a stored path that doesn't look like ours", async () => {
+        mockDb.result = { data: [row({ file_path: "../secrets/.env" })], error: null, count: 1 }
+        const body = await (await GET(makeRequest(URL, { headers: auth }))).json()
+        expect(body.offers[0].fileUrl).toBeNull()
+    })
+
+    it("reports setup: false before the schema has run", async () => {
+        mockDb.result = { data: null, error: { message: "relation does not exist", code: "42P01" } }
+        const body = await (await GET(makeRequest(URL, { headers: auth }))).json()
+        expect(body).toEqual({ offers: [], setup: false })
+    })
+
+    it("hides database errors", async () => {
+        mockDb.result = { data: null, error: { message: "secret internal detail" } }
+        const res = await GET(makeRequest(URL, { headers: auth }))
+        expect(res.status).toBe(500)
+        expect(await res.json()).toEqual({ error: "Database error" })
+    })
+
+    it("updates only status and notes", async () => {
+        mockDb.result = { data: row({ status: "accepted", notes: "Call Friday" }), error: null }
+        const res = await PATCH(jsonRequest(URL, "PATCH", { id: ID, status: "accepted", notes: "Call Friday", email: "attacker@evil.dev", offer_usd: 1 }, auth))
+        expect(res.status).toBe(200)
+        expect(mockDb.calls.find((call) => call.method === "update")?.args[0]).toEqual({ status: "accepted", notes: "Call Friday" })
+    })
+
+    it.each([
+        ["a bad id", { id: "1; drop table", status: "accepted" }],
+        ["an unknown status", { id: ID, status: "paid" }],
+        ["over-long notes", { id: ID, notes: "x".repeat(2001) }],
+        ["nothing to update", { id: ID }],
+    ])("refuses %s", async (_label, body) => {
+        const res = await PATCH(jsonRequest(URL, "PATCH", body, auth))
+        expect(res.status).toBe(400)
+        expect(mockDb.calls.some((call) => call.method === "update")).toBe(false)
+    })
+
+    it("deletes an offer and its offers/ file, never a spot's copy", async () => {
+        mockDb.result = { data: [{ file_path: `offers/${ID}/sticker.png` }], error: null }
+        const res = await DELETE(jsonRequest(URL, "DELETE", { id: ID }, auth))
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ success: true, deleted: 1 })
+        expect(mockRemove).toHaveBeenCalledWith([`offers/${ID}/sticker.png`])
+    })
+
+    it("leaves storage alone when the stored path isn't an offers/ file", async () => {
+        mockDb.result = { data: [{ file_path: "spots/slot-1/abc.png" }], error: null }
+        await DELETE(jsonRequest(URL, "DELETE", { id: ID }, auth))
+        expect(mockRemove).not.toHaveBeenCalled()
     })
 })

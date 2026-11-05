@@ -18,18 +18,32 @@ export const SPONSOR_LIMITS = {
     offerMax:    1_000_000,
 } as const
 
-/** Print-ready formats. No SVG: it can carry script, and it would be opened by the owner. */
+/**
+ * PNG and JPG only. The image goes into the private bucket, Studio shows it,
+ * and once you publish it, /laptop draws it on the sticker. No SVG (it can
+ * carry script) and, since 2026-11-03, no PDF or WebP: every accepted file
+ * must be an image every browser can draw.
+ */
 export const STICKER_FILE_TYPES = {
-    "image/png":       { ext: "png",  label: "PNG" },
-    "image/jpeg":      { ext: "jpg",  label: "JPG" },
-    "image/webp":      { ext: "webp", label: "WebP" },
-    "application/pdf": { ext: "pdf",  label: "PDF" },
+    "image/png":  { ext: "png", label: "PNG" },
+    "image/jpeg": { ext: "jpg", label: "JPG" },
 } as const
 
 export type StickerMime = keyof typeof STICKER_FILE_TYPES
 
 /** For `<input type="file" accept>`. A hint only — the server checks the bytes. */
-export const STICKER_ACCEPT = ".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf"
+export const STICKER_ACCEPT = ".png,.jpg,.jpeg,image/png,image/jpeg"
+
+/**
+ * Pixel bounds for sticker images. A 4 MB file can still decode to a huge
+ * bitmap that stalls a phone, so the server reads the real dimensions from
+ * the file's header and refuses extremes.
+ */
+export const STICKER_PIXELS = {
+    minSide:  64,
+    maxSide:  8000,
+    maxTotal: 40_000_000, // 40 megapixels
+} as const
 
 export type SponsorSpot = StickerSlotId | "any"
 
@@ -133,19 +147,52 @@ export function validateSponsorFields(input: {
 /** Size/type check the browser can do before uploading. */
 export function checkStickerFile(file: { size: number; type: string } | null | undefined): string | null {
     if (!file || file.size === 0) return "Attach the sticker file you'd like printed."
-    if (file.size > SPONSOR_LIMITS.fileBytes) return "That file is over 4 MB. Try a compressed PNG or a PDF."
-    if (file.type && !(file.type in STICKER_FILE_TYPES)) return "Use a PNG, JPG, WebP, or PDF file."
+    if (file.size > SPONSOR_LIMITS.fileBytes) return "That file is over 4 MB. Try a compressed PNG or a JPG."
+    if (file.type && !(file.type in STICKER_FILE_TYPES)) return "Use a PNG or JPG file."
     return null
 }
 
 /** The real file type, from its first bytes, or null when it isn't one we accept. */
 export function sniffStickerType(bytes: Uint8Array): StickerMime | null {
     const starts = (...sig: number[]) => sig.every((byte, i) => bytes[i] === byte)
-    const ascii  = (from: number, text: string) => [...text].every((ch, i) => bytes[from + i] === ch.charCodeAt(0))
     if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png"
     if (starts(0xff, 0xd8, 0xff)) return "image/jpeg"
-    if (ascii(0, "RIFF") && ascii(8, "WEBP")) return "image/webp"
-    if (ascii(0, "%PDF-")) return "application/pdf"
+    return null
+}
+
+/** Width and height from a PNG or JPEG header, or null if the header is unreadable. */
+export function imageSize(bytes: Uint8Array, type: StickerMime): { width: number; height: number } | null {
+    const u16 = (at: number) => (bytes[at] << 8) | bytes[at + 1]
+    if (type === "image/png") {
+        // The first chunk is IHDR: width and height as big-endian 32-bit ints at bytes 16 and 20.
+        if (bytes.length < 24) return null
+        const u32 = (at: number) => ((bytes[at] << 24) >>> 0) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3]
+        return { width: u32(16), height: u32(20) }
+    }
+    // JPEG: walk the segments to the first start-of-frame (SOF0–SOF15, except DHT/JPG/DAC).
+    let at = 2
+    while (at + 9 < bytes.length) {
+        if (bytes[at] !== 0xff) return null
+        const marker = bytes[at + 1]
+        if (marker === 0xff) { at++; continue } // fill byte
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+            return { height: u16(at + 5), width: u16(at + 7) }
+        }
+        if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) { at += 2; continue } // no length
+        if (marker === 0xd9 || marker === 0xda) return null // end of image / scan data before any frame header
+        at += 2 + u16(at + 2)
+    }
+    return null
+}
+
+/** Why an image's dimensions are unusable, or null when they're fine. */
+export function checkStickerPixels(size: { width: number; height: number } | null): string | null {
+    if (!size || size.width === 0 || size.height === 0) return "That image couldn't be read. Try exporting it again as a PNG or JPG."
+    const { minSide, maxSide, maxTotal } = STICKER_PIXELS
+    if (Math.min(size.width, size.height) < minSide) return `That image is too small to print (at least ${minSide} px on each side, please).`
+    if (Math.max(size.width, size.height) > maxSide || size.width * size.height > maxTotal) {
+        return `That image is too large (up to ${maxSide.toLocaleString("en-US")} px on a side, please).`
+    }
     return null
 }
 

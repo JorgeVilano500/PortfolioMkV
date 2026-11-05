@@ -12,7 +12,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 This is the entry point for AI coding agents. Claude Code loads it through `CLAUDE.md` (`@AGENTS.md`); most other agents read it automatically. Read this whole file first, then open only the doc your task needs. This file stays short on purpose. The details are in the linked docs.
 
-_Last verified against the code: **2026-11-03**, branch `security-patch` (on top of `7759667`, which merged PRs #4 and #5)._
+_Last verified against the code: **2026-11-03**, branch `studio-sponsorships` (on top of `ead392b`, which merged PR #6)._
 
 ---
 
@@ -31,6 +31,7 @@ _Last verified against the code: **2026-11-03**, branch `security-patch` (on top
 | Writing any code at all | [CODE_STYLE.md](CODE_STYLE.md) |
 | Adding or changing tests, or verifying a change | [TESTING.md](TESTING.md) |
 | Building or replacing the 3D laptop model for `/laptop` | [LAPTOP_MODEL.md](LAPTOP_MODEL.md): asset contract, Blender workflow, export settings |
+| Setting up or changing sponsorships (the sticker bucket, offers, Studio → Sponsorships) | [SPONSORSHIPS.md](SPONSORSHIPS.md): owner setup steps, Studio controls, REST reference |
 | Setting up locally, or wanting the human-oriented overview | [README.md](README.md) |
 | Looking for the historical daily status log | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md): written by an external automation, **stale since 2026-08-05** |
 
@@ -48,10 +49,10 @@ npm run build        # production build. Needs Supabase env vars (see §6)
 
 | Check | Result on 2026-11-03 |
 |---|---|
-| `npm test` | ✅ **783 tests, 46 suites** (incl. jsdom component suites), about 10 s |
+| `npm test` | ✅ **915 tests, 49 suites** (incl. jsdom component suites), about 10–40 s depending on load |
 | `npx tsc --noEmit` | ✅ clean |
 | `npm run lint` | ✅ clean |
-| `npm run build` | ✅ (Next 16.4.2) |
+| `npm run build` | ✅ (Next 16.4.2; built with `SUPABASE_SERVICE_ROLE_KEY=junk`, so `/laptop` prerendered the samples) |
 | `npm audit --omit=dev` | ✅ 0 critical/high/moderate. 1 low: `deepmerge`, used only by Jest (dev tooling); `resend` 6.34.1 no longer pulls it in (S-39) |
 
 If you run these checks, update this table.
@@ -87,16 +88,20 @@ app/                      routes (App Router)
   page.tsx                Home (server shell that renders the client HomeComponent)
   work/ about/ contact/   public pages (client) + layout.tsx files that carry metadata
   blog/ blog/[slug]/      blog list + post page (client), server layout for metadata/JSON-LD, OG image
-  studio/                 🔒 CMS: page.tsx (AdminGate + tabs), layout.tsx (noindex), BlogsPanel, ProjectsPanel, ProjectWizardModal, shared.tsx (icons)
+  studio/                 🔒 CMS: page.tsx (AdminGate + tabs), layout.tsx (noindex), BlogsPanel, ProjectsPanel, ProjectWizardModal,
+                          SponsorshipsPanel (laptop preview + spots + offers inbox), shared.tsx (icons)
   logistics/              🔒 analytics dashboard: page.tsx (AdminGate + Dashboard), layout.tsx (noindex)
-  api/                    route handlers: auth (session sign-in/out), analytics/{track,stats}, blog/{posts,upload}, projects, docs/upload, email-summary
+  api/                    route handlers: auth (session sign-in/out), analytics/{track,stats}, blog/{posts,upload}, projects, docs/upload, email-summary,
+                          sponsorships (public POST + admin inbox), sponsorships/{spots,file} (admin), laptop/spots (public JSON)
   layout.tsx              root layout: Geist fonts, Person JSON-LD, <OnboardingProvider> wrapping PageTracker, pages,
                           SiteFooter, IntroModal, TourSpotlight, Toast
   privacy/page.tsx        privacy & cookie policy (server component; generated from lib/consent constants)
-  laptop/                 3D sponsor stickers: page.tsx (server, metadata) → LaptopExperience (client boundary: open/close,
-                          lid + palm-rest pickers, details, 2D fallbacks) → LaptopViewer (Three.js, next/dynamic ssr:false;
-                          lid hinge, screen boot, keyboard backlight) + canvas-art.ts (2D artwork). Model contract: LAPTOP_MODEL.md
-                          SponsorForm: "Sponsor a spot" offer dialog → POST /api/sponsorships (private bucket + 2 emails)
+  laptop/                 3D sponsor stickers: page.tsx (server, ISR 5 min, reads sponsor_spots) → LaptopExperience (client:
+                          lid + palm-rest pickers, details) → LaptopStage (shared with Studio: toolbar, statuses, 2D fallbacks)
+                          → LaptopViewer (Three.js, next/dynamic ssr:false; lid hinge, screen boot, keyboard backlight, sticker
+                          highlight) + canvas-art.ts (2D artwork, uploaded images). Model contract: LAPTOP_MODEL.md
+                          SponsorForm: "Sponsor a spot" dialog → POST /api/sponsorships (sponsor_offers + private bucket + 2 emails)
+                          stickers/[spot]/route.ts: public image route for visible spots (bucket stays private)
   robots.ts sitemap.ts opengraph-image.tsx
 components/               index.tsx barrel · ui/* (Navbar, Home, WorkComponent, ProjectList, MarkdownRenderer, PageTracker, useCopyToClipboard, ComingSoon†) · features/Modal, features/AdminGate (password gate + sign-out)
   onboarding/             first-visit intro + consent + guided tour: OnboardingProvider (state), IntroModal, SitePreviews,
@@ -105,8 +110,9 @@ lib/                      supabase (anon) · supabase-admin (service role) · bl
                           security · rate-limit · auth-lockout (shared lockout) · http (byte-capped bodies) · validation
                           markdown-sanitize · session · two-factor (emailed code) · admin-auth · json-ld
                           consent (cookie model) · tour (steps) · analytics (shared rules) · theme · user-agent · random-id · supabase-errors
-                          laptop-stickers (sample sponsors + GLB contract for /laptop) · laptop-keyboard (key layout)
-                          sponsorship (offer rules, shared)
+                          laptop-stickers (slot layout, sample sponsors, spotAccent, GLB contract) · laptop-keyboard (key layout)
+                          sponsorship (offer rules incl. pixel size, shared) · sponsor-spots (spot rows → slots, path rule; client-safe)
+                          sponsor-spots-server (server-only: table/bucket names, getPublicSlots)
                           sponsor-email (server-only email templates) · turnstile (server-only spam check, S-40)
                           site (siteUrl() + contact email) · fetch-all-rows (paging past Supabase's 1,000-row cap)
 public/models/            (expected) macbook-pro-13-2019.glb — not committed yet; /laptop falls back to 2D until it is
@@ -137,7 +143,9 @@ __tests__/                Jest suites + helpers/ (test-utils.ts Supabase chain m
 - **Rate limiting is in-memory per serverless instance** (best-effort). It is keyed on Netlify's `x-nf-client-connection-ip`, falling back to `x-forwarded-for` off-Netlify, and has a global per-route failure ceiling. See SECURITY.md §4.3.
 - **The live DB may lag the schema files.** Agents can't run DDL; the owner runs SQL files in the Supabase SQL editor. `security-hardening.sql` has been run (S-1 confirmed fixed on 2026-10-21). `auth-lockout-schema.sql` (the shared lockout, S-4) may not have been yet. Until it is, `lib/auth-lockout.ts` falls back to in-memory counting and warns once.
 - **Three.js lives only in `app/laptop/LaptopViewer.tsx`**, loaded through `next/dynamic(..., { ssr: false })` from the `LaptopExperience` client boundary, so its ~635 KB chunk downloads only on `/laptop`. Don't import `three` anywhere else (`canvas-art.ts` is plain Canvas 2D). The GLB must follow LAPTOP_MODEL.md: the hinge empty `Lid`, `Lid_Outer`, `Screen`, `Keyboard`, `Sticker_Slot_1–4` and `Palm_Slot_Left/Right`, on the right sides of the hinge, and **no Draco, meshopt or KTX2**, whose WebAssembly and worker decoders the CSP doesn't allow. The viewer swaps GLTFLoader to `TextureLoader` so embedded textures load under `connect-src 'self'`.
-- **`/api/sponsorships` emails an address a stranger typed.** Keep its caps (per client, per recipient, global), the link-free affiliation rule, magic-byte file checks, and HTML escaping in `lib/sponsor-email.ts`. **Never test it locally with real keys**: it sends real email and writes to the production `sponsor-stickers` bucket (TESTING.md §7.8). With Resend's sandbox sender, the sponsor's copy can't be delivered (S-2), and the API reports `confirmationSent: false`.
+- **Sponsor spots come from `sponsor_spots`, not code.** `/laptop` renders `getPublicSlots()` (visible spots only; the samples in `STICKER_SLOTS` stand in until `supabase/sponsorships-schema.sql` has run), and Studio edits them through `/api/sponsorships/spots`, which calls `revalidatePath("/laptop")`. `STICKER_SLOTS` still owns the **layout** (ids, mesh names, surfaces); the six ids are repeated in the table's CHECK constraint and the samples in its seed, so change all three together. Hidden spots and offers must never reach a public response: images go through `/laptop/stickers/<spot>` (visible only) or the admin `/api/sponsorships/file`, and stored paths must match `STORED_FILE_RE`. Placing an offer's sticker starts the spot hidden on purpose.
+- **Selected and hovered spots light up everywhere.** `selectedId` and `hoveredId` live in the page (`LaptopExperience` or `SponsorshipsPanel`) and flow to the 3D viewer (halo + emissive glow), the 2D drawings and the tiles (`spotTileStyle`), all in the spot's `spotAccent` colour. A new view of the spots should take both props and report hover back.
+- **`/api/sponsorships` emails an address a stranger typed.** Keep its caps (per client, per recipient, global), the link-free affiliation rule, magic-byte file checks, and HTML escaping in `lib/sponsor-email.ts`. **Never test it locally with real keys**: it sends real email and writes to the production `sponsor-stickers` bucket and `sponsor_offers` table (TESTING.md §7.8). The same goes for `npm run build`: `/laptop` and `/api/laptop/spots` read `sponsor_spots` at build time, so build with `SUPABASE_SERVICE_ROLE_KEY=junk` for QA (the samples render instead). With Resend's sandbox sender, the sponsor's copy can't be delivered (S-2), and the API reports `confirmationSent: false`.
 - **The shared `Modal` traps focus** (via `components/onboarding/useFocusTrap`), and moves focus to a `[data-autofocus]` child on open.
 - **`/sitemap.xml` is static** (build output `○`), so new posts appear in it only after a redeploy.
 - **Keep `turbopackFileSystemCacheForBuild: false`** in `next.config.ts`. Next 16.3+ would otherwise cache env var values in `.next/cache/turbopack`, and Netlify's secrets scan fails the deploy ("RESEND_API_KEY exposed"). If a deploy ever fails a secrets scan, find the file the Netlify log names before changing any setting. Don't add secret names to `SECRETS_SCAN_OMIT_KEYS`.
@@ -151,7 +159,7 @@ The full prioritized list, with acceptance criteria, is in [PRD.md §7](PRD.md#7
 
 1. **Owner actions, outside the repo:**
    - Optional: switch on the sponsorship form's spam check by adding the Cloudflare Turnstile keys (S-40; steps in SECURITY.md §7).
-   - Run `supabase/sponsor-stickers-schema.sql` (the private bucket for sponsorship offers), and verify a Resend sending domain (S-2) so sponsors receive their copy.
+   - Run `supabase/sponsorships-schema.sql` (the private sticker bucket plus the `sponsor_offers` and `sponsor_spots` tables; steps in SPONSORSHIPS.md §2), and verify a Resend sending domain (S-2) so sponsors receive their copy.
    - Build the 13-inch 2019 MacBook Pro model per LAPTOP_MODEL.md and commit it as `public/models/macbook-pro-13-2019.glb`. `/laptop` shows its 2D fallback until then.
    - Run `supabase/auth-lockout-schema.sql` (S-4) and the read-only `supabase/audit-exposure.sql` (S-23).
    - Set `ADMIN_2FA=email` in Netlify (S-6).

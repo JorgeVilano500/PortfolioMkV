@@ -192,8 +192,8 @@ export function ownerNotificationEmail(inquiry: SponsorInquiry, siteUrl: string,
         { label: "Received",       value: formatDate(inquiry.receivedAt) },
     ]
     const footerText = stored
-        ? `Sent by the sponsorship form at ${siteUrl}/laptop. A copy of the file and these details is stored privately in the Supabase bucket "sponsor-stickers" under ${inquiry.id}/.`
-        : `Sent by the sponsorship form at ${siteUrl}/laptop. This offer could NOT be saved to Supabase storage (see the server log), so this email is the only copy.`
+        ? `Sent by the sponsorship form at ${siteUrl}/laptop. It's saved in Studio → Sponsorships (${siteUrl}/studio), with the file kept privately in the Supabase bucket "sponsor-stickers" under offers/${inquiry.id}/.`
+        : `Sent by the sponsorship form at ${siteUrl}/laptop. This offer could NOT be saved to Supabase (see the server log), so it won't appear in Studio and this email is the only copy.`
     return {
         subject: `Sponsorship inquiry: ${inquiry.affiliation} (${formatOffer(inquiry.offer)})`,
         html: layout({

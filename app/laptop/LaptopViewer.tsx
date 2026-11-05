@@ -13,6 +13,8 @@
  *     WebGL context), then parsed, and its parts are found by name.
  *  4. CanvasTexture: each sticker, the screen, and the keyboard are drawn on 2D
  *     canvases (canvas-art.ts) and mapped onto planes modelled in Blender.
+ *     Stickers come from the `slots` prop (Studio edits them live): a
+ *     sponsor's image is drawn once it loads, its mark until then.
  *  5. Raycaster: turn a click on the canvas into "which sticker is this?".
  *  6. OrbitControls + render on demand: there is no continuous loop. A frame
  *     is drawn only when something changes, so an idle page costs nothing.
@@ -59,34 +61,46 @@ import {
     STICKER_SLOTS,
     findSlotByNode,
     missingModelNodes,
+    spotAccent,
     type StickerSlot,
     type StickerSlotId,
 } from "@/lib/laptop-stickers"
-import { drawBootScreen, drawDesktop, drawKeyboard, drawRing, drawSticker, makeScreenCanvas } from "./canvas-art"
+import { drawBootScreen, drawDesktop, drawKeyboard, drawRing, drawSticker, loadStickerImage, makeScreenCanvas, paintSticker } from "./canvas-art"
 
 export type ViewerStatus = "loading" | "ready" | "missing" | "invalid" | "unsupported" | "error"
 
 type LaptopViewerProps = {
+    /** What each sticker shows. Changing it repaints only the stickers that changed. */
+    slots:         readonly StickerSlot[]
     /** Whether the lid should be open. Changing it plays the open or close animation. */
     open:          boolean
     selectedId:    StickerSlotId | null
+    /** A spot the visitor is pointing at, here or in a list: its sticker glows faintly. */
+    hoveredId?:    StickerSlotId | null
     /** Increments each time the page asks for the overview again. */
     resetToken:    number
     reducedMotion: boolean
     onSelect:      (id: StickerSlotId) => void
+    /** The mouse moved onto (id) or off (null) a sticker, so its tile can light up too. */
+    onHover?:      (id: StickerSlotId | null) => void
     onStatus:      (status: ViewerStatus) => void
 }
 
 type Pose = { position: Vector3; target: Vector3 }
 
 type ViewerApi = {
-    show:  (open: boolean, id: StickerSlotId | null, instant: boolean) => void
-    reset: (instant: boolean) => void
+    show:     (open: boolean, id: StickerSlotId | null, instant: boolean) => void
+    reset:    (instant: boolean) => void
+    setSlots: (slots: readonly StickerSlot[]) => void
+    hover:    (id: StickerSlotId | null) => void
 }
 
 const FOV           = 35
 const DRAG_PX       = 6      // a pointer that moved further than this was rotating, not clicking
 const HALO_SCALE    = 1.16
+// How much a sticker brightens: selected (plus a short flash when chosen), hovered.
+const GLOW = { selected: 0.28, flash: 0.55, hovered: 0.16 } as const
+const FLASH_MS = 700
 const OVERLAY_LAYER = 1      // drawn by the camera, ignored by the raycaster
 
 const OPEN_ANGLE      = MathUtils.degToRad(LAPTOP_MODEL.openAngle)
@@ -157,14 +171,15 @@ function step(c: Channel, now: number): boolean {
     return c.value !== c.to
 }
 
-export function LaptopViewer({ open, selectedId, resetToken, reducedMotion, onSelect, onStatus }: LaptopViewerProps) {
+export function LaptopViewer({ slots, open, selectedId, hoveredId = null, resetToken, reducedMotion, onSelect, onHover, onStatus }: LaptopViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const apiRef       = useRef<ViewerApi | null>(null)
 
     // Effect events read the latest props without re-running the scene setup.
     const reportStatus = useEffectEvent((status: ViewerStatus) => onStatus(status))
     const selectSlot   = useEffectEvent((id: StickerSlotId) => onSelect(id))
-    const initialState = useEffectEvent(() => ({ open, selectedId }))
+    const hoverSlot    = useEffectEvent((id: StickerSlotId | null) => onHover?.(id))
+    const initialState = useEffectEvent(() => ({ open, selectedId, slots }))
     const showState    = useEffectEvent(() => apiRef.current?.show(open, selectedId, reducedMotion))
     const resetView    = useEffectEvent(() => apiRef.current?.reset(reducedMotion))
 
@@ -187,6 +202,7 @@ export function LaptopViewer({ open, selectedId, resetToken, reducedMotion, onSe
             unmountScene = mountLaptopScene(container, buffer, {
                 onStatus:     (status) => reportStatus(status),
                 onPick:       (id) => selectSlot(id),
+                onHover:      (id) => hoverSlot(id),
                 onReady:      (api) => { apiRef.current = api },
                 initialState: () => initialState(),
             })
@@ -213,6 +229,14 @@ export function LaptopViewer({ open, selectedId, resetToken, reducedMotion, onSe
         if (resetToken > 0) resetView()
     }, [resetToken])
 
+    useEffect(() => {
+        apiRef.current?.setSlots(slots)
+    }, [slots])
+
+    useEffect(() => {
+        apiRef.current?.hover(hoveredId)
+    }, [hoveredId])
+
     return <div ref={containerRef} className="absolute inset-0" />
 }
 
@@ -221,8 +245,9 @@ export function LaptopViewer({ open, selectedId, resetToken, reducedMotion, onSe
 type SceneHandlers = {
     onStatus:     (status: ViewerStatus) => void
     onPick:       (id: StickerSlotId) => void
+    onHover:      (id: StickerSlotId | null) => void
     onReady:      (api: ViewerApi) => void
-    initialState: () => { open: boolean; selectedId: StickerSlotId | null }
+    initialState: () => { open: boolean; selectedId: StickerSlotId | null; slots: readonly StickerSlot[] }
 }
 
 /** The parts that change as the laptop opens and wakes, found once the model has loaded. */
@@ -322,7 +347,9 @@ function mountLaptopScene(container: HTMLElement, buffer: ArrayBuffer, handlers:
     function draw(now: number) {
         frame = 0
         stepTween(now)
-        const moving = stepPower(now)
+        const flashing = step(flash, now)
+        applyHighlight()
+        const moving = stepPower(now) || flashing
         renderer.render(scene, camera)
         if (moving) requestRender()
     }
@@ -383,6 +410,26 @@ function mountLaptopScene(container: HTMLElement, buffer: ArrayBuffer, handlers:
     let model: Object3D | null = null
     const stickers  = new Map<StickerSlotId, Mesh>()
     const halos     = new Map<StickerSlotId, Mesh>()
+
+    // ─── 5a. Highlighting: the selected and hovered stickers light up ────
+    // Both the frame (halo) and the sticker itself, in the spot's own colour
+    // (spotAccent), matching the tile that lights up on the page.
+    let selected: StickerSlotId | null = null
+    let hovered:  StickerSlotId | null = null
+    const accents = new Map<StickerSlotId, string>()
+    const flash   = channel(easeOutCubic)
+    const applyHighlight = () => {
+        for (const [id, halo] of halos) {
+            const material = halo.material as MeshBasicMaterial
+            halo.visible = id === selected || id === hovered
+            material.color.set(accents.get(id) ?? "#7c6dff")
+            material.opacity = id === selected ? 1 : 0.55
+        }
+        for (const [id, mesh] of stickers) {
+            const material = mesh.material as MeshStandardMaterial
+            material.emissiveIntensity = id === selected ? GLOW.selected + GLOW.flash * flash.value : id === hovered ? GLOW.hovered : 0
+        }
+    }
     const raycaster = new Raycaster() // tests layer 0 only, so halos and the screen overlay don't count
     const pointer   = new Vector2()
 
@@ -413,13 +460,22 @@ function mountLaptopScene(container: HTMLElement, buffer: ArrayBuffer, handlers:
         const id = pick(event)
         if (id) handlers.onPick(id)
     }
+    let pointerOver: StickerSlotId | null = null
+    const reportHover = (id: StickerSlotId | null) => {
+        if (id === pointerOver) return
+        pointerOver = id
+        handlers.onHover(id)
+    }
     const onPointerMove = (event: PointerEvent) => {
         if (event.pointerType !== "mouse" || hoverFrame) return
         hoverFrame = requestAnimationFrame(() => {
             hoverFrame = 0
-            canvas.style.cursor = pick(event) ? "pointer" : "grab"
+            const id = pick(event)
+            canvas.style.cursor = id ? "pointer" : "grab"
+            reportHover(id)
         })
     }
+    const onPointerLeave = () => reportHover(null)
     const onContextLost = (event: Event) => {
         event.preventDefault()
         handlers.onStatus("error")
@@ -427,6 +483,7 @@ function mountLaptopScene(container: HTMLElement, buffer: ArrayBuffer, handlers:
     canvas.addEventListener("pointerdown", onPointerDown)
     canvas.addEventListener("pointerup", onPointerUp)
     canvas.addEventListener("pointermove", onPointerMove)
+    canvas.addEventListener("pointerleave", onPointerLeave)
     canvas.addEventListener("webglcontextlost", onContextLost)
 
     // ─── 3. Parsing the GLB ──────────────────────────────────────────────
@@ -459,14 +516,51 @@ function mountLaptopScene(container: HTMLElement, buffer: ArrayBuffer, handlers:
 
         // ─── 4. Artwork on the modelled planes ───────────────────────────
         const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
+        // One canvas per sticker, repainted in place when its spot changes.
+        const art = new Map<StickerSlotId, { canvas: HTMLCanvasElement; texture: CanvasTexture; key: string; version: number }>()
         for (const slot of STICKER_SLOTS) {
-            const mesh = part(slot.node)
-            replaceMaterial(mesh, makeStickerMaterial(slot, anisotropy))
+            const mesh    = part(slot.node)
+            const canvas  = drawSticker(slot)
+            const texture = makeTexture(canvas, anisotropy)
+            replaceMaterial(mesh, makeStickerMaterial(texture))
+            art.set(slot.id, { canvas, texture, key: JSON.stringify(slot.sponsor), version: 0 })
             let ring = ringTextures.get(slot.aspect)
             if (!ring) ringTextures.set(slot.aspect, ring = makeRingTexture(slot.aspect))
             stickers.set(slot.id, mesh)
             halos.set(slot.id, addHalo(mesh, ring))
         }
+        const paint = (slot: StickerSlot) => {
+            const entry = art.get(slot.id)
+            const key   = JSON.stringify(slot.sponsor)
+            if (!entry || entry.key === key) return
+            entry.key = key
+            const version = ++entry.version
+            paintSticker(entry.canvas, slot)
+            entry.texture.needsUpdate = true
+            requestRender()
+            const url = slot.sponsor?.imageUrl
+            if (!url) return
+            loadStickerImage(url)
+                .then((image) => {
+                    // A newer edit (or unmount) wins over a slow image.
+                    if (disposed || entry.version !== version) return
+                    paintSticker(entry.canvas, slot, image)
+                    entry.texture.needsUpdate = true
+                    requestRender()
+                })
+                .catch((error: unknown) => console.warn("[laptop]", error instanceof Error ? error.message : error))
+        }
+        const setSlots = (slots: readonly StickerSlot[]) => {
+            for (const slot of slots) {
+                accents.set(slot.id, spotAccent(slot))
+                paint(slot)
+            }
+            applyHighlight()
+            requestRender()
+        }
+        // The canvases start from the built-in layout; bring them up to the page's data.
+        for (const entry of art.values()) entry.key = ""
+        setSlots(handlers.initialState().slots)
 
         // The screen shows a boot screen under a desktop that fades in over it.
         const screenMesh      = part(LAPTOP_MODEL.nodes.screen)
@@ -548,13 +642,25 @@ function mountLaptopScene(container: HTMLElement, buffer: ArrayBuffer, handlers:
                 const toggled = open !== isOpen
                 if (toggled) setPower(open, instant)
                 isOpen = open
-                for (const [slotId, halo] of halos) halo.visible = slotId === id
+                if (id !== selected) {
+                    selected = id
+                    // A short flash says "this one", unless motion is reduced.
+                    flash.value = id && !instant ? 1 : 0
+                    if (flash.value) animate(flash, 0, { delay: 0, duration: FLASH_MS }, performance.now())
+                }
+                applyHighlight()
                 const slot = id ? STICKER_SLOTS.find((s) => s.id === id) : undefined
                 const mesh = id ? stickers.get(id) : undefined
                 // Swing round with the lid when it moves; glide between spots otherwise.
                 moveTo(slot && mesh ? focusOn(slot, mesh, open) : overview(open), instant, toggled ? SWEEP : GLIDE)
             },
             reset: (instant) => moveTo(overview(isOpen), instant, GLIDE),
+            setSlots,
+            hover: (id) => {
+                hovered = id
+                applyHighlight()
+                requestRender()
+            },
         }
         moveTo(overview(false), true, GLIDE)
         const initial = handlers.initialState()
@@ -578,6 +684,7 @@ function mountLaptopScene(container: HTMLElement, buffer: ArrayBuffer, handlers:
         canvas.removeEventListener("pointerdown", onPointerDown)
         canvas.removeEventListener("pointerup", onPointerUp)
         canvas.removeEventListener("pointermove", onPointerMove)
+        canvas.removeEventListener("pointerleave", onPointerLeave)
         canvas.removeEventListener("webglcontextlost", onContextLost)
         controls.dispose()
         disposeObject(scene)
@@ -630,9 +737,12 @@ function makeTexture(canvas: HTMLCanvasElement, anisotropy: number): CanvasTextu
     return texture
 }
 
-function makeStickerMaterial(slot: StickerSlot, anisotropy: number): MeshStandardMaterial {
+function makeStickerMaterial(map: CanvasTexture): MeshStandardMaterial {
     return new MeshStandardMaterial({
-        map:                 makeTexture(drawSticker(slot), anisotropy),
+        map,
+        emissive:            "#ffffff",
+        emissiveMap:         map, // lights the sticker's own colours when it's selected or hovered
+        emissiveIntensity:   0,
         transparent:         true, // rounded corners
         roughness:           0.45, // satin vinyl
         metalness:           0,

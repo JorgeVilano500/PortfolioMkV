@@ -6,13 +6,18 @@
  * sticker clicked in 3D). Covers selection by click, keyboard, and 3D pick on
  * both surfaces; opening and closing the laptop; loading, missing-model,
  * error, and unsupported fallbacks (including the open 2D drawing); retry;
- * reduced motion; the offer form's trigger; and the link from /work.
+ * reduced motion; the offer form's trigger; the two-way highlight between
+ * stickers (3D or 2D) and their tiles; spots from the page's data; and the
+ * link from /work.
  */
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 
 type MockViewerProps = {
+    slots:         readonly StickerSlot[]
     open:          boolean
     selectedId:    string | null
+    hoveredId:     string | null
+    onHover:       (id: string | null) => void
     resetToken:    number
     reducedMotion: boolean
     onSelect:      (id: string) => void
@@ -41,6 +46,7 @@ jest.mock("next/link", () => {
 })
 
 import { LaptopExperience } from "@/app/laptop/LaptopExperience"
+import { STICKER_COLORS, STICKER_SLOTS, type StickerSlot } from "@/lib/laptop-stickers"
 import { WorkComponent } from "@/components/ui/WorkComponent"
 
 const viewer = () => {
@@ -99,7 +105,7 @@ describe("lid spot picker", () => {
     it("moves selection and focus with arrow keys, wrapping, plus Home and End", () => {
         render(<LaptopExperience />)
         const first = lidRadios()[0]
-        first.focus()
+        act(() => first.focus())
         fireEvent.keyDown(first, { key: "ArrowRight" })
         expect(viewer().selectedId).toBe("slot-1") // nothing chosen yet → the first spot
         fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" })
@@ -158,7 +164,7 @@ describe("inside the laptop: palm rest spots", () => {
     it("moves between the two palm spots with the arrow keys, wrapping", () => {
         render(<LaptopExperience />)
         const [left, right] = within(palmGroup()).getAllByRole("radio")
-        left.focus()
+        act(() => left.focus())
         fireEvent.keyDown(left, { key: "ArrowRight" })
         expect(viewer().selectedId).toBe("palm-left")
         expect(viewer().open).toBe(true)
@@ -297,6 +303,103 @@ describe("viewer states", () => {
         expect(mockViewer.mounts).toBe(2)
         expect(screen.getByRole("status").textContent).toMatch(/Loading the 3D laptop/)
     })
+})
+
+describe("highlight sync", () => {
+    const tile = (name: RegExp) => screen.getByRole("radio", { name })
+    const accent = (el: HTMLElement | SVGElement) => (el as HTMLElement).style.getPropertyValue("--spot-accent")
+    const lit = (el: HTMLElement) => el.getAttribute("aria-checked") === "true" && el.style.boxShadow !== ""
+
+    it("lights a sticker's tile and the details card in its colour when it's clicked in 3D", () => {
+        render(<LaptopExperience />)
+        report("ready")
+        act(() => viewer().onSelect("slot-2")) // Example Cloud, green
+        const upperRight = tile(/Upper right/)
+        expect(lit(upperRight)).toBe(true)
+        expect(accent(upperRight)).toBe(STICKER_COLORS.green.fill)
+        expect(lidRadios().filter((o) => o.style.boxShadow !== "")).toHaveLength(1)
+        expect(within(details()).getByRole("heading", { name: "Example Cloud" })).toBeTruthy()
+        expect(viewer().selectedId).toBe("slot-2")
+    })
+
+    it("lights the sticker in 3D while its tile is pointed at or focused", () => {
+        render(<LaptopExperience />)
+        fireEvent.mouseEnter(tile(/Lower left/))
+        expect(viewer().hoveredId).toBe("slot-3")
+        fireEvent.mouseLeave(tile(/Lower left/))
+        expect(viewer().hoveredId).toBeNull()
+        fireEvent.focus(tile(/Right of trackpad/))
+        expect(viewer().hoveredId).toBe("palm-right")
+    })
+
+    it("lights a tile faintly when its sticker is pointed at in 3D, without selecting it", () => {
+        render(<LaptopExperience />)
+        act(() => viewer().onHover("slot-1"))
+        const upperLeft = tile(/Upper left/)
+        expect(upperLeft.getAttribute("aria-checked")).toBe("false")
+        expect(upperLeft.style.borderColor).not.toBe("")
+        expect(upperLeft.style.boxShadow).toBe("")
+        act(() => viewer().onHover(null))
+        expect(tile(/Upper left/).style.borderColor).toBe("")
+    })
+
+    it("selects from the 2D lid drawing, and lights the drawn sticker from its tile", () => {
+        render(<LaptopExperience />)
+        report("missing")
+        const sticker = (id: string) => screen.getByRole("img").querySelector(`[data-spot="${id}"]`) as HTMLElement
+        fireEvent.click(sticker("slot-4"))
+        expect(lit(tile(/Lower right/))).toBe(true)
+        expect(within(details()).getByRole("heading", { name: "This spot is open" })).toBeTruthy()
+        expect(sticker("slot-4").style.boxShadow).toMatch(/0 0 0 4px/)
+        fireEvent.mouseEnter(sticker("slot-1"))
+        expect(tile(/Upper left/).style.borderColor).not.toBe("")
+        fireEvent.mouseEnter(tile(/Upper right/))
+        expect(sticker("slot-2").style.boxShadow).toMatch(/0 0 0 2px/)
+    })
+
+    it("selects from the open 2D drawing's palm rest", () => {
+        render(<LaptopExperience />)
+        report("missing")
+        fireEvent.click(toggle())
+        const drawing = screen.getByRole("img").querySelector("svg")!
+        fireEvent.click(drawing.querySelector('[data-spot="palm-right"]')!)
+        expect(lit(tile(/Right of trackpad/))).toBe(true)
+        expect(drawing.querySelectorAll('[data-spot="palm-right"] rect[stroke-width="2.5"]')).toHaveLength(1)
+    })
+})
+
+describe("spots from the page", () => {
+    const real: StickerSlot[] = STICKER_SLOTS.map((slot) => slot.id === "slot-1"
+        ? { ...slot, sponsor: { name: "Real Co", mark: "RC", tagline: "We exist", description: "", theme: "pink", imageUrl: "/laptop/stickers/slot-1?v=1" } }
+        : { ...slot, sponsor: null })
+
+    it("draws the spots it's given, and passes them to the 3D view", () => {
+        render(<LaptopExperience slots={real} />)
+        expect(viewer().slots).toBe(real)
+        expect(tile(/Upper left/).textContent).toMatch(/Real Co/)
+        expect(tile(/Upper right/).textContent).toMatch(/Open spot/)
+    })
+
+    it("drops the sample disclaimer once no sample stickers are shown", () => {
+        render(<LaptopExperience slots={real} />)
+        expect(document.body.textContent).not.toMatch(/Sample stickers/)
+        expect(document.body.textContent).toMatch(/nothing is charged on this site/)
+    })
+
+    it("shows an uploaded sticker image, and no sample badge, for a real sponsor", () => {
+        render(<LaptopExperience slots={real} />)
+        fireEvent.click(tile(/Upper left/))
+        expect(within(details()).getByRole("img", { name: "Real Co sticker" }).getAttribute("src")).toBe("/laptop/stickers/slot-1?v=1")
+        expect(within(details()).queryByText("Sample sponsor")).toBeNull()
+    })
+
+    it("marks the built-in samples as samples", () => {
+        render(<LaptopExperience />)
+        fireEvent.click(tile(/Upper left/))
+        expect(within(details()).getByText("Sample sponsor")).toBeTruthy()
+    })
+
+    function tile(name: RegExp) { return screen.getByRole("radio", { name }) }
 })
 
 describe("reduced motion", () => {

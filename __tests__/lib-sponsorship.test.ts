@@ -6,10 +6,14 @@
 import {
     SPONSOR_LIMITS,
     SPOT_CHOICES,
+    STICKER_ACCEPT,
+    STICKER_PIXELS,
     checkStickerFile,
+    checkStickerPixels,
     cleanFileName,
     cleanText,
     formatOffer,
+    imageSize,
     isValidEmail,
     parseOffer,
     sniffStickerType,
@@ -121,16 +125,21 @@ describe("files", () => {
         expect(checkStickerFile(null)).toMatch(/Attach/)
         expect(checkStickerFile({ size: 0, type: "image/png" })).toMatch(/Attach/)
         expect(checkStickerFile({ size: SPONSOR_LIMITS.fileBytes + 1, type: "image/png" })).toMatch(/over 4 MB/)
-        expect(checkStickerFile({ size: 10, type: "image/svg+xml" })).toMatch(/PNG, JPG, WebP, or PDF/)
+        expect(checkStickerFile({ size: 10, type: "image/svg+xml" })).toMatch(/PNG or JPG/)
+        expect(checkStickerFile({ size: 10, type: "image/webp" })).toMatch(/PNG or JPG/)
+        expect(checkStickerFile({ size: 10, type: "application/pdf" })).toMatch(/PNG or JPG/)
         expect(checkStickerFile({ size: 10, type: "image/png" })).toBeNull()
+        expect(checkStickerFile({ size: 10, type: "image/jpeg" })).toBeNull()
         expect(checkStickerFile({ size: 10, type: "" })).toBeNull() // unknown type: the server sniffs it
     })
 
     it("recognises each accepted format by its magic bytes", () => {
         expect(sniffStickerType(bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0))).toBe("image/png")
         expect(sniffStickerType(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe("image/jpeg")
-        expect(sniffStickerType(ascii("RIFF\0\0\0\0WEBPVP8 "))).toBe("image/webp")
-        expect(sniffStickerType(ascii("%PDF-1.7\n"))).toBe("application/pdf")
+    })
+
+    it("offers only PNG and JPG in the file picker", () => {
+        expect(STICKER_ACCEPT.split(",").sort()).toEqual([".jpeg", ".jpg", ".png", "image/jpeg", "image/png"])
     })
 
     it.each([
@@ -138,9 +147,43 @@ describe("files", () => {
         ["HTML renamed .png", "<!doctype html><script>alert(1)</script>"],
         ["an executable", "MZ\u0090\u0000"],
         ["RIFF that isn't WebP (WAV)", "RIFF\0\0\0\0WAVEfmt "],
+        ["a WebP (no longer accepted: PNG or JPG only)", "RIFF\0\0\0\0WEBPVP8 "],
+        ["a PDF (no longer accepted: it can't go on a sticker preview)", "%PDF-1.7\n"],
         ["empty", ""],
     ])("rejects %s", (_label, content) => {
         expect(sniffStickerType(ascii(content))).toBeNull()
+    })
+
+    it("reads a PNG's size from its IHDR chunk", () => {
+        const png = new Uint8Array(33)
+        png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+        new DataView(png.buffer).setUint32(16, 1600)
+        new DataView(png.buffer).setUint32(20, 900)
+        expect(imageSize(png, "image/png")).toEqual({ width: 1600, height: 900 })
+        expect(imageSize(png.slice(0, 20), "image/png")).toBeNull() // truncated
+    })
+
+    it("reads a JPEG's size from its frame header, past other segments", () => {
+        const jpeg = bytes(
+            0xff, 0xd8,                                   // SOI
+            0xff, 0xe0, 0, 6, 0x4a, 0x46, 0x49, 0x46,     // APP0 (length 6)
+            0xff, 0xc4, 0, 4, 0, 0,                       // DHT: a C-marker that is NOT a frame
+            0xff, 0xc2, 0, 11, 8, 0x02, 0x58, 0x03, 0x20, 1, 1, 0x11, 0, // SOF2 (progressive): 600 tall, 800 wide
+            0, 0, 0,
+        )
+        expect(imageSize(jpeg, "image/jpeg")).toEqual({ width: 800, height: 600 })
+        expect(imageSize(bytes(0xff, 0xd8, 0xff, 0xda, 0, 2, 0, 0, 0, 0, 0, 0), "image/jpeg")).toBeNull() // scan before any frame
+        expect(imageSize(bytes(0xff, 0xd8, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0), "image/jpeg")).toBeNull() // not a marker
+    })
+
+    it("accepts sensible sticker sizes and refuses ones too small to print or too big to draw", () => {
+        expect(checkStickerPixels({ width: 1200, height: 1200 })).toBeNull()
+        expect(checkStickerPixels({ width: STICKER_PIXELS.minSide, height: STICKER_PIXELS.minSide })).toBeNull()
+        expect(checkStickerPixels({ width: 63, height: 500 })).toMatch(/too small/)
+        expect(checkStickerPixels({ width: 8001, height: 100 })).toMatch(/too large/)
+        expect(checkStickerPixels({ width: 7000, height: 7000 })).toMatch(/too large/) // 49 MP
+        expect(checkStickerPixels({ width: 0, height: 100 })).toMatch(/couldn't be read/)
+        expect(checkStickerPixels(null)).toMatch(/couldn't be read/)
     })
 
     it("cleans file names for display: no paths, controls, or reserved characters", () => {

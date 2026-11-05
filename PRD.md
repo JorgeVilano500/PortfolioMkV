@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-03** (branch `security-patch`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-03** (branch `studio-sponsorships`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -71,7 +71,7 @@ Legend: ✅ working · ⚠️ working but has a known gap · ❌ missing or brok
 | **Site footer** | `components/onboarding/SiteFooter.tsx` | ✅ | Privacy · Cookie settings · Take the tour, on every public page |
 | **Privacy page** | `/privacy` | ✅ | Plain-language policy covering every storage key and data point (generated from the same constants as the modal), plus a "Manage cookie settings" button |
 | **Cookie settings / erasure** | footer → settings dialog, `DELETE /api/consent` | ✅ | Change the choice any time; "Delete my data" erases this browser's analytics rows |
-| **3D sponsor-sticker laptop** | `/laptop` (`app/laptop/*`, `lib/laptop-stickers.ts`), linked from `/work` | ⚠️ | v1 shipped in code, but **the GLB isn't in `public/` yet**, so visitors see the 2D lid fallback (LAPTOP_MODEL.md). Three.js viewer of a 13-inch 2019 MacBook Pro with four spots on the lid and **two on the palm rest**, an **Open the laptop** animation (lid swing, screen boot, backlit keyboard), **sample** sponsors, spot pickers (radio groups), a details card, and a **"Sponsor a spot" offer form** (email, affiliation, offer, spot, sticker file) that emails the owner (Reply-To: the sponsor) and sends the sponsor a copy, keeping a private copy in Supabase Storage. No payments. ⚠️ The sponsor's copy needs a verified Resend domain (S-2), and the bucket SQL must be run. |
+| **3D sponsor-sticker laptop** | `/laptop` (`app/laptop/*`, `lib/laptop-stickers.ts`), linked from `/work` | ⚠️ | v1 shipped in code, but **the GLB isn't in `public/` yet**, so visitors see the 2D lid fallback (LAPTOP_MODEL.md). Three.js viewer of a 13-inch 2019 MacBook Pro with four spots on the lid and **two on the palm rest**, an **Open the laptop** animation (lid swing, screen boot, backlit keyboard), sponsors **managed in Studio** (sample sponsors until the table exists, labelled as samples), spot pickers (radio groups) that **light up with their sticker** in the sponsor's colour, a details card, and a **"Sponsor a spot" offer form** (email, affiliation, offer, spot, PNG/JPG sticker) that emails the owner (Reply-To: the sponsor), sends the sponsor a copy, and saves the offer for Studio. No payments. ⚠️ The sponsor's copy needs a verified Resend domain (S-2), and `supabase/sponsorships-schema.sql` must be run (SPONSORSHIPS.md). |
 | Error and 404 pages | none | ❌ | Uses Next.js defaults |
 
 ### 4.2 Admin 🔒
@@ -80,6 +80,7 @@ Legend: ✅ working · ⚠️ working but has a known gap · ❌ missing or brok
 | Admin sign-in (shared by Studio and Logistics) | `components/features/AdminGate.tsx`, `/api/auth` | ✅ | The password is sent once and exchanged for an HttpOnly session cookie (8 h). There is a "Sign out" button on both pages. Nothing is stored client-side. |
 | **Studio, Blogs tab**: stats (posts, published, drafts, views); New Post form (title, auto-slug, content); grid cards with publish toggle and kebab menu (edit, open, copy link, share, two-step delete); preview/edit modal (Write/Preview tabs, Post Settings: excerpt, emoji, tags, theme, slug); search; status filter; tag filter; 6 sort modes (including "Most popular" by view count); select mode with bulk publish, unpublish, and delete | `app/studio/BlogsPanel.tsx` | ✅ | Bulk delete uses `window.confirm` and is capped at 100 |
 | **Studio, Projects tab**: grid cards (featured star, edit, live and GitHub links, public/hidden toggle, two-click delete); 4-step wizard (Basics, Details, Links, Review) for create and edit, with emoji suggestions; filters, sort, bulk ops | `app/studio/ProjectsPanel.tsx`, `ProjectWizardModal.tsx` | ✅ | Lint error at `ProjectWizardModal.tsx:420` |
+| **Studio, Sponsorships tab**: stats (offers, new, spots taken, hidden); a copy of the `/laptop` 3D laptop (same component and data, with a "Show hidden stickers" switch); six spot cards (Sample / Hidden / From an offer badges, thumbnail, show/hide switch) that light up with their sticker; a spot editor (name, mark, tagline, description, colour, upload/replace/remove image, two-step clear, place an offer's sticker); an offers inbox (status filter, thumbnail, open/download, mailto, place on a spot, accept/decline, notes, two-step delete) | `app/studio/SponsorshipsPanel.tsx`, `/api/sponsorships`, `/api/sponsorships/spots`, `/api/sponsorships/file` | ✅ | A banner asks for `sponsorships-schema.sql` until it has run; saves refresh `/laptop` at once. Setup: SPONSORSHIPS.md |
 | **Logistics**: KPIs (total views, unique sessions, last-30-day views and uniques, average load time), top pages, 30-day daily bars, referrers, devices, new vs returning, bounce rate, peak hours (UTC), recent activity (15), this-device tracking toggle, current IP, excluded IP list | `app/logistics/page.tsx`, `GET /api/analytics/stats` | ✅ | Computed from the latest 50,000 rows in memory |
 
 ### 4.3 Integration endpoints
@@ -139,10 +140,15 @@ published: true           # optional: only literal true publishes
 
 ### 5.4 Studio (STU) 🔒
 - **STU-1** Access requires `LOGISTICS_PASSWORD`, checked server-side with a constant-time compare at `POST /api/auth`. That call sets an HttpOnly, SameSite=Strict session cookie (8 h). The client never stores the password. Sign-out clears the cookie, and changing the password signs everyone out.
-- **STU-2** Every read and mutation goes through `/api/blog/posts` or `/api/projects`, authenticated by the HttpOnly session cookie from sign-in (no password header). Studio never touches Supabase directly.
+- **STU-2** Every read and mutation goes through `/api/blog/posts`, `/api/projects`, or the sponsorship routes (`/api/sponsorships`, `/api/sponsorships/spots`, `/api/sponsorships/file`), authenticated by the HttpOnly session cookie from sign-in (no password header). Studio never touches Supabase directly.
 - **STU-3** Destructive actions require explicit confirmation: a two-step button or `confirm()`. Bulk operations are capped at 100 ids.
 - **STU-4** Studio is excluded from analytics on both the client and the server.
 - **STU-5** The UI changes only after the server responds successfully; there are no optimistic writes. On failure, an inline pink error appears and the busy state always resets. _This is currently violated by the grid-card quick actions: `togglePublished` and the delete handlers in `PostGridCard` (`BlogsPanel.tsx`) and `ProjectGridCard` (`ProjectsPanel.tsx`) ignore non-OK responses and have no `try/catch`, so a failure does nothing visible. See P1-9._
+
+- **STU-6** **Sponsorships tab:** every spot on `/laptop` can be shown or hidden with one switch. Hiding keeps the sponsor in Studio and shows the spot as open on `/laptop`. Each spot's name, mark, tagline, description, colour and image can be edited, and a spot can be cleared.
+- **STU-7** Studio's laptop preview is the same component and data as `/laptop`, plus hidden stickers when "Show hidden stickers" is on. Selecting a sticker there or a spot card selects both, and both light up in the sponsor's colour; pointing at either lights the other faintly.
+- **STU-8** Every offer from the form is listed (newest first) with its file, which can be opened or downloaded. An offer's sticker can be placed on any spot; it arrives **hidden** (a preview step before it goes public), the spot takes the affiliation as its name, and the offer is marked accepted. Offers can be accepted, declined, annotated, or deleted (two clicks; a placed copy stays).
+- **STU-9** Every sponsorship change refreshes `/laptop` on its next visit (`revalidatePath`), and `GET /api/laptop/spots` exposes the same public view as JSON.
 
 ### 5.5 Logistics (LOG) 🔒
 - **LOG-1** The gate is the same as STU-1. Stats are computed server-side from up to 50,000 of the most recent `page_views` rows.
@@ -171,8 +177,8 @@ published: true           # optional: only literal true publishes
 
 ### 5.6b 3D laptop stickers (LAP)
 - **LAP-1** `/laptop` shows a Three.js model of a **13-inch 2019 MacBook Pro**, loaded from `public/models/macbook-pro-13-2019.glb`. The lid's outside is the distinct part `Lid_Outer`, carrying four sticker planes, `Sticker_Slot_1–4`; the lid hangs from the hinge empty `Lid`, which also carries the `Screen`; the base carries the `Keyboard` plane and two palm-rest sticker planes, `Palm_Slot_Left/Right` (contract: LAPTOP_MODEL.md).
-- **LAP-2** Selecting a spot, by clicking the sticker in 3D or using the spot list (mouse or keyboard), shows its sponsor details. The two stay in sync, and the camera moves to the chosen sticker.
-- **LAP-3** Sponsor data shown on the lid is curated sample data, labelled as samples. "Sponsor a spot" opens an offer form (SPN-1 to SPN-6). Nothing is sold or paid for on the site, and the page says so.
+- **LAP-2** Selecting a spot, by clicking the sticker in 3D, in the 2D drawing, or in the spot list (mouse or keyboard), shows its sponsor details. They stay in sync, and the camera moves to the chosen sticker. The selected sticker, its spot tile and the details card light up in the sponsor's colour (a short glow, motion permitting); pointing at a sticker or a tile lights the other faintly.
+- **LAP-3** Sponsors come from Studio (STU-6): only shown spots appear, and a hidden or cleared spot reads as open. Until `sponsorships-schema.sql` has run, the built-in sample sponsors appear, labelled as samples (the disclaimer disappears once no samples are shown). Uploaded sticker images are drawn on the stickers. "Sponsor a spot" opens an offer form (SPN-1 to SPN-6). Nothing is sold or paid for on the site, and the page says so.
 - **LAP-4** States: loading skeleton; a 2D fallback when the model is missing, invalid, WebGL is unavailable, or loading fails (with Try again for failures). The spot picker works in every state.
 - **LAP-5** Keyboard: the spot list is a WAI-ARIA radio group. Reduced motion: the camera jumps instead of gliding, and nothing pulses. Responsive at 360/768/1280+.
 - **LAP-6** Three.js loads only on `/laptop` (client-only dynamic import); the model stays under 1 MB with no Draco, meshopt or KTX2 (CSP).
@@ -180,11 +186,11 @@ published: true           # optional: only literal true publishes
 - **LAP-8** Two palm-rest spots, left and right of the trackpad, in a second picker section ("Inside the laptop"). Choosing one opens the laptop and focuses it; they're clickable in 3D only while open (the closed lid hides them). The offer form lists all six spots by full name ("Palm rest, left of trackpad"), and both emails name the spot.
 
 ### 5.6c Sponsorship offers (SPN)
-- **SPN-1** "Sponsor a spot" opens a dialog with **email**, **affiliation**, **preferred spot** (pre-set to the selected one, or "Any"), **offer in USD** (negotiable), and the **sticker file to print** (PNG, JPG, WebP or PDF, up to 4 MB). Everything is required.
+- **SPN-1** "Sponsor a spot" opens a dialog with **email**, **affiliation**, **preferred spot** (pre-set to the selected one, or "Any"), **offer in USD** (negotiable), and the **sticker file to print** (PNG or JPG, up to 4 MB, 64–8,000 px on a side; WebP and PDF were dropped on 2026-11-03 so every sticker can be drawn on the laptop). Everything is required.
 - **SPN-2** Sending triggers **two separate emails** in the site's look:
   - (a) To `SUMMARY_RECIPIENT_EMAIL`: "someone is inquiring about a sponsorship", with all details, the sticker attached, and **Reply-To set to the sponsor** so replying continues the negotiation.
   - (b) To the sponsor: thanks, "I'll get back to you as soon as possible", and a copy of what they sent.
-- **SPN-3** A private copy (file + JSON record) goes to the Supabase bucket `sponsor-stickers`. The form still works if the bucket is missing; the owner's email then says it's the only copy.
+- **SPN-3** The offer is saved for Studio: a `sponsor_offers` row, and the file in the private bucket `sponsor-stickers` (`offers/<id>/`). The form still works if either is missing; the owner's email then says it's the only copy. The owner's email links to Studio → Sponsorships.
 - **SPN-4** The dialog shows a receipt of what was sent, and says honestly whether the email copy went out.
 - **SPN-5** Abuse limits: same-origin, honeypot, 3 offers per hour per client, 2 thank-you emails per day per address, 20 offers per day overall. No web addresses in text. Files are checked by their bytes (SECURITY.md §4.9).
 - **SPN-6** Accessible dialog: focus moves in and is trapped, Esc closes (not while sending), focus returns to the trigger, and errors are tied to their fields. `/privacy` explains what the form collects and keeps.
@@ -218,7 +224,7 @@ Work through these roughly top to bottom. Each item is sized for one focused ses
 | S-23 | Run the read-only `supabase/audit-exposure.sql`. Then decide per app whether to disable open Supabase sign-ups and set size/MIME limits on the public storage buckets | Every section matches its "Expect" comment, or the difference is intentional |
 | S-37 | Decide whether the GitHub repo stays public (SECURITY.md lists open issues) | Repo private, or open items kept out of the public copy |
 | **S-2** | Verify a sending domain in Resend (needs a domain you own, not `*.netlify.app`) and set `RESEND_FROM_EMAIL`. **This now blocks sponsors' thank-you emails** (SPN-2b). | A sponsorship offer from a non-owner address gets its copy (`confirmationSent: true`) |
-| **Sponsor bucket** | Run `supabase/sponsor-stickers-schema.sql` in the SQL editor | Its verify queries show `public = false` and no unscoped storage policies; a test offer appears under Storage → `sponsor-stickers` |
+| **Sponsorships** | Run `supabase/sponsorships-schema.sql` in the SQL editor (step by step: SPONSORSHIPS.md §2) | Its verify queries show the private bucket, RLS on both tables, six spots, and no unscoped storage policies; a test offer appears in Studio → Sponsorships and under Storage → `sponsor-stickers/offers/` (SPONSORSHIPS.md §3) |
 | S-40 | Switch on the sponsorship form's spam check: create a Cloudflare Turnstile widget, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` in Netlify, and redeploy (the code is done, 2026-11-03; steps in SECURITY.md §7) | The dialog shows the check; an offer sent without it gets a 400 |
 | ~~S-3~~ ✅ | ~~Key rate limits on a client IP the platform sets~~. Done 2026-10-19: `x-nf-client-connection-ip` plus a global failure ceiling. **After deploy:** confirm `/logistics` shows your real IP even when you send a forged `X-Forwarded-For`. | |
 
@@ -287,6 +293,12 @@ Ask before acting on any of these:
 
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
+
+- 2026-11-03 (branch `studio-sponsorships`): **Studio → Sponsorships** (STU-6 to STU-9, LAP-2, LAP-3, SPN-1, SPN-3).
+  - **Studio:** a Sponsorships tab with a copy of the 3D laptop, show/hide per spot, a spot editor (text, colour, image, clear), and an offers inbox (place a sticker on a spot as a hidden draft, accept/decline, notes, download, delete).
+  - **`/laptop`:** sponsors now come from the `sponsor_spots` table (samples until it exists), with uploaded sticker images; the page re-renders after each Studio change. Selected and pointed-at stickers light up together with their tile and the details card, in 3D and in the 2D drawings.
+  - **Offers:** saved as a `sponsor_offers` row plus the file (no more `inquiry.json`); PNG/JPG only, with pixel limits (S-44). New setup file `supabase/sponsorships-schema.sql` replaces `sponsor-stickers-schema.sql`; guide in SPONSORSHIPS.md.
+  - **Fixed:** the screen-reader label called every sponsor a "sample sponsor".
 
 - 2026-11-03 (branch `security-patch`): **Security patch and bug fixes.**
   - **Security:** optional Cloudflare Turnstile check on the sponsorship form (S-40); `resend` 6.34.1 (S-39); no raw DB errors on `/blog` (S-41); stricter offer email (S-42); safe project rows on Home (S-43).

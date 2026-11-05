@@ -5,13 +5,21 @@ import { Navbar } from "@/components"
 import { AdminGate, SignOutButton } from "@/components/features/AdminGate"
 import { BlogsPanel } from "./BlogsPanel"
 import { ProjectsPanel } from "./ProjectsPanel"
+import { SponsorshipsPanel } from "./SponsorshipsPanel"
 
-type Tab = "blogs" | "projects"
+type Tab = "blogs" | "projects" | "sponsorships"
 
 const TABS: { value: Tab; label: string }[] = [
-    { value: "blogs",    label: "Blogs" },
-    { value: "projects", label: "Projects" },
+    { value: "blogs",        label: "Blogs" },
+    { value: "projects",     label: "Projects" },
+    { value: "sponsorships", label: "Sponsorships" },
 ]
+
+const PANELS: Record<Tab, () => React.ReactNode> = {
+    blogs:        () => <BlogsPanel />,
+    projects:     () => <ProjectsPanel />,
+    sponsorships: () => <SponsorshipsPanel />,
+}
 
 function Hub() {
     const [tab, setTab] = useState<Tab>("blogs")
@@ -26,11 +34,11 @@ function Hub() {
                     Studio
                 </h1>
                 <p className="text-sm text-[#555370] max-w-sm leading-relaxed">
-                    Manage blogs, projects, and anything else that lives on the site. Changes save directly to Supabase.
+                    Manage blogs, projects, sponsor stickers, and anything else that lives on the site. Changes save directly to Supabase.
                 </p>
             </section>
 
-            <div className="px-2 mb-6 flex items-center justify-between gap-3">
+            <div className="px-2 mb-6 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex gap-1 bg-[#13121c] p-1 rounded-xl border border-[#2a2840] w-fit">
                     {TABS.map((t) => (
                         <button
@@ -45,7 +53,7 @@ function Hub() {
                 <SignOutButton />
             </div>
 
-            {tab === "blogs" ? <BlogsPanel /> : <ProjectsPanel />}
+            {PANELS[tab]()}
         </div>
     )
 }
