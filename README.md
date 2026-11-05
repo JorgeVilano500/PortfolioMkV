@@ -18,9 +18,9 @@ Built with **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind
 | Blog | `/blog`, `/blog/[slug]` | Markdown posts stored in Supabase, with themed cards, callouts, syntax highlighting, and per-post OG images |
 | Contact | `/contact` | Email, socials, quick message form |
 | Privacy | `/privacy` | Plain-language privacy and cookie policy, with cookie settings |
-| Laptop stickers | `/laptop` | A Three.js 13-inch 2019 MacBook Pro with four sponsor-sticker spots on the lid and two on the palm rest (sample sponsors). "Open the laptop" swings the lid open, boots the screen, and lights the backlit keyboard. "Sponsor a spot" opens an offer form that emails you, with Reply-To set to the sponsor, and sends them a copy. Needs `public/models/macbook-pro-13-2019.glb`, built per [LAPTOP_MODEL.md](LAPTOP_MODEL.md); shows a 2D fallback until then. |
+| Laptop stickers | `/laptop` | A Three.js 13-inch 2019 MacBook Pro with four sponsor-sticker spots on the lid and two on the palm rest, managed from Studio (sample sponsors until set up). "Open the laptop" swings the lid open, boots the screen, and lights the backlit keyboard. "Sponsor a spot" opens an offer form that emails you, with Reply-To set to the sponsor, sends them a copy, and saves the offer for Studio. Needs `public/models/macbook-pro-13-2019.glb`, built per [LAPTOP_MODEL.md](LAPTOP_MODEL.md); shows a 2D fallback until then. |
 | First-visit intro | every page | Welcome → privacy choice (analytics off by default, enforced server-side) → how-to guide with live previews → optional guided tour that highlights the next navbar tab on each page |
-| Studio 🔒 | `/studio` | Password-gated CMS: create, edit, publish, and bulk-manage blog posts and projects |
+| Studio 🔒 | `/studio` | Password-gated CMS: create, edit, publish, and bulk-manage blog posts and projects; **Sponsorships**: a copy of the 3D laptop, show/hide and edit each sticker spot, and the offers inbox ([SPONSORSHIPS.md](SPONSORSHIPS.md)) |
 | Logistics 🔒 | `/logistics` | Password-gated, first-party visitor analytics |
 
 Behind the pages are API routes for analytics tracking and stats, CMS writes, a markdown-upload webhook, a docs-sync endpoint, and an email-summary endpoint (Resend). Every write is authenticated, validated, and rate-limited. See [SECURITY.md](SECURITY.md).
@@ -43,7 +43,7 @@ npm install
 4. `supabase/consent-schema.sql`: `consent_events`, plus the opt-in `page_views` columns (IP, language, timezone, visitor id)
 5. `supabase/documents-schema.sql`: `project_documents`
 6. `supabase/auth-lockout-schema.sql`: `auth_failures`, the brute-force lockout shared by every server instance (the app works without it, but then each instance counts on its own)
-7. `supabase/sponsor-stickers-schema.sql`: the **private** storage bucket that keeps copies of "Sponsor a spot" offers (the form works without it; the owner's email then holds the only copy)
+7. `supabase/sponsorships-schema.sql`: the **private** sticker bucket plus the `sponsor_offers` and `sponsor_spots` tables behind Studio → Sponsorships. Step-by-step guide, including creating the bucket: [SPONSORSHIPS.md](SPONSORSHIPS.md). Without it, offers still arrive by email and `/laptop` shows sample sponsors.
 
 **Already have a database from before 2026-10-20?** Run `supabase/security-hardening.sql` and `supabase/consent-schema.sql` once each (both are safe to re-run). They lock the analytics table away from the public anon key, tighten grants, and add the consent tables (SECURITY.md S-1, S-22, S-5). **From before 2026-10-21?** Also run `supabase/auth-lockout-schema.sql` (S-4).
 
@@ -92,7 +92,7 @@ Sign in at `/studio` with your `LOGISTICS_PASSWORD` to add your first post or pr
 
 ```
 app/            Routes: pages, layouts (metadata), API route handlers, OG images, robots, sitemap
-  studio/       🔒 CMS (Blogs and Projects tabs)
+  studio/       🔒 CMS (Blogs, Projects and Sponsorships tabs)
   logistics/    🔒 analytics dashboard
   api/          analytics, blog, projects, docs, email-summary
 components/     Shared UI: Navbar, Modal, MarkdownRenderer, ProjectList, PageTracker, page bodies
@@ -114,6 +114,7 @@ public/         resume.pdf and static assets (models/ for the /laptop GLB)
 | [CODE_STYLE.md](CODE_STYLE.md) | Conventions for TypeScript, React, API routes, and styling |
 | [TESTING.md](TESTING.md) | Test setup, patterns, coverage, manual QA, CI |
 | [LAPTOP_MODEL.md](LAPTOP_MODEL.md) | The 3D laptop asset: contract, Blender workflow, export settings |
+| [SPONSORSHIPS.md](SPONSORSHIPS.md) | Setting up the sticker bucket and tables, and running sponsorships from Studio |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Historical status log kept by an external automation (may be out of date) |
 
 ## Deployment
