@@ -58,6 +58,46 @@ export type Sponsor = {
     sample?:     boolean
     /** The sticker image (same-origin URL). When absent, the mark is drawn instead. */
     imageUrl?:   string | null
+    /**
+     * "sticker": the image is a finished die-cut design from Studio's sticker
+     * editor, drawn exactly as it is (its own shape, border and colours).
+     * Otherwise the image is a logo, placed on the theme colour inside a
+     * white-edged sticker.
+     */
+    finish?:     "sticker"
+    /** Shown only to the person previewing it (a local file, never uploaded), and labelled as a preview. */
+    preview?:    boolean
+}
+
+/** A sticker to try on a spot without saving it: a visitor's own logo, or Studio's edit in progress. */
+export type SpotPreview = {
+    spotId:   StickerSlotId
+    /** A blob: URL for a local file, or a same-origin URL. */
+    imageUrl: string
+    /** What the spot's tile and details call it ("Your logo", "Bright Labs"). */
+    label:    string
+    finish?:  "sticker"
+}
+
+/**
+ * `slots` with `preview` on its spot, in that spot's colour (violet for an
+ * open spot). Every other spot is untouched, and nothing is saved anywhere.
+ */
+export function withPreview(slots: readonly StickerSlot[], preview: SpotPreview | null): readonly StickerSlot[] {
+    if (!preview) return slots
+    return slots.map((slot) => slot.id !== preview.spotId ? slot : {
+        ...slot,
+        sponsor: {
+            name:        preview.label,
+            mark:        "",
+            tagline:     "",
+            description: "",
+            theme:       slot.sponsor?.theme ?? "purple",
+            imageUrl:    preview.imageUrl,
+            finish:      preview.finish,
+            preview:     true,
+        },
+    })
 }
 
 export type StickerSlot = {
@@ -207,7 +247,8 @@ export function spotName(slot: StickerSlot): string {
 /** One-line description of a spot, for screen readers and the 3D view's label. */
 export function describeSlot(slot: StickerSlot): string {
     if (!slot.sponsor) return `${spotName(slot)}: open`
-    return `${spotName(slot)}: ${slot.sponsor.name}${slot.sponsor.sample ? " (sample sponsor)" : ""}`
+    const note = slot.sponsor.preview ? " (preview)" : slot.sponsor.sample ? " (sample sponsor)" : ""
+    return `${spotName(slot)}: ${slot.sponsor.name}${note}`
 }
 
 /**

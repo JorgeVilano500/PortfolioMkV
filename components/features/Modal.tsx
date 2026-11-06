@@ -10,7 +10,7 @@ type ModalProps = {
     children: React.ReactNode
     title?: string
     variant?: "default" | "dark"
-    size?: "md" | "lg"
+    size?: "md" | "lg" | "xl"   // xl: a workspace (Studio's sticker editor)
     contentClassName?: string  // styles the modal box (background, border, rounded, etc.)
     bodyClassName?: string     // styles the children wrapper (padding, overflow, etc.)
 }
@@ -58,8 +58,8 @@ export function Modal({ isOpen, onClose, children, title, variant = "default", s
             <div
                 ref={contentRef}
                 tabIndex={-1}
-                className={`relative w-full max-h-[85vh] overflow-auto rounded-xl shadow-xl flex flex-col outline-none
-                    ${size === "lg" ? "max-w-3xl" : "max-w-xl"}
+                className={`relative w-full overflow-auto rounded-xl shadow-xl flex flex-col outline-none
+                    ${size === "xl" ? "max-w-6xl max-h-[94vh]" : size === "lg" ? "max-w-3xl max-h-[85vh]" : "max-w-xl max-h-[85vh]"}
                     ${variant === "dark"
                         ? "bg-[#13121c] border border-[#2a2840]"
                         : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700"

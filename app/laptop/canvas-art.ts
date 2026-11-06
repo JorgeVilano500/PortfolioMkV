@@ -58,6 +58,16 @@ export function paintSticker(canvas: HTMLCanvasElement, slot: StickerSlot, image
     if (!ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
+    // A finished die-cut design (Studio's sticker editor) already has its
+    // shape, border and colours: draw it as it is, filling the spot.
+    if (slot.sponsor?.finish === "sticker" && image && image.naturalWidth > 0) {
+        const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight)
+        const w = image.naturalWidth * scale
+        const h = image.naturalHeight * scale
+        ctx.drawImage(image, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h)
+        return
+    }
+
     const inset  = 18
     const width  = canvas.width - inset * 2
     const size   = STICKER_PX - inset * 2

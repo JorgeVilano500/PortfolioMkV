@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ChangeEvent, type FormEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react"
 import Link from "next/link"
 import { Modal } from "@/components/features/Modal"
 import { SPONSOR_CTA_HREF } from "@/lib/laptop-stickers"
@@ -48,14 +48,34 @@ const inputClass = (invalid: boolean) =>
 const formatSize = (bytes: number) =>
     bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
-/** The "Sponsor a spot" dialog: an offer form that becomes a receipt once sent. */
-export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onClose: () => void; initialSpot: SponsorSpot }) {
+/**
+ * The "Sponsor a spot" dialog: an offer form that becomes a receipt once
+ * sent. `initialFile` is the logo the visitor just previewed on the laptop,
+ * so they don't have to pick it again.
+ */
+export function SponsorForm({ open, onClose, initialSpot, initialFile = null }: { open: boolean; onClose: () => void; initialSpot: SponsorSpot; initialFile?: File | null }) {
     const [email, setEmail]             = useState("")
     const [affiliation, setAffiliation] = useState("")
     const [offer, setOffer]             = useState("")
     const [spot, setSpot]               = useState<SponsorSpot>(initialSpot)
-    const [file, setFile]               = useState<File | null>(null)
-    const [errors, setErrors]           = useState<SponsorFieldErrors>({})
+    const [file, setFile]               = useState<File | null>(initialFile)
+    const [errors, setErrors]           = useState<SponsorFieldErrors>(() => {
+        const problem = initialFile ? checkStickerFile(initialFile) : null
+        return problem ? { sticker: problem } : {}
+    })
+    // Show the previewed file in the file picker too, where the browser allows it.
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    useEffect(() => {
+        const input = fileInputRef.current
+        if (!open || !input || !initialFile || input.files?.length) return
+        try {
+            const transfer = new DataTransfer()
+            transfer.items.add(initialFile)
+            input.files = transfer.files
+        } catch {
+            // No DataTransfer: the "Selected:" line still names the file, and it's still sent.
+        }
+    }, [open, initialFile])
     const [formError, setFormError]     = useState<string | null>(null)
     const [state, setState]             = useState<SubmitState>({ kind: "editing" })
     // The spam check (SECURITY.md S-40) shows only when a Turnstile site key is configured.
@@ -212,6 +232,7 @@ export function SponsorForm({ open, onClose, initialSpot }: { open: boolean; onC
 
                     <Field id={FIELD_IDS.sticker} label="Sticker file to print" error={errors.sticker} hint="PNG or JPG, up to 4 MB. At least 1,000 px across prints crisply.">
                         <input
+                            ref={fileInputRef}
                             id={FIELD_IDS.sticker}
                             type="file"
                             accept={STICKER_ACCEPT}

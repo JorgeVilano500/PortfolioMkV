@@ -50,3 +50,44 @@ body {
   35%  { box-shadow: 0 0 0 5px color-mix(in srgb, var(--spot-accent) 40%, transparent), 0 0 28px var(--spot-accent); }
   100% { box-shadow: 0 0 0 1px var(--spot-accent), 0 0 16px color-mix(in srgb, var(--spot-accent) 45%, transparent); }
 }
+
+/* /laptop lid slider (LaptopStage): a thin dark track, violet up to the lid's
+   angle (--fill, set inline), so it sits in the dark toolbar like the buttons */
+.lid-slider {
+  appearance: none;
+  height: 1rem;
+  background: transparent;
+}
+.lid-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, #7c6dff var(--fill, 0%), #2a2840 var(--fill, 0%));
+}
+.lid-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  border: 2px solid #7c6dff;
+  background: #f0eeff;
+}
+.lid-slider::-moz-range-track { height: 4px; border-radius: 9999px; background: #2a2840; }
+.lid-slider::-moz-range-progress { height: 4px; border-radius: 9999px; background: #7c6dff; }
+.lid-slider::-moz-range-thumb { width: 10px; height: 10px; border-radius: 9999px; border: 2px solid #7c6dff; background: #f0eeff; }
+
+/* Studio's sticker editor: a dark checkerboard shows where a sticker is
+   transparent (where Cricut cuts), as image editors do */
+.sticker-checkerboard {
+  background-color: #13121c;
+  background-image: conic-gradient(#1e1c2e 25%, transparent 0 50%, #1e1c2e 0 75%, transparent 0);
+  background-size: 16px 16px;
+}
+
+/* Printing a sticker sheet (StickerEditor's PrintSheet): only the sheet, at real size */
+.sticker-print-sheet { display: none; }
+@media print {
+  body.printing-sticker > *:not(.sticker-print-sheet) { display: none !important; }
+  body.printing-sticker .sticker-print-sheet { display: flex; flex-wrap: wrap; gap: 4mm; align-content: flex-start; }
+  body.printing-sticker .sticker-print-sheet img { break-inside: avoid; }
+}

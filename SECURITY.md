@@ -1,6 +1,6 @@
 # Security — portfoliomkv
 
-_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-03** (Studio sponsorships, branch `studio-sponsorships`)._
+_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-05** (sticker editor and logo previews, branch `sticker-studio`)._
 
 Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, and history. **Read §3 before writing any API route, rendering user content, or touching secrets.**
 
@@ -157,6 +157,7 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
   - **File:** at most 4 MB, and **sniffed by its magic bytes**: PNG or JPEG only (WebP and PDF were dropped on 2026-11-03, since every sticker can now be drawn on `/laptop`). SVG and everything else are refused, whatever the name or declared type. The file name is shown only after cleaning (no path or reserved characters).
   - **Pixel size (S-44):** read from the PNG `IHDR` chunk or the JPEG frame header without decoding: 64–8,000 px on a side and at most 40 megapixels. A few-KB file can declare a huge canvas that would stall every visitor's browser once drawn on `/laptop`.
 - **Studio spot edits** (`lib/sponsor-spots.ts`, `app/api/sponsorships/spots`): the spot id must be one of the six (`isSlotId`), offer ids must be UUIDs, and the sponsor text is bounded (name 60, mark 6, tagline 80, description 400) with `theme` from the three accents. The PATCH builds the row from those fields only, and every check that can refuse the request runs **before** a file is copied or a row is written. Uploaded spot images get the same type and pixel checks as offers.
+- **Spot image finish** (`POST /api/sponsorships/spots`): `finish` must be absent, `logo` or `sticker`, checked before any read or write; `sticker` must sniff as a PNG. It only changes the stored name's suffix (`-cut`), which still matches `STORED_FILE_RE`.
 - **Stored file paths:** the file routes serve only `offers/<id>/sticker.(png|jpg)` or `spots/<spot>/<id>.(png|jpg)` (`STORED_FILE_RE`, lowercase, no `..`), whether the path comes from a query string or from a row edited by hand.
 - **Front matter** (`/api/blog/upload`): gray-matter called with `MATTER_OPTIONS`, which replaces the `js`/`javascript` engines (gray-matter `eval`s those by default) with a refusal → 400. YAML uses `safeLoad`; JSON is `JSON.parse`; unregistered languages throw → 400. Passing options also disables gray-matter's unbounded per-input cache.
 
@@ -388,6 +389,12 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 4. **S-40 (optional, recommended once S-2 is done):** Cloudflare dashboard → **Turnstile** → **Add widget** → hostname `javastudios.netlify.app`, widget mode **Managed** → copy the **site key** and **secret key**. In Netlify → Environment variables, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (site key) and `TURNSTILE_SECRET_KEY` (secret) → **redeploy** (the site key and the CSP allowance are built in at build time). The "Sponsor a spot" dialog then shows the check, and an offer without it gets a 400.
 
 ## 8. History
+
+### 2026-11-05: sticker editor and logo previews (branch `sticker-studio`)
+- **No new routes.** One new field: `finish` on `POST /api/sponsorships/spots` (admin), whitelisted and PNG-only for `sticker` (§4.4).
+- **A visitor's logo preview never leaves their browser.** It's a `blob:` URL for a file they pick, drawn locally and revoked when it's replaced, removed, or they leave. It's checked as PNG/JPG within 4 MB and must decode before it's shown. It's uploaded only if they send the offer form, through the existing checks.
+- **Studio's editor** reads only same-origin files (the admin file route), downloads and prints in the browser, and saves through the existing authenticated upload. The editor runs a flood fill and a distance field over at most 2,400 px of artwork, so a large file can't stall the tab.
+- **Verified:** 1,006 tests, `tsc`, lint, build, and 51/51 headless-browser checks with every admin route stubbed.
 
 ### 2026-11-03: Studio sponsorships (branch `studio-sponsorships`)
 Offers are now saved for Studio, and Studio controls what `/laptop` shows.

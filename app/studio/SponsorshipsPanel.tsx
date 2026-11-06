@@ -8,16 +8,24 @@
  * data, so what you see is what visitors get (plus, optionally, the stickers
  * you've hidden). Every change goes through the REST API in
  * app/api/sponsorships/(spots)/route.ts, and each save refreshes /laptop.
+ *
+ * An offer's sticker (or a spot's image) opens in the sticker editor
+ * (StickerEditor.tsx) to check, adjust, print, and save. Any sticker can be
+ * previewed on the laptop first; a preview lives only in this tab.
  */
 import { useEffect, useMemo, useRef, useState } from "react"
 import { LaptopStage, spotTileStyle, toolbarButton } from "@/app/laptop/LaptopStage"
-import { STICKER_COLORS, STICKER_SLOTS, spotAccent, spotName, type StickerSlot, type StickerSlotId } from "@/lib/laptop-stickers"
+import { STICKER_COLORS, STICKER_SLOTS, spotAccent, spotName, withPreview, type SpotPreview, type StickerSlot, type StickerSlotId } from "@/lib/laptop-stickers"
 import { SPOT_TEXT_LIMITS } from "@/lib/sponsor-spots"
 import { STICKER_ACCEPT, formatOffer, spotLabel, type SponsorSpot } from "@/lib/sponsorship"
 import type { PostTheme } from "@/lib/theme"
 import type { AdminSpot } from "@/app/api/sponsorships/spots/route"
 import type { AdminOffer } from "@/app/api/sponsorships/route"
 import { failureMessage, formatDate } from "./shared"
+import { StickerEditor, newSession, type EditorSession, type EditorSource } from "./StickerEditor"
+
+/** A preview on Studio's laptop. `owned` URLs were made here (blob:) and are released when it ends. */
+type StudioPreview = SpotPreview & { owned: boolean; fromEditor: boolean }
 
 type OfferStatus = AdminOffer["status"]
 
@@ -84,7 +92,7 @@ function previewSlots(spots: readonly AdminSpot[], showHidden: boolean): Sticker
         const spot = byId.get(slot.id)
         if (!spot) return slot
         const shown = spot.sponsor && (spot.visible || showHidden)
-        return { ...slot, sponsor: shown ? { ...spot.sponsor!, sample: spot.sample, imageUrl: spot.imageUrl } : null }
+        return { ...slot, sponsor: shown ? { ...spot.sponsor!, sample: spot.sample, imageUrl: spot.imageUrl, ...(spot.dieCut && { finish: "sticker" as const }) } : null }
     })
 }
 
@@ -101,6 +109,14 @@ export function SponsorshipsPanel() {
     const [showHidden, setShowHidden] = useState(true)
     // Shown in the editor after an offer's sticker lands on a spot (from either place).
     const [notice, setNotice]         = useState<{ id: StickerSlotId; text: string } | null>(null)
+    const [preview, setPreview]       = useState<StudioPreview | null>(null)
+    // The sticker editor: kept while you preview from it, so "Back to the editor" picks up where you were.
+    const [editor, setEditor]         = useState<{ session: EditorSession; open: boolean } | null>(null)
+    const stageRef = useRef<HTMLDivElement>(null)
+
+    // Release a preview's local file once it's replaced, ended, or Studio closes.
+    const ownedUrl = preview?.owned ? preview.imageUrl : null
+    useEffect(() => () => { if (ownedUrl) URL.revokeObjectURL(ownedUrl) }, [ownedUrl])
 
     useEffect(() => {
         let cancelled = false
@@ -118,7 +134,7 @@ export function SponsorshipsPanel() {
         return () => { cancelled = true }
     }, [])
 
-    const slots = useMemo(() => previewSlots(spots ?? [], showHidden), [spots, showHidden])
+    const slots = useMemo(() => withPreview(previewSlots(spots ?? [], showHidden), preview), [spots, showHidden, preview])
 
     const select = (id: StickerSlotId) => {
         setSelectedId(id)
@@ -138,6 +154,57 @@ export function SponsorshipsPanel() {
                 ? "Placed, and live on /laptop."
                 : "Placed as hidden. Check it on the laptop, then switch it on to show it on /laptop.",
         })
+    }
+
+    /** Show a sticker on the laptop without saving it, and bring the laptop into view. */
+    const startPreview = (next: StudioPreview) => {
+        setPreview(next)
+        select(next.spotId)
+        stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+    const openEditor = (source: EditorSource) => setEditor({ session: newSession(source), open: true })
+    const previewFromEditor = (png: Blob, spotId: StickerSlotId) => {
+        if (!editor) return
+        startPreview({ spotId, imageUrl: URL.createObjectURL(png), label: editor.session.source.label, finish: "sticker", owned: true, fromEditor: true })
+        setEditor({ ...editor, open: false })
+    }
+    /**
+     * Save the editor's sticker as `spotId`'s image. An offer's sticker is
+     * placed on the spot first (as a hidden draft), so the offer is marked
+     * accepted and the spot names its sponsor.
+     */
+    const saveFromEditor = async (png: Blob, spotId: StickerSlotId): Promise<string | null> => {
+        const source = editor?.session.source
+        const spot   = spots?.find((s) => s.id === spotId)
+        if (!source || !spot) return "That spot isn't available."
+        const placing = Boolean(source.offerId && spot.offerId !== source.offerId)
+        if (placing) {
+            if (spot.sponsor && !spot.sample && !confirm(`Replace ${spot.sponsor.name} on ${spotName(STICKER_SLOTS.find((s) => s.id === spotId)!)}?`)) return "Not saved."
+            const placedResult = await call<AdminSpot>("/api/sponsorships/spots", json("PATCH", { id: spotId, offerId: source.offerId }), "Couldn't place the sticker.")
+            if ("error" in placedResult) return placedResult.error
+        } else if (!spot.sponsor) {
+            return "Give this spot a sponsor name first (in the spot editor), then save the sticker to it."
+        }
+        const body = new FormData()
+        body.set("id", spotId)
+        body.set("sticker", new File([png], "sticker.png", { type: "image/png" }))
+        body.set("finish", "sticker")
+        const result = await call<AdminSpot>("/api/sponsorships/spots", { method: "POST", body }, "Couldn't save the sticker.")
+        if ("error" in result) return result.error
+        if (placing) placed(result.data, source.offerId!)
+        else {
+            savedSpot(result.data)
+            select(spotId)
+        }
+        setNotice({
+            id:   spotId,
+            text: result.data.visible
+                ? "Saved the edited sticker. It's live on /laptop."
+                : "Saved the edited sticker, hidden for now. Switch it on to show it on /laptop.",
+        })
+        setEditor(null)
+        if (preview?.spotId === spotId) setPreview(null)
+        return null
     }
 
     if (loadError) {
@@ -175,11 +242,27 @@ export function SponsorshipsPanel() {
                 ))}
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+            {preview && (
+                <div role="status" className={`${card} px-4 py-3 flex flex-wrap items-center gap-3 border-[#7c6dff]/60`}>
+                    <span aria-hidden="true" className="w-2 h-2 rounded-full bg-[#7c6dff] motion-safe:animate-pulse" />
+                    <p className="text-sm text-[#c4c0d8] flex-1 min-w-48">
+                        Previewing <span className="text-[#f0eeff] font-medium">{preview.label}</span> on {spotName(STICKER_SLOTS.find((s) => s.id === preview.spotId)!)}.
+                        {" "}Only you see this, and nothing is saved.
+                    </p>
+                    {preview.fromEditor && editor && !editor.open && (
+                        <button type="button" className={secondaryButton} onClick={() => setEditor({ ...editor, open: true })}>Back to the editor</button>
+                    )}
+                    <button type="button" className={secondaryButton} onClick={() => setPreview(null)}>End preview</button>
+                </div>
+            )}
+
+            <div ref={stageRef} className="grid grid-cols-1 xl:grid-cols-12 gap-4 scroll-mt-4">
                 <LaptopStage
                     slots={slots}
                     open={open}
                     onToggleOpen={() => { setOpen((o) => !o); setSelectedId(null) }}
+                    // Moving the lid by hand keeps the spot editor open, even for a palm spot the lid now covers.
+                    onOpenChange={setOpen}
                     selectedId={selectedId}
                     onSelect={select}
                     hoveredId={hoveredId}
@@ -195,7 +278,7 @@ export function SponsorshipsPanel() {
                 />
                 <div className={`${card} p-5 xl:col-span-5`}>
                     {selected
-                        ? <SpotEditor key={`${selected.id}:${selected.updatedAt}`} spot={selected} offers={offers} onSaved={savedSpot} onPlaced={placed}
+                        ? <SpotEditor key={`${selected.id}:${selected.updatedAt}`} spot={selected} offers={offers} onSaved={savedSpot} onPlaced={placed} onEdit={openEditor}
                             notice={notice?.id === selected.id ? notice.text : null} disabled={!setup} />
                         : (
                             <div className="h-full flex flex-col justify-center gap-2 text-sm text-[#8a88a0]">
@@ -208,7 +291,20 @@ export function SponsorshipsPanel() {
 
             <SpotList spots={spots} slots={slots} selectedId={selectedId} hoveredId={hoveredId} onSelect={select} onHover={setHoveredId} onSaved={savedSpot} disabled={!setup} />
 
-            <OffersInbox offers={offers} spots={spots} onSaved={savedOffer} onDeleted={(id) => setOffers((current) => current.filter((o) => o.id !== id))} onPlaced={placed} disabled={!setup} />
+            <OffersInbox offers={offers} spots={spots} onSaved={savedOffer} onDeleted={(id) => setOffers((current) => current.filter((o) => o.id !== id))} onPlaced={placed}
+                onEdit={openEditor} onPreview={(next) => startPreview({ ...next, owned: false, fromEditor: false })} disabled={!setup} />
+
+            {editor && (
+                <StickerEditor
+                    session={editor.session}
+                    open={editor.open}
+                    onChange={(session) => setEditor((current) => current && { ...current, session })}
+                    onClose={() => setEditor(null)}
+                    onPreview={previewFromEditor}
+                    onSave={saveFromEditor}
+                    canSave={setup}
+                />
+            )}
         </div>
     )
 }
@@ -216,7 +312,7 @@ export function SponsorshipsPanel() {
 // ─── Spot list ────────────────────────────────────────────────────────────────
 
 function SpotList({ spots, slots, selectedId, hoveredId, onSelect, onHover, onSaved, disabled }: {
-    spots: AdminSpot[]; slots: StickerSlot[]
+    spots: AdminSpot[]; slots: readonly StickerSlot[]
     selectedId: StickerSlotId | null; hoveredId: StickerSlotId | null
     onSelect: (id: StickerSlotId) => void; onHover: (id: StickerSlotId | null) => void
     onSaved: (spot: AdminSpot) => void; disabled: boolean
@@ -317,9 +413,10 @@ function VisibilitySwitch({ spot, onSaved, disabled }: { spot: AdminSpot; onSave
 
 // ─── Spot editor ──────────────────────────────────────────────────────────────
 
-function SpotEditor({ spot, offers, onSaved, onPlaced, notice, disabled }: {
+function SpotEditor({ spot, offers, onSaved, onPlaced, onEdit, notice, disabled }: {
     spot: AdminSpot; offers: AdminOffer[]
     onSaved: (spot: AdminSpot) => void; onPlaced: (spot: AdminSpot, offerId: string) => void
+    onEdit: (source: EditorSource) => void
     notice: string | null; disabled: boolean
 }) {
     const layout = STICKER_SLOTS.find((slot) => slot.id === spot.id)!
@@ -334,6 +431,13 @@ function SpotEditor({ spot, offers, onSaved, onPlaced, notice, disabled }: {
     const fileRef = useRef<HTMLInputElement>(null)
 
     const placeable = offers.filter((offer) => offer.fileUrl && offer.status !== "declined")
+    // Edit from the sponsor's original file when it's still here, so a re-edit doesn't stack on an earlier edit.
+    const original = spot.offerId ? offers.find((offer) => offer.id === spot.offerId && offer.fileUrl) : undefined
+    const editSource: EditorSource | null = original?.fileUrl
+        ? { url: original.fileUrl, label: original.affiliation, spotId: spot.id, offerId: original.id }
+        : spot.imageUrl && spot.sponsor
+            ? { url: spot.imageUrl, label: spot.sponsor.name, spotId: spot.id, offerId: null }
+            : null
 
     // Each save hands back the spot with a new updatedAt, which remounts this
     // editor with the saved values.
@@ -389,6 +493,7 @@ function SpotEditor({ spot, offers, onSaved, onPlaced, notice, disabled }: {
                     <button type="button" className={secondaryButton} disabled={busy || disabled || !spot.sponsor} onClick={() => fileRef.current?.click()}>
                         {spot.imageUrl ? "Replace image" : "Upload image"}
                     </button>
+                    {editSource && <button type="button" className={secondaryButton} onClick={() => onEdit(editSource)}>Edit &amp; print</button>}
                     {spot.imageUrl && (
                         <>
                             <a href={spot.imageUrl} target="_blank" rel="noopener noreferrer" className={secondaryButton}>Open</a>
@@ -475,11 +580,16 @@ const STATUS_PILL: Record<OfferStatus, string> = {
     declined: "border-[#3a3850] text-[#8a88a0]",
 }
 
-function OffersInbox({ offers, spots, onSaved, onDeleted, onPlaced, disabled }: {
-    offers: AdminOffer[]; spots: AdminSpot[]
-    onSaved: (offer: AdminOffer) => void; onDeleted: (id: string) => void
-    onPlaced: (spot: AdminSpot, offerId: string) => void; disabled: boolean
-}) {
+type OfferActions = {
+    onSaved:   (offer: AdminOffer) => void
+    onDeleted: (id: string) => void
+    onPlaced:  (spot: AdminSpot, offerId: string) => void
+    onEdit:    (source: EditorSource) => void
+    onPreview: (preview: SpotPreview) => void
+    disabled:  boolean
+}
+
+function OffersInbox({ offers, spots, ...actions }: { offers: AdminOffer[]; spots: AdminSpot[] } & OfferActions) {
     const [filter, setFilter] = useState<OfferStatus | "all">("all")
     const shown = offers.filter((offer) => filter === "all" || offer.status === filter)
 
@@ -500,18 +610,14 @@ function OffersInbox({ offers, spots, onSaved, onDeleted, onPlaced, disabled }: 
                 <p className="text-sm text-[#555370]">{offers.length === 0 ? "No offers yet. They appear here as soon as someone sends one from /laptop." : "No offers with this status."}</p>
             ) : (
                 <ul className="flex flex-col gap-3">
-                    {shown.map((offer) => <OfferCard key={offer.id} offer={offer} spots={spots} onSaved={onSaved} onDeleted={onDeleted} onPlaced={onPlaced} disabled={disabled} />)}
+                    {shown.map((offer) => <OfferCard key={offer.id} offer={offer} spots={spots} {...actions} />)}
                 </ul>
             )}
         </section>
     )
 }
 
-function OfferCard({ offer, spots, onSaved, onDeleted, onPlaced, disabled }: {
-    offer: AdminOffer; spots: AdminSpot[]
-    onSaved: (offer: AdminOffer) => void; onDeleted: (id: string) => void
-    onPlaced: (spot: AdminSpot, offerId: string) => void; disabled: boolean
-}) {
+function OfferCard({ offer, spots, onSaved, onDeleted, onPlaced, onEdit, onPreview, disabled }: { offer: AdminOffer; spots: AdminSpot[] } & OfferActions) {
     const preferred = STICKER_SLOTS.some((slot) => slot.id === offer.spot) ? (offer.spot as StickerSlotId) : null
     const firstOpen = spots.find((spot) => !spot.sponsor || spot.sample)?.id ?? STICKER_SLOTS[0].id
     const [target, setTarget] = useState<StickerSlotId>(preferred ?? firstOpen)
@@ -549,14 +655,17 @@ function OfferCard({ offer, spots, onSaved, onDeleted, onPlaced, disabled }: {
         else onPlaced(result.data, offer.id)
     }
 
+    const editSource: EditorSource | null = offer.fileUrl ? { url: offer.fileUrl, label: offer.affiliation, spotId: target, offerId: offer.id } : null
+
     return (
         <li className="bg-[#0d0c14] border border-[#2a2840] rounded-xl p-4 flex flex-col sm:flex-row gap-4">
             <div className="shrink-0">
-                {offer.fileUrl ? (
-                    <a href={offer.fileUrl} target="_blank" rel="noopener noreferrer" title="Open the sticker file">
+                {editSource ? (
+                    <button type="button" onClick={() => onEdit(editSource)} title="Open in the sticker editor"
+                        className="block rounded-lg cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c6dff]/60">
                         {/* eslint-disable-next-line @next/next/no-img-element -- a private sticker, streamed from our own admin route */}
-                        <img src={offer.fileUrl} alt={`Sticker from ${offer.affiliation}`} className="w-24 h-24 object-contain rounded-lg bg-[#13121c] border border-[#2a2840]" />
-                    </a>
+                        <img src={editSource.url} alt={`Sticker from ${offer.affiliation}`} className="w-24 h-24 object-contain rounded-lg sticker-checkerboard border border-[#2a2840]" />
+                    </button>
                 ) : (
                     <span className="w-24 h-24 rounded-lg border border-dashed border-[#2a2840] flex items-center justify-center text-[10px] text-[#555370] text-center p-2">File not saved (it&apos;s in the email)</span>
                 )}
@@ -578,6 +687,12 @@ function OfferCard({ offer, spots, onSaved, onDeleted, onPlaced, disabled }: {
                         {STICKER_SLOTS.map((slot) => <option key={slot.id} value={slot.id}>{spotName(slot)}</option>)}
                     </select>
                     <button type="button" className={secondaryButton} disabled={busy || disabled || !offer.fileUrl} onClick={place}>Place on spot</button>
+                    {editSource && (
+                        <>
+                            <button type="button" className={secondaryButton} onClick={() => onPreview({ spotId: target, imageUrl: editSource.url, label: offer.affiliation })}>Preview on laptop</button>
+                            <button type="button" className={primaryButton} onClick={() => onEdit(editSource)}>Edit &amp; print</button>
+                        </>
+                    )}
                     {offer.status !== "accepted" && <button type="button" className={secondaryButton} disabled={busy || disabled} onClick={() => patch({ status: "accepted" }, "Couldn't update the offer.")}>Accept</button>}
                     {offer.status !== "declined" && <button type="button" className={secondaryButton} disabled={busy || disabled} onClick={() => patch({ status: "declined" }, "Couldn't update the offer.")}>Decline</button>}
                     {offer.fileUrl && <a href={`${offer.fileUrl}&download=1`} className={secondaryButton}>Download</a>}

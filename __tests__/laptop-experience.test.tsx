@@ -4,11 +4,14 @@
  * jsdom has no WebGL, so the viewer is replaced by a stub that records its
  * props and lets each test play the viewer's part (report a status, or a
  * sticker clicked in 3D). Covers selection by click, keyboard, and 3D pick on
- * both surfaces; opening and closing the laptop; loading, missing-model,
- * error, and unsupported fallbacks (including the open 2D drawing); retry;
- * reduced motion; the offer form's trigger; the two-way highlight between
- * stickers (3D or 2D) and their tiles; spots from the page's data; and the
- * link from /work.
+ * both surfaces; opening and closing the laptop, by button or by moving the
+ * lid (a drag, or the lid slider); loading, invalid-model, error, and
+ * unsupported fallbacks (including the open 2D drawing); retry; reduced
+ * motion; the offer form's trigger; the two-way highlight between stickers
+ * (3D or 2D) and their tiles; spots from the page's data; and the link from
+ * /work; and a visitor previewing their own logo on a spot, then sending it.
+ * The lid's own motion is covered in lib-laptop-lid.test.ts, and the
+ * model drawn when the GLB is missing in laptop-built-in-model.test.ts.
  */
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 
@@ -20,8 +23,11 @@ type MockViewerProps = {
     onHover:       (id: string | null) => void
     resetToken:    number
     reducedMotion: boolean
+    lidRequest:    { degrees: number } | null
     onSelect:      (id: string) => void
     onStatus:      (status: string) => void
+    onOpenChange:  (open: boolean) => void
+    onLidAngle:    (degrees: number) => void
 }
 
 const mockViewer: { props: MockViewerProps | null; mounts: number } = { props: null, mounts: 0 }
@@ -57,7 +63,7 @@ const report = (status: string) => act(() => viewer().onStatus(status))
 const lidGroup  = () => screen.getByRole("radiogroup", { name: "Four sponsor spots" })
 const palmGroup = () => screen.getByRole("radiogroup", { name: "Two palm rest spots" })
 const lidRadios = () => within(lidGroup()).getAllByRole("radio")
-const details = () => screen.getByText(/Sponsor a spot/).closest("div") as HTMLElement
+const details = () => screen.getByText(/Sponsor a spot/).closest("[aria-live]") as HTMLElement
 const toggle  = () => screen.getByRole("button", { name: /(Open|Close) the laptop/ })
 
 function setReducedMotion(reduce: boolean) {
@@ -226,6 +232,156 @@ describe("opening and closing the laptop", () => {
     })
 })
 
+describe("moving the lid by hand", () => {
+    const slider = () => screen.getByRole("slider", { name: "Lid angle" })
+
+    it("follows a drag past open without moving the selection or the camera's subject", () => {
+        render(<LaptopExperience />)
+        report("ready")
+        fireEvent.click(screen.getByRole("radio", { name: /Upper left/ }))
+        act(() => viewer().onOpenChange(true))
+        expect(viewer().open).toBe(true)
+        expect(viewer().selectedId).toBe("slot-1") // unlike the button, which starts the view afresh
+        expect(toggle().textContent).toBe("Close the laptop")
+        expect(screen.getByRole("img").getAttribute("aria-label")).toMatch(/open, with the screen on/)
+    })
+
+    it("drops a palm rest selection when the lid is pushed closed over it, but keeps a lid one", () => {
+        render(<LaptopExperience />)
+        report("ready")
+        fireEvent.click(screen.getByRole("radio", { name: /Left of trackpad/ }))
+        act(() => viewer().onOpenChange(false))
+        expect(viewer().open).toBe(false)
+        expect(viewer().selectedId).toBeNull()
+        fireEvent.click(screen.getByRole("radio", { name: /Lower left/ }))
+        act(() => viewer().onOpenChange(true))
+        act(() => viewer().onOpenChange(false))
+        expect(viewer().selectedId).toBe("slot-3")
+    })
+
+    it("offers a labelled lid slider once the 3D view is ready, starting slightly open", () => {
+        render(<LaptopExperience />)
+        expect(screen.queryByRole("slider")).toBeNull()
+        report("ready")
+        expect(slider().getAttribute("min")).toBe("0")
+        expect(slider().getAttribute("max")).toBe("108")
+        expect((slider() as HTMLInputElement).value).toBe("12")
+        expect(slider().getAttribute("aria-valuetext")).toBe("Open 12 degrees")
+    })
+
+    it("sends each slider change to the viewer, even a repeat of the same angle", () => {
+        render(<LaptopExperience />)
+        report("ready")
+        fireEvent.change(slider(), { target: { value: "60" } })
+        const first = viewer().lidRequest
+        expect(first).toEqual({ degrees: 60 })
+        expect(slider().getAttribute("aria-valuetext")).toBe("Open 60 degrees")
+        fireEvent.change(slider(), { target: { value: "0" } })
+        expect(viewer().lidRequest).toEqual({ degrees: 0 })
+        expect(viewer().lidRequest).not.toBe(first)
+    })
+
+    it("moves the slider as the lid moves in 3D", () => {
+        render(<LaptopExperience />)
+        report("ready")
+        act(() => viewer().onLidAngle(0))
+        expect((slider() as HTMLInputElement).value).toBe("0")
+        expect(slider().getAttribute("aria-valuetext")).toBe("Closed")
+        act(() => viewer().onLidAngle(97))
+        expect((slider() as HTMLInputElement).value).toBe("97")
+    })
+
+    it("has no slider on the 2D drawings, where the lid is simply open or closed", () => {
+        render(<LaptopExperience />)
+        report("unsupported")
+        expect(screen.queryByRole("slider")).toBeNull()
+        expect(toggle()).toBeTruthy()
+    })
+
+    it("forgets an old slider value when the viewer is rebuilt", () => {
+        render(<LaptopExperience />)
+        report("ready")
+        fireEvent.change(slider(), { target: { value: "70" } })
+        report("error")
+        fireEvent.click(screen.getByRole("button", { name: "Try again" }))
+        expect(viewer().lidRequest).toBeNull()
+    })
+})
+
+describe("previewing your own logo", () => {
+    let decodes = true
+    const logo = (name = "my-logo.png", type = "image/png") => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], name, { type })
+    const logoInput = () => screen.getByLabelText(/Your logo, to preview on the laptop/) as HTMLInputElement
+    const pick = (file: File) => act(async () => { fireEvent.change(logoInput(), { target: { files: [file] } }) })
+    const previewCard = () => screen.getByRole("heading", { name: "Your logo, on the laptop" }).closest("[aria-live]") as HTMLElement
+    const slot = (id: string) => viewer().slots.find((s) => s.id === id)!
+
+    beforeEach(() => {
+        decodes = true
+        let made = 0
+        Object.assign(URL, { createObjectURL: jest.fn(() => `blob:preview-${++made}`), revokeObjectURL: jest.fn() })
+        Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: () => (decodes ? Promise.resolve() : Promise.reject(new Error("bad image"))) })
+        Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => (decodes ? 500 : 0) })
+    })
+
+    it("puts your logo on the first open spot, in your browser only, from the starting card", async () => {
+        render(<LaptopExperience />)
+        const opened = jest.spyOn(logoInput(), "click")
+        fireEvent.click(screen.getByRole("button", { name: "Preview your logo on the laptop" }))
+        expect(opened).toHaveBeenCalled()
+        await pick(logo())
+        expect(slot("slot-4").sponsor).toMatchObject({ name: "Your logo", imageUrl: "blob:preview-1", preview: true })
+        expect(viewer().selectedId).toBe("slot-4")
+        expect(previewCard().textContent).toMatch(/Only you can see this preview. Your file stays in your browser/)
+        expect(within(previewCard()).getByRole("img", { name: "Your logo" }).getAttribute("src")).toBe("blob:preview-1")
+        expect(screen.getByRole("radio", { name: /Lower right/ }).textContent).toMatch(/Your logo/)
+        expect(screen.getByRole("img", { name: /3D model/ }).getAttribute("aria-label")).toMatch(/Selected: Lid, lower right: Your logo \(preview\)/)
+    })
+
+    it("moves your logo to another spot, then sends it with an offer for that spot", async () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("button", { name: "Preview your logo on the laptop" }))
+        await pick(logo())
+        fireEvent.click(screen.getByRole("radio", { name: /Upper left/ }))
+        expect(within(details()).getByRole("heading", { name: "Acme Dev Tools" })).toBeTruthy()
+        fireEvent.click(within(details()).getByRole("button", { name: "Move your logo here" }))
+        expect(slot("slot-1").sponsor).toMatchObject({ name: "Your logo", preview: true })
+        expect(slot("slot-4").sponsor).toBeNull() // back to open
+        fireEvent.click(within(previewCard()).getByRole("button", { name: "Send this as an offer →" }))
+        const dialog = screen.getByRole("dialog")
+        expect(within(dialog).getByText(/Selected: my-logo.png/)).toBeTruthy()
+        expect((within(dialog).getByLabelText("Preferred spot") as HTMLSelectElement).value).toBe("slot-1")
+    })
+
+    it("swaps the image, and releases each file it no longer shows", async () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("button", { name: "Preview your logo on the laptop" }))
+        await pick(logo())
+        fireEvent.click(within(previewCard()).getByRole("button", { name: "Try another image" }))
+        await pick(logo("second.jpg", "image/jpeg"))
+        expect(slot("slot-4").sponsor?.imageUrl).toBe("blob:preview-2")
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")
+        fireEvent.click(within(previewCard()).getByRole("button", { name: "Remove preview" }))
+        expect(slot("slot-4").sponsor).toBeNull()
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-2")
+        expect(screen.queryByRole("heading", { name: "Your logo, on the laptop" })).toBeNull()
+    })
+
+    it("refuses a file that isn't a PNG or JPG, or that won't draw", async () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("radio", { name: /Upper right/ }))
+        fireEvent.click(within(details()).getByRole("button", { name: "Preview your logo here" }))
+        await pick(logo("anim.gif", "image/gif"))
+        expect(screen.getByRole("alert").textContent).toMatch(/PNG or JPG/)
+        expect(URL.createObjectURL).not.toHaveBeenCalled()
+        decodes = false
+        await pick(logo())
+        expect(screen.getByRole("alert").textContent).toMatch(/couldn't be read/)
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")
+        expect(slot("slot-2").sponsor?.preview).toBeUndefined()
+    })
+})
+
 describe("offer form trigger", () => {
     it("opens the offer form (a dialog) and never claims to take payment", () => {
         render(<LaptopExperience />)
@@ -251,23 +407,23 @@ describe("viewer states", () => {
         expect(screen.getByRole("status").textContent).toMatch(/Loading the 3D laptop/)
         expect(screen.queryByRole("button", { name: "Reset view" })).toBeNull()
         report("ready")
-        expect(screen.getByRole("status").textContent).toMatch(/Drag to rotate/)
+        expect(screen.getByRole("status").textContent).toMatch(/Drag the lid to open or close it, drag beside the laptop to rotate/)
         fireEvent.click(screen.getByRole("button", { name: "Reset view" }))
         expect(viewer().resetToken).toBe(1)
     })
 
-    it("falls back to the 2D layout when the model file is missing, and the picker still works", () => {
+    it("falls back to the 2D layout without WebGL, and the picker still works", () => {
         render(<LaptopExperience />)
-        report("missing")
-        expect(screen.getByRole("status").textContent).toMatch(/3D model coming soon/)
-        expect(screen.queryByRole("button", { name: "Try again" })).toBeNull() // retrying can't conjure the file
+        report("unsupported")
+        expect(screen.getByRole("status").textContent).toMatch(/3D isn't available in this browser/)
+        expect(screen.queryByRole("button", { name: "Try again" })).toBeNull() // retrying can't turn WebGL on
         fireEvent.click(screen.getByRole("radio", { name: /Upper left/ }))
         expect(within(details()).getByRole("heading", { name: "Acme Dev Tools" })).toBeTruthy()
     })
 
-    it("draws the open laptop in 2D when it's opened without the 3D model", () => {
+    it("draws the open laptop in 2D when it's opened without 3D", () => {
         render(<LaptopExperience />)
-        report("missing")
+        report("unsupported")
         const scene = screen.getByRole("img")
         expect(scene.querySelector("svg")).toBeNull() // the closed lid drawing
         expect(within(scene).getByText("ACME")).toBeTruthy()
@@ -345,7 +501,7 @@ describe("highlight sync", () => {
 
     it("selects from the 2D lid drawing, and lights the drawn sticker from its tile", () => {
         render(<LaptopExperience />)
-        report("missing")
+        report("unsupported")
         const sticker = (id: string) => screen.getByRole("img").querySelector(`[data-spot="${id}"]`) as HTMLElement
         fireEvent.click(sticker("slot-4"))
         expect(lit(tile(/Lower right/))).toBe(true)
@@ -359,7 +515,7 @@ describe("highlight sync", () => {
 
     it("selects from the open 2D drawing's palm rest", () => {
         render(<LaptopExperience />)
-        report("missing")
+        report("unsupported")
         fireEvent.click(toggle())
         const drawing = screen.getByRole("img").querySelector("svg")!
         fireEvent.click(drawing.querySelector('[data-spot="palm-right"]')!)
