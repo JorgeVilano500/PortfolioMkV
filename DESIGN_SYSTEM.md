@@ -1,6 +1,6 @@
 # Design System
 
-_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-11-04** (branch `laptop-lid-drag`)._
+_The visual language of JAVA.dev: tokens, typography, layout, components, motion, and the rules for new UI. Every value below is pulled from the current code. Where the code is inconsistent, §10 lists the conflict and the canonical choice to converge on. Last verified: **2026-11-05** (branch `sticker-studio`)._
 
 **Read this before building or restyling any UI.** When you introduce a new pattern, add it here.
 
@@ -236,6 +236,27 @@ Fixed on 2026-11-03 (PRD P0-2). Until then no Tailwind utility mapped `font-syne
 | Spot editor | Eyebrow in the spot accent, Syne `text-xl` title, the switch; thumbnail + Upload/Replace, Open, Remove image (secondary buttons); Studio inputs with uppercase `text-[11px]` labels; a colour `radiogroup` of chips with an accent dot; primary "Save details"; danger "Clear spot"; "Place an offer's sticker here" select + Place. Saved notices in `text-xs text-emerald-300` (`role="status"`), errors in `text-xs text-pink-400` (`role="alert"`). |
 | Offer row | `bg-[#0d0c14] border-[#2a2840] rounded-xl p-4`, a 96 px thumbnail linking to the file, affiliation + Syne offer amount + status pill (new: violet, accepted: emerald, declined: grey), a meta line (mailto, preferred spot, date, file name), then actions and a notes field ("Save note" appears once it changes). Status filter: the segmented control from the Studio tabs, with counts. |
 | Two-step destructive button | Danger outline (`border-pink-500/40 text-pink-300`); the first click turns it `bg-red-600 text-white` with "Click again to …" (pulsing, motion permitting) for 3 s. Used for Clear spot and Delete offer. |
+| Preview banner | Above the laptop while a sticker is previewed: a standard card with a `border-[#7c6dff]/60` border, `role="status"`, a pulsing violet dot (motion permitting), "Previewing <name> on <spot>. Only you see this, and nothing is saved.", then **Back to the editor** (from the editor) and **End preview** as secondary buttons. |
+| Offer actions | **Edit & print** is the offer's primary button; **Preview on laptop** sits with the secondary ones. The thumbnail (on the `sticker-checkerboard`, `cursor-zoom-in`) opens the editor too. |
+
+### 7.1f Sticker editor (`app/studio/StickerEditor.tsx`, added 2026-11-05)
+| Element | Pattern |
+|---|---|
+| Frame | The shared `Modal`, `variant="dark" size="xl"` (`max-w-6xl max-h-[94vh]`), body `p-0!`. Two columns from `lg`: the sticker (`flex-1`) and the controls (`lg:w-88`, `border-l border-[#2a2840]`, scrolling on their own); stacked on phones, sticker first. |
+| View | A toolbar of small outline buttons (`text-xs px-2.5 py-1.5 rounded-lg border-[#2a2840]`): − / zoom % / + / Fit / Actual pixels, and a **Cut line** checkbox (`accent-[#ff2bd6]`) on the right. The well is `sticker-checkerboard` (`globals.css`: a 16 px `#13121c`/`#1e1c2e` checkerboard showing transparency), `h-[44vh] lg:h-[52vh] rounded-xl`, `cursor-grab`, focusable, with wheel and pinch zoom, drag or arrow keys to move, double-click to fit. Above 200% the pixels render `pixelated`, so you can inspect the file. |
+| Cut line | Design Space's cut-line pink, `#ff2bd6`, one pixel along the edge of the opaque pixels, drawn on its own canvas over the sticker. |
+| Readout | Under the well, `text-xs text-[#8a88a0]`: the printed size in cm and inches, the pixels at 300 DPI, and the artwork's own DPI with its verdict in `text-emerald-300` (sharp), `text-amber-300` (fine) or `text-pink-300` (may print soft, plus one line of advice). |
+| Actions | Under the readout, never below the fold: primary **Download for Cricut (PNG, 300 DPI)**, then secondary **Print at real size** with a Copies field (1–20), **Preview on the laptop**, and **Save as <spot>'s sticker**. Results in `text-xs` emerald (`role="status"`) or pink (`role="alert"`). A `<details>` "Cutting it on a Cricut" holds the four steps. |
+| Controls | Sections with the `text-[11px] tracking-widest uppercase text-[#555370]` eyebrow: Size (a select of the six spots plus Custom), Shape (a radiogroup of chips; selected `border-[#7c6dff] bg-[#7c6dff]/20 text-white`), then **Layer 1 · Sticker colour**, **Layer 2 · Edge**, **Layer 3 · Artwork**. Sliders reuse `.lid-slider` with the value on the right in `tabular-nums`. |
+| Colour swatches | A radiogroup of 28 px rounded squares: Clear (checkerboard), White, Black, and the three sticker colours, then a conic-gradient tile that opens the colour picker. Selected: `ring-2 ring-[#7c6dff] ring-offset-2 ring-offset-[#13121c]`. |
+| Print sheet | A portal shown only in print (`.sticker-print-sheet`, with `body.printing-sticker` hiding everything else): the copies at their real size in millimetres, 4 mm apart. |
+
+### 7.1g Logo preview on `/laptop` (`LaptopExperience.tsx`, added 2026-11-05)
+| Element | Pattern |
+|---|---|
+| Trigger | In the details card, beside **Sponsor a spot →**, a secondary pill (`rounded-full border-[#2a2840] text-[#c4c0d8]`): "Preview your logo on the laptop" (no spot chosen), "Preview your logo here", or "Move your logo here" once one is showing. It opens a hidden PNG/JPG file input. |
+| Preview card | The details card bordered in the spot's accent, with a **Preview** pill (`border-[#7c6dff]/60 text-[#AFA9EC]`), the logo as a 96 px thumbnail, "Your logo, on the laptop", one line saying only the visitor sees it and the file stays in their browser, then **Send this as an offer →** (primary), **Try another image** (secondary), and a quiet **Remove preview** text button. |
+| On the laptop | The previewed spot's tile reads "Your logo", and the 3D and 2D stickers draw it the way an accepted logo would look (on the spot's colour, in the white edge). The scene description says "(preview)". |
 
 ### 7.2 Studio-local primitives (`app/studio/shared.tsx`)
 - The admin gate now lives in `components/features/AdminGate.tsx`, shared by `/studio` and `/logistics`. `<AdminGate title description>` checks the session and otherwise shows a centred card with the "Restricted" eyebrow, a password input, an inline error, and a primary button. `<SignOutButton/>` is a secondary-style button for admin page headers.

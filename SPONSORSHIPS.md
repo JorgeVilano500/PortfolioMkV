@@ -1,6 +1,6 @@
 # Sponsorships: setup and day-to-day
 
-_How "Sponsor a spot" on `/laptop` stores offers, how to create the Supabase storage bucket and tables it needs, and how to control what `/laptop` shows from Studio. Last verified against the code: **2026-11-03** (branch `studio-sponsorships`)._
+_How "Sponsor a spot" on `/laptop` stores offers, how to create the Supabase storage bucket and tables it needs, and how to control what `/laptop` shows from Studio. Last verified against the code: **2026-11-05** (branch `sticker-studio`)._
 
 Related docs: [ARCHITECTURE.md §6.9–6.12 and §7](ARCHITECTURE.md) (routes and tables), [SECURITY.md](SECURITY.md) (why everything is private), [README.md](README.md) (local setup).
 
@@ -83,10 +83,41 @@ Sign in at `/studio` and open the **Sponsorships** tab.
 | Edit what a spot says | Select it, change **Sponsor name**, **Mark** (the up-to-6-letter text drawn when there's no image), **Tagline**, **Description** or **Colour**, then **Save details**. |
 | Put a sponsor's sticker on a spot | From the offer card: choose a spot and click **Place on spot**. Or from the spot editor: pick the offer under **Place an offer's sticker here**. Either way it starts hidden, the spot takes the sponsor's affiliation as its name, and the offer is marked accepted. |
 | Use your own image | Select a spot that has a sponsor name, then **Upload image** / **Replace image**. |
+| Try a sticker on the laptop first | On an offer, **Preview on laptop**: the sticker appears on the spot chosen beside it, a banner says you're previewing, and nothing is saved. **End preview** puts the spot back. |
+| Check, adjust and print a sticker | On an offer, **Edit & print** (or click its thumbnail); on a spot with an image, **Edit & print** in the spot editor. See §4a. |
 | Remove a sponsor | Select the spot, **Clear spot**, then click again to confirm. The spot becomes open. |
 | Handle an offer | **Accept** or **Decline**, keep **Notes** (only you see them), **Download** the file, reply from the email link, or **Delete** it (click twice). Deleting an offer removes its file, but a copy already placed on a spot stays. |
 
 Every change saves straight away and tells `/laptop` to rebuild on its next visit.
+
+## 4a. The sticker editor, and printing on a Cricut
+
+The editor opens the sponsor's original file (for a spot placed from an offer, it goes back to the offer's file, so edits never stack).
+
+- **Check it:** zoom with the − / + buttons, the mouse wheel, a pinch, or `+`/`-` on the keyboard; drag (or use the arrow keys) to move round; **Fit** and **Actual pixels** reset the view. The checkerboard shows what's transparent, and the pink **Cut line** shows where a Cricut will cut. The line under the sticker gives its printed size and how sharply the sponsor's file will print (250+ DPI sharp, 150+ fine, below that it may look soft).
+- **Size:** pick the spot (lid stickers 6.5 × 6.5 cm, palm-rest stickers 5 × 3.5 cm, the sizes on the laptop) or a custom size.
+- **Shape:** rounded (with a corner radius), circle, or **Follow the logo** (a die-cut outline a set margin round the artwork).
+- **Layers, bottom up:** 1) the **sticker colour** filling the shape (white by default, or clear for no fill), 2) an optional coloured **edge** ring, 3) the **artwork**: its size, its position, and **Remove the white background** for logos supplied on white (only white connected to the edges goes, so white inside the logo stays).
+
+Then:
+
+| Button | What happens |
+|---|---|
+| **Download for Cricut (PNG, 300 DPI)** | Saves the finished sticker at its real size, 300 DPI, transparent outside its shape. |
+| **Print at real size** | Prints that many copies at the real size on any printer, for sticker paper you cut by hand. Nothing else on the page prints. |
+| **Preview on the laptop** | Closes the editor and shows the finished sticker on the 3D laptop. **Back to the editor** returns to it as you left it. Nothing is saved. |
+| **Save as <spot>'s sticker** | Makes it the spot's image. For an offer's sticker, the offer is placed on the spot first, so it starts **hidden** and the offer is marked accepted. |
+
+**Printing on a Cricut.** Cricut has no public API, so a website can't send a job straight to the machine: the file goes through Cricut Design Space.
+1. **Download for Cricut**.
+2. In Design Space, choose **Upload → Upload Image** and pick the PNG.
+3. Its outside is already transparent, so skip background removal and save it as a **Print Then Cut** image.
+4. On the canvas, set its size to the one the editor shows (for example 6.5 × 6.5 cm, 2.56 × 2.56 in).
+5. **Make It**, print on sticker paper, then load the mat. The machine cuts along the edge the pink line showed.
+
+A saved sticker is stored as `spots/<spot>/<uuid>-cut.png`. That name tells `/laptop` to draw it exactly as designed, instead of placing it on the spot's colour inside a white edge as it does for a plain logo.
+
+**Visitors can preview too.** On `/laptop`, "Preview your logo here" puts a visitor's own PNG or JPG on a spot of the 3D laptop. It stays in their browser (nothing is uploaded), and **Send this as an offer** opens the offer form with that spot and file already filled in.
 
 ## 5. What's public and what isn't
 
@@ -128,7 +159,7 @@ Everything Studio does goes through these routes, so `/laptop` can also be contr
 | `DELETE /api/sponsorships` | admin | `{ id }`: deletes the offer and its `offers/` file |
 | `GET /api/sponsorships/spots` | admin | `{ spots, setup }`: all six spots, hidden ones included |
 | `PATCH /api/sponsorships/spots` | admin | `{ id, visible?, sponsor?, offerId?, removeImage? }`: `sponsor: null` clears the spot; `offerId` places that offer's sticker (hidden unless `visible` is sent) |
-| `POST /api/sponsorships/spots` | admin | multipart `{ id, sticker }`: a new image for a spot that has a sponsor name |
+| `POST /api/sponsorships/spots` | admin | multipart `{ id, sticker, finish? }`: a new image for a spot that has a sponsor name. `finish=sticker` marks a finished die-cut PNG from the editor (stored as `…-cut.png`, drawn as designed) |
 | `GET /api/sponsorships/file?path=` | admin | Streams a stored file (`&download=1` to save it) |
 | `GET /api/laptop/spots` | public | The six spots as `/laptop` shows them (hidden ones as open) |
 | `GET /laptop/stickers/<spot>` | public | A shown spot's sticker image; 404 otherwise |

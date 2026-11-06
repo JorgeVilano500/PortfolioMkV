@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-05** (branch `laptop-lid-drag`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-05** (branch `sticker-studio`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -312,8 +312,13 @@ Both methods require a same-origin request (otherwise `403`) and are rate-limite
 ### 6.11 `/api/sponsorships/spots` (admin): what each spot on `/laptop` shows
 - `GET` → `{ spots: AdminSpot[], setup }`: always all six, in layout order. A spot without a row returns its built-in sample (or open). `AdminSpot` = `{ id, sponsor: {name, mark, tagline, description, theme} | null, visible, sample, offerId, imageUrl, updatedAt }`, with `imageUrl` on the admin file route.
 - `PATCH { id, visible?, sponsor?, offerId?, removeImage? }` → the updated spot. `sponsor: null` clears it (open). `sponsor: {…}` is validated by `validateSponsorInput` (name ≤60, mark ≤6, tagline ≤80, description ≤400, theme). `offerId` copies that offer's file to `spots/<spot>/<uuid>.<ext>`, names the spot after the offer's affiliation (unless `sponsor` is sent too), starts it **hidden** (unless `visible` is sent), and marks the offer accepted. Every refusal (400) happens before any copy or write; `409` until the table exists.
-- `POST` multipart `{ id, sticker }` → the updated spot: a new image (PNG/JPEG, ≤4 MB, pixel limits) for a spot that already has a sponsor name.
+- `POST` multipart `{ id, sticker, finish? }` → the updated spot: a new image (PNG/JPEG, ≤4 MB, pixel limits) for a spot that already has a sponsor name. `finish` is `sticker` or `logo` (anything else is a 400, checked before any read). `finish=sticker` is the sticker editor's finished die-cut design: PNG only, stored as `spots/<spot>/<uuid>-cut.png`. That suffix is the only record of it (no column): `isDieCutPath()` turns it into `sponsor.finish = "sticker"` for `/laptop` and `dieCut: true` for Studio, and the viewer and the 2D drawings then draw the image as it is, without the spot's colour and white edge.
 - Every write upserts the row, deletes the spot's previous `spots/` image (never an `offers/` file), and calls `revalidatePath` for `/laptop` and `/api/laptop/spots`.
+
+### 6.11a Studio's sticker editor and previews (client only)
+- `app/studio/StickerEditor.tsx` (a `size="xl"` `Modal`) draws an offer's or spot's file with `app/studio/sticker-canvas.ts`, using the maths in `lib/sticker-print.ts` (print sizes, layout, edge-connected white removal, an exact distance field for "follow the logo" shapes, the cut line, and a pHYs chunk so the PNG says 300 DPI). Its files come from the admin file route on the same origin, so the canvas stays readable.
+- **Download** and **Print** happen in the browser (an object URL, and a print-only sheet: `body.printing-sticker` in `globals.css`). **Save** is `PATCH /api/sponsorships/spots { offerId }` (when it's an offer's sticker) and then `POST … finish=sticker`. Cricut has no public API, so printing on a Cricut goes through Design Space's upload (SPONSORSHIPS.md §4a).
+- **Previews** are `withPreview(slots, preview)` (`lib/laptop-stickers.ts`): a `SpotPreview` laid over one spot, marked `preview: true`, in page state only. Studio previews an offer's file or the editor's output (a `blob:` URL it revokes); `/laptop` previews a visitor's own file (a `blob:` URL, never uploaded unless they send the offer form, which `SponsorForm`'s `initialFile` pre-fills). `img-src` already allows `blob:`.
 
 ### 6.12 Sticker files and the public spot list
 - `GET /api/sponsorships/file?path=<stored path>` (admin): streams a file from the bucket for Studio's thumbnails and 3D preview (same origin, so no CORS or signed URLs). `&download=1` sends it as an attachment. `400` unless the path matches `STORED_FILE_RE`; `404` if it's missing.
