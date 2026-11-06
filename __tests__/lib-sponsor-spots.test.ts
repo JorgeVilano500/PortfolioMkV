@@ -10,6 +10,7 @@ import {
     STORED_FILE_RE,
     adminFileUrl,
     initials,
+    isDieCutPath,
     isSlotId,
     publicStickerUrl,
     slotsFromRecords,
@@ -31,6 +32,7 @@ describe("ids and paths", () => {
     it.each([
         ["offers/3f2b6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f/sticker.png", true],
         ["spots/palm-left/0b9f6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f.jpg", true],
+        ["spots/slot-1/0b9f6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f-cut.png", true], // a finished sticker: still 40 characters
         ["offers/x/sticker.webp", false],
         ["offers/x/sticker.pdf", false],
         ["../offers/x/sticker.png", false],
@@ -41,6 +43,14 @@ describe("ids and paths", () => {
         ["offers/x/sticker.png\n", false],
     ])("treats %j as a stored file: %s", (path, expected) => {
         expect(STORED_FILE_RE.test(path)).toBe(expected)
+    })
+
+    it("recognises a finished die-cut sticker by its stored name, and nothing else", () => {
+        expect(isDieCutPath("spots/slot-1/0b9f6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f-cut.png")).toBe(true)
+        expect(isDieCutPath("spots/slot-1/0b9f6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f.png")).toBe(false)
+        expect(isDieCutPath("offers/x-cut/sticker-cut.png")).toBe(false) // an offer's file is the sponsor's original
+        expect(isDieCutPath("spots/slot-1/abc-cut.jpg")).toBe(false)
+        expect(isDieCutPath(null)).toBe(false)
     })
 
     it("builds same-origin image URLs, versioned so a change busts caches", () => {
@@ -83,6 +93,11 @@ describe("slotsFromRecords", () => {
     it("falls back to safe values for a row edited outside Studio", () => {
         const [slot] = slotsFromRecords([record({ mark: null, theme: "red" as never, image_path: null, tagline: null })])
         expect(slot.sponsor).toMatchObject({ mark: "RC", theme: "purple", tagline: "", imageUrl: null })
+    })
+
+    it("draws a finished sticker as designed, and a plain upload as a logo", () => {
+        expect(slotsFromRecords([record({ image_path: "spots/slot-1/0b9f6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f-cut.png" })])[0].sponsor?.finish).toBe("sticker")
+        expect(slotsFromRecords([record()])[0].sponsor).not.toHaveProperty("finish")
     })
 
     it("uses the image URL builder it's given (Studio's admin route)", () => {

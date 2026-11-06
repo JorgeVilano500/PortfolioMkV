@@ -9,7 +9,8 @@
  * unsupported fallbacks (including the open 2D drawing); retry; reduced
  * motion; the offer form's trigger; the two-way highlight between stickers
  * (3D or 2D) and their tiles; spots from the page's data; and the link from
- * /work. The lid's own motion is covered in lib-laptop-lid.test.ts, and the
+ * /work; and a visitor previewing their own logo on a spot, then sending it.
+ * The lid's own motion is covered in lib-laptop-lid.test.ts, and the
  * model drawn when the GLB is missing in laptop-built-in-model.test.ts.
  */
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
@@ -62,7 +63,7 @@ const report = (status: string) => act(() => viewer().onStatus(status))
 const lidGroup  = () => screen.getByRole("radiogroup", { name: "Four sponsor spots" })
 const palmGroup = () => screen.getByRole("radiogroup", { name: "Two palm rest spots" })
 const lidRadios = () => within(lidGroup()).getAllByRole("radio")
-const details = () => screen.getByText(/Sponsor a spot/).closest("div") as HTMLElement
+const details = () => screen.getByText(/Sponsor a spot/).closest("[aria-live]") as HTMLElement
 const toggle  = () => screen.getByRole("button", { name: /(Open|Close) the laptop/ })
 
 function setReducedMotion(reduce: boolean) {
@@ -304,6 +305,80 @@ describe("moving the lid by hand", () => {
         report("error")
         fireEvent.click(screen.getByRole("button", { name: "Try again" }))
         expect(viewer().lidRequest).toBeNull()
+    })
+})
+
+describe("previewing your own logo", () => {
+    let decodes = true
+    const logo = (name = "my-logo.png", type = "image/png") => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], name, { type })
+    const logoInput = () => screen.getByLabelText(/Your logo, to preview on the laptop/) as HTMLInputElement
+    const pick = (file: File) => act(async () => { fireEvent.change(logoInput(), { target: { files: [file] } }) })
+    const previewCard = () => screen.getByRole("heading", { name: "Your logo, on the laptop" }).closest("[aria-live]") as HTMLElement
+    const slot = (id: string) => viewer().slots.find((s) => s.id === id)!
+
+    beforeEach(() => {
+        decodes = true
+        let made = 0
+        Object.assign(URL, { createObjectURL: jest.fn(() => `blob:preview-${++made}`), revokeObjectURL: jest.fn() })
+        Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: () => (decodes ? Promise.resolve() : Promise.reject(new Error("bad image"))) })
+        Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => (decodes ? 500 : 0) })
+    })
+
+    it("puts your logo on the first open spot, in your browser only, from the starting card", async () => {
+        render(<LaptopExperience />)
+        const opened = jest.spyOn(logoInput(), "click")
+        fireEvent.click(screen.getByRole("button", { name: "Preview your logo on the laptop" }))
+        expect(opened).toHaveBeenCalled()
+        await pick(logo())
+        expect(slot("slot-4").sponsor).toMatchObject({ name: "Your logo", imageUrl: "blob:preview-1", preview: true })
+        expect(viewer().selectedId).toBe("slot-4")
+        expect(previewCard().textContent).toMatch(/Only you can see this preview. Your file stays in your browser/)
+        expect(within(previewCard()).getByRole("img", { name: "Your logo" }).getAttribute("src")).toBe("blob:preview-1")
+        expect(screen.getByRole("radio", { name: /Lower right/ }).textContent).toMatch(/Your logo/)
+        expect(screen.getByRole("img", { name: /3D model/ }).getAttribute("aria-label")).toMatch(/Selected: Lid, lower right: Your logo \(preview\)/)
+    })
+
+    it("moves your logo to another spot, then sends it with an offer for that spot", async () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("button", { name: "Preview your logo on the laptop" }))
+        await pick(logo())
+        fireEvent.click(screen.getByRole("radio", { name: /Upper left/ }))
+        expect(within(details()).getByRole("heading", { name: "Acme Dev Tools" })).toBeTruthy()
+        fireEvent.click(within(details()).getByRole("button", { name: "Move your logo here" }))
+        expect(slot("slot-1").sponsor).toMatchObject({ name: "Your logo", preview: true })
+        expect(slot("slot-4").sponsor).toBeNull() // back to open
+        fireEvent.click(within(previewCard()).getByRole("button", { name: "Send this as an offer →" }))
+        const dialog = screen.getByRole("dialog")
+        expect(within(dialog).getByText(/Selected: my-logo.png/)).toBeTruthy()
+        expect((within(dialog).getByLabelText("Preferred spot") as HTMLSelectElement).value).toBe("slot-1")
+    })
+
+    it("swaps the image, and releases each file it no longer shows", async () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("button", { name: "Preview your logo on the laptop" }))
+        await pick(logo())
+        fireEvent.click(within(previewCard()).getByRole("button", { name: "Try another image" }))
+        await pick(logo("second.jpg", "image/jpeg"))
+        expect(slot("slot-4").sponsor?.imageUrl).toBe("blob:preview-2")
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")
+        fireEvent.click(within(previewCard()).getByRole("button", { name: "Remove preview" }))
+        expect(slot("slot-4").sponsor).toBeNull()
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-2")
+        expect(screen.queryByRole("heading", { name: "Your logo, on the laptop" })).toBeNull()
+    })
+
+    it("refuses a file that isn't a PNG or JPG, or that won't draw", async () => {
+        render(<LaptopExperience />)
+        fireEvent.click(screen.getByRole("radio", { name: /Upper right/ }))
+        fireEvent.click(within(details()).getByRole("button", { name: "Preview your logo here" }))
+        await pick(logo("anim.gif", "image/gif"))
+        expect(screen.getByRole("alert").textContent).toMatch(/PNG or JPG/)
+        expect(URL.createObjectURL).not.toHaveBeenCalled()
+        decodes = false
+        await pick(logo())
+        expect(screen.getByRole("alert").textContent).toMatch(/couldn't be read/)
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")
+        expect(slot("slot-2").sponsor?.preview).toBeUndefined()
     })
 })
 

@@ -63,6 +63,17 @@ export function adminFileUrl(path: string): string {
 /** A stored file path the file routes will serve: offers/<id>/sticker.png or spots/<spot>/<id>.jpg. */
 export const STORED_FILE_RE = /^(offers|spots)\/[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}\.(png|jpg)$/
 
+/**
+ * A finished die-cut sticker from Studio's editor is stored as
+ * spots/<spot>/<uuid>-cut.png. The name is the only record of that (no extra
+ * column), and it tells the laptop to draw the image as designed.
+ */
+export const DIE_CUT_SUFFIX = "-cut"
+
+export function isDieCutPath(path: string | null | undefined): boolean {
+    return Boolean(path && path.startsWith("spots/") && path.endsWith(`${DIE_CUT_SUFFIX}.png`))
+}
+
 /** The sponsor a record describes, or null for an open spot. */
 export function recordSponsor(record: SpotRecord, imageUrl: (record: SpotRecord) => string | null): Sponsor | null {
     if (!record.sponsor_name) return null
@@ -74,6 +85,7 @@ export function recordSponsor(record: SpotRecord, imageUrl: (record: SpotRecord)
         theme:       THEMES.includes(record.theme) ? record.theme : "purple",
         sample:      record.sample,
         imageUrl:    record.image_path ? imageUrl(record) : null,
+        ...(isDieCutPath(record.image_path) && { finish: "sticker" as const }),
     }
 }
 

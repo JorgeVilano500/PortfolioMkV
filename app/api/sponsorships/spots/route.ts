@@ -8,10 +8,12 @@ import { isJsonObject, isUuid } from "@/lib/validation"
 import { isMissingTable } from "@/lib/supabase-errors"
 import { STICKER_SLOTS, type StickerSlotId } from "@/lib/laptop-stickers"
 import {
+    DIE_CUT_SUFFIX,
     SPOT_COLUMNS,
     STORED_FILE_RE,
     adminFileUrl,
     initials,
+    isDieCutPath,
     isSlotId,
     validateSponsorInput,
     SPOT_TEXT_LIMITS,
@@ -28,7 +30,9 @@ const ROUTE = "sponsorships/spots"
 //         offerId?, removeImage?: true }                → the updated spot
 //       sponsor: null clears the spot (open). offerId places that offer's
 //       sticker on the spot as a hidden draft, unless `visible` says otherwise.
-// POST  multipart { id, sticker }                        → a new image for the spot
+// POST  multipart { id, sticker, finish? }               → a new image for the spot
+//       finish=sticker marks a finished die-cut PNG from Studio's editor
+//       (stored as spots/<id>/<uuid>-cut.png and drawn as designed).
 // Every write refreshes /laptop.
 
 /** The row a spot has before anyone edits it: its built-in sample, or open. */
@@ -60,6 +64,8 @@ function toAdminSpot(record: SpotRecord) {
         sample:    record.sample,
         offerId:   record.offer_id,
         imageUrl:  record.image_path && STORED_FILE_RE.test(record.image_path) ? adminFileUrl(record.image_path) : null,
+        /** The image is a finished die-cut sticker from the editor, drawn as designed. */
+        dieCut:    isDieCutPath(record.image_path),
         updatedAt: record.updated_at,
     }
 }
@@ -212,6 +218,10 @@ export async function POST(req: NextRequest) {
 
     const id = form.get("id")
     if (!isSlotId(id)) return Response.json({ error: "Missing or invalid spot id" }, { status: 400 })
+    const finish = form.get("finish")
+    if (finish !== null && finish !== "sticker" && finish !== "logo") {
+        return Response.json({ error: "finish must be sticker or logo" }, { status: 400 })
+    }
     const upload = form.get("sticker")
     const file = upload instanceof Blob ? (upload as File) : null
     const fileError = checkStickerFile(file)
@@ -219,6 +229,9 @@ export async function POST(req: NextRequest) {
     const bytes = new Uint8Array(await file!.arrayBuffer())
     const type = sniffStickerType(bytes)
     if (!type) return Response.json({ error: "That file isn't a real PNG or JPG." }, { status: 400 })
+    if (finish === "sticker" && type !== "image/png") {
+        return Response.json({ error: "A finished sticker must be a PNG, so its edge can be transparent." }, { status: 400 })
+    }
     const pixelError = checkStickerPixels(imageSize(bytes, type))
     if (pixelError) return Response.json({ error: pixelError }, { status: 400 })
 
@@ -227,7 +240,7 @@ export async function POST(req: NextRequest) {
     if ("error" in current) return dbError("POST read", current.error)
     if (!current.record.sponsor_name) return Response.json({ error: "Give the spot a sponsor name first, then add the image." }, { status: 400 })
 
-    const path = `spots/${id}/${randomUUID()}.${STICKER_FILE_TYPES[type].ext}`
+    const path = `spots/${id}/${randomUUID()}${finish === "sticker" ? DIE_CUT_SUFFIX : ""}.${STICKER_FILE_TYPES[type].ext}`
     const stored = await supabaseAdmin.storage.from(STICKER_BUCKET).upload(path, bytes, { contentType: type, upsert: false })
     if (stored.error) return dbError("POST upload", stored.error.message)
 

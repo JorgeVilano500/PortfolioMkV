@@ -6,7 +6,9 @@
  * stub that plays the admin API. Covers loading, stats, the hidden-sticker
  * preview, the two-way highlight between the preview and the spot list, the
  * lid moved by hand, the visibility switch, editing, placing an offer's
- * sticker, the two-step delete, the setup banner, and failures shown in words.
+ * sticker, previewing a sticker on the laptop, the sticker editor's controls,
+ * the two-step delete, the setup banner, and failures shown in words. (The
+ * editor's drawing needs a real canvas: its maths is in lib-sticker-print.test.ts.)
  */
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { STICKER_SLOTS, type StickerSlot } from "@/lib/laptop-stickers"
@@ -91,6 +93,9 @@ function respond(url: string, method: string, body: Record<string, unknown>): { 
 }
 
 beforeEach(() => {
+    // jsdom has no ResizeObserver; the sticker editor watches its view's size.
+    global.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver
+    Element.prototype.scrollIntoView = jest.fn() // a preview brings the laptop into view
     mockViewer.props = null
     calls = []
     spots = baseSpots()
@@ -122,11 +127,92 @@ const offerCard = () => screen.getByText("Bright Labs", { selector: "p" }).close
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+describe("previews and the sticker editor", () => {
+    const writesSoFar = () => calls.filter((call) => call.method !== "GET").length
+
+    it("previews an offer's sticker on the laptop without saving anything", async () => {
+        await renderPanel()
+        fireEvent.click(within(offerCard()).getByRole("button", { name: "Preview on laptop" }))
+        const previewed = viewer().slots.find((s) => s.id === "slot-4")!
+        expect(previewed.sponsor).toMatchObject({ name: "Bright Labs", imageUrl: baseOffer().fileUrl, preview: true })
+        expect(viewer().selectedId).toBe("slot-4")
+        expect(screen.getByText(/Previewing/).closest('[role="status"]')!.textContent).toMatch(/Previewing Bright Labs on Lid, lower right. Only you see this, and nothing is saved/)
+        expect(writesSoFar()).toBe(0)
+        expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+        fireEvent.click(screen.getByRole("button", { name: "End preview" }))
+        expect(viewer().slots.find((s) => s.id === "slot-4")!.sponsor).toBeNull()
+        expect(screen.queryByText(/Previewing/)).toBeNull()
+    })
+
+    it("opens an offer's sticker in the editor, sized for its spot, with zoom and layers", async () => {
+        await renderPanel()
+        fireEvent.click(within(offerCard()).getByRole("button", { name: "Edit & print" }))
+        const editor = screen.getByRole("dialog")
+        expect(within(editor).getByRole("heading", { name: "Sticker: Bright Labs" })).toBeTruthy()
+        expect(within(editor).getByText(/Loading the sticker/)).toBeTruthy()
+        expect((within(editor).getByLabelText("Spot and size") as HTMLSelectElement).value).toBe("slot-4")
+        expect(within(editor).getByText(/Prints at 6.5 × 6.5 cm \(2.56 × 2.56 in\) · 768 × 768 px at 300 DPI/)).toBeTruthy()
+        expect(within(editor).getByRole("radio", { name: "Rounded" }).getAttribute("aria-checked")).toBe("true")
+        expect(within(editor).getByRole("radio", { name: "White" }).getAttribute("aria-checked")).toBe("true")
+        fireEvent.click(within(editor).getByRole("button", { name: "Zoom in" }))
+        expect(within(editor).getByText("125%")).toBeTruthy()
+        fireEvent.click(within(editor).getByRole("button", { name: "Fit" }))
+        expect(within(editor).getByText("100%")).toBeTruthy()
+        // Nothing to export until the file has loaded.
+        expect((within(editor).getByRole("button", { name: /Download for Cricut/ }) as HTMLButtonElement).disabled).toBe(true)
+        expect(writesSoFar()).toBe(0)
+    })
+
+    it("resizes for another spot or a custom size, and adds an edge layer", async () => {
+        await renderPanel()
+        fireEvent.click(within(offerCard()).getByRole("button", { name: "Edit & print" }))
+        const editor = screen.getByRole("dialog")
+        fireEvent.change(within(editor).getByLabelText("Spot and size"), { target: { value: "palm-left" } })
+        expect(within(editor).getByText(/Prints at 5 × 3.5 cm/)).toBeTruthy()
+        expect(within(editor).getByRole("button", { name: "Save as Palm rest, left of trackpad's sticker" })).toBeTruthy()
+        fireEvent.change(within(editor).getByLabelText("Spot and size"), { target: { value: "custom" } })
+        fireEvent.change(within(editor).getByLabelText("Width (mm)"), { target: { value: "80" } })
+        expect(within(editor).getByText(/Prints at 8 × 3.5 cm/)).toBeTruthy()
+        fireEvent.click(within(editor).getByRole("radio", { name: "Follow the logo" }))
+        expect(within(editor).getByText("Margin round the logo")).toBeTruthy()
+        fireEvent.click(within(editor).getByLabelText("A coloured edge"))
+        expect(within(editor).getByRole("radiogroup", { name: "Edge colour" })).toBeTruthy()
+        fireEvent.click(within(editor).getByRole("radio", { name: "Clear" }))
+        fireEvent.click(within(editor).getByLabelText("A coloured edge"))
+        expect(within(editor).getByText(/a Cricut cuts right round the artwork itself/)).toBeTruthy()
+    })
+
+    it("keeps the editor's work when it's closed for a preview, and gives it back", async () => {
+        await renderPanel()
+        fireEvent.click(within(offerCard()).getByRole("button", { name: "Edit & print" }))
+        fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }))
+        expect(screen.queryByRole("dialog")).toBeNull()
+    })
+
+    it("edits a spot from its sponsor's original file when the offer is still here", async () => {
+        spots = baseSpots().map((s) => (s.id === "slot-1" ? { ...s, imageUrl: "/api/sponsorships/file?path=spots%2Fslot-1%2Fa.png", offerId: OFFER_ID } : s))
+        await renderPanel()
+        fireEvent.click(spotButton(/Edit Lid, upper left/))
+        const spotEditor = screen.getByRole("heading", { level: 2, name: "Acme Dev Tools" }).closest("[aria-labelledby]") as HTMLElement
+        fireEvent.click(within(spotEditor).getByRole("button", { name: "Edit & print" }))
+        const editor = screen.getByRole("dialog")
+        expect(within(editor).getByRole("heading", { name: "Sticker: Bright Labs" })).toBeTruthy()
+        expect((within(editor).getByLabelText("Spot and size") as HTMLSelectElement).value).toBe("slot-1")
+    })
+
+    it("shows a finished sticker on the laptop as designed", async () => {
+        spots = baseSpots().map((s) => (s.id === "slot-1" ? { ...s, imageUrl: "/api/sponsorships/file?path=x", dieCut: true } : s))
+        await renderPanel()
+        expect(viewer().slots[0].sponsor).toMatchObject({ finish: "sticker" })
+        expect(viewer().slots[1].sponsor).not.toHaveProperty("finish")
+    })
+})
+
 describe("loading", () => {
     it("lists the six spots, the offers, and the totals", async () => {
         await renderPanel()
         expect(calls.map((call) => call.url).sort()).toEqual(["/api/sponsorships", "/api/sponsorships/spots"])
-        expect(screen.getAllByRole("button", { name: /^Edit / }).map((b) => b.getAttribute("aria-label"))).toEqual([
+        expect(screen.getAllByRole("button", { name: /^Edit (Lid|Palm)/ }).map((b) => b.getAttribute("aria-label"))).toEqual([
             "Edit Lid, upper left", "Edit Lid, upper right", "Edit Lid, lower left", "Edit Lid, lower right",
             "Edit Palm rest, left of trackpad", "Edit Palm rest, right of trackpad",
         ])

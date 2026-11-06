@@ -272,6 +272,8 @@ function LidDiagram({ slots, selectedId, hoveredId, onSelect, onHover }: Diagram
                         const pointed = slot.id === hoveredId
                         const accent  = spotAccent(slot)
                         const ink     = slot.sponsor ? STICKER_COLORS[slot.sponsor.theme] : null
+                        // A finished die-cut design is drawn as it is: no fill or edge of our own.
+                        const asIs    = Boolean(slot.sponsor?.finish === "sticker" && slot.sponsor.imageUrl)
                         return (
                             <div
                                 key={slot.id}
@@ -280,15 +282,15 @@ function LidDiagram({ slots, selectedId, hoveredId, onSelect, onHover }: Diagram
                                 className={`relative overflow-hidden flex items-center justify-center rounded-xl border-2 text-[10px] sm:text-xs font-bold text-center px-1 cursor-pointer transition-[box-shadow,filter] ${slot.sponsor ? "" : "border-dashed"} ${active ? "motion-safe:animate-[spot-glow_700ms_ease-out_both] brightness-125" : pointed ? "brightness-110" : ""}`}
                                 style={{
                                     ["--spot-accent" as string]: accent,
-                                    borderColor: ink ? "#f0eeff" : accent,
-                                    background:  ink ? ink.fill : "rgba(19, 18, 28, 0.8)",
+                                    borderColor: asIs ? "transparent" : ink ? "#f0eeff" : accent,
+                                    background:  asIs ? "transparent" : ink ? ink.fill : "rgba(19, 18, 28, 0.8)",
                                     color:       ink ? ink.ink : "#AFA9EC",
                                     boxShadow:   active ? `0 0 0 4px ${accent}, 0 0 22px ${accent}` : pointed ? `0 0 0 2px ${accent}99` : undefined,
                                 }}
                             >
                                 {slot.sponsor?.imageUrl
-                                    // eslint-disable-next-line @next/next/no-img-element -- a same-origin sticker, drawn at thumbnail size
-                                    ? <img src={slot.sponsor.imageUrl} alt="" className="absolute inset-1 w-[calc(100%-0.5rem)] h-[calc(100%-0.5rem)] object-contain" />
+                                    // eslint-disable-next-line @next/next/no-img-element -- a same-origin (or local preview) sticker, drawn at thumbnail size
+                                    ? <img src={slot.sponsor.imageUrl} alt="" className={`absolute object-contain ${asIs ? "inset-0 w-full h-full" : "inset-1 w-[calc(100%-0.5rem)] h-[calc(100%-0.5rem)]"}`} />
                                     : slot.sponsor ? slot.sponsor.mark : "Open"}
                             </div>
                         )
@@ -399,18 +401,21 @@ function DeckDiagram({ slots, selectedId, hoveredId, onSelect, onHover }: Diagra
                     const ink    = slot.sponsor ? STICKER_COLORS[slot.sponsor.theme] : null
                     const accent = spotAccent(slot)
                     const ring   = slot.id === selectedId ? 2.5 : slot.id === hoveredId ? 1.2 : 0
+                    const asIs   = Boolean(slot.sponsor?.finish === "sticker" && slot.sponsor.imageUrl)
                     return (
                         <g key={slot.id} data-spot={slot.id} {...stickerHandlers(slot.id, { onSelect, onHover })} className="cursor-pointer">
                             {ring > 0 && <rect x={x - 3} y={top - 3} width={w + 6} height={h + 6} rx="5" fill="none" stroke={accent} strokeWidth={ring} strokeOpacity={slot.id === selectedId ? 1 : 0.6} />}
-                            <rect
-                                x={x} y={top} width={w} height={h} rx="3"
-                                fill={ink ? ink.fill : "#13121c"}
-                                stroke={ink ? "#f0eeff" : "#7c6dff"}
-                                strokeWidth="1.2"
-                                strokeDasharray={ink ? undefined : "3 2"}
-                            />
+                            {!asIs && (
+                                <rect
+                                    x={x} y={top} width={w} height={h} rx="3"
+                                    fill={ink ? ink.fill : "#13121c"}
+                                    stroke={ink ? "#f0eeff" : "#7c6dff"}
+                                    strokeWidth="1.2"
+                                    strokeDasharray={ink ? undefined : "3 2"}
+                                />
+                            )}
                             {slot.sponsor?.imageUrl ? (
-                                <image href={slot.sponsor.imageUrl} x={x + 1.5} y={top + 1} width={w - 3} height={h - 2} preserveAspectRatio="xMidYMid meet" />
+                                <image href={slot.sponsor.imageUrl} x={asIs ? x : x + 1.5} y={asIs ? top : top + 1} width={asIs ? w : w - 3} height={asIs ? h : h - 2} preserveAspectRatio={asIs ? "none" : "xMidYMid meet"} />
                             ) : (
                                 <text x={x + w / 2} y={top + h / 2 + 2.6} textAnchor="middle" fontSize="7.5" fontWeight="800" fill={ink ? ink.ink : "#AFA9EC"}>
                                     {slot.sponsor ? slot.sponsor.mark : "Open"}

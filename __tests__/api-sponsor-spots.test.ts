@@ -272,6 +272,37 @@ describe("POST /api/sponsorships/spots (a new image)", () => {
         expect(revalidatePath).toHaveBeenCalledWith("/api/laptop/spots")
     })
 
+    it("saves a finished sticker from the editor as -cut.png, which the laptop draws as designed", async () => {
+        const cut = "spots/slot-1/0b9f6c1e-8d4a-4f6b-9c2d-1a2b3c4d5e6f-cut.png"
+        mockDb.queue = [ok(record()), ok(record({ image_path: cut }))]
+        const res = await upload({ id: "slot-1", sticker: new Blob([png(768, 768)], { type: "image/png" }), finish: "sticker" })
+        expect(res.status).toBe(200)
+        expect(storage.upload.mock.calls[0][0]).toMatch(/^spots\/slot-1\/[0-9a-f-]{36}-cut\.png$/)
+        expect(await res.json()).toMatchObject({ dieCut: true })
+    })
+
+    it("keeps a plain upload, or one marked as a logo, as a logo", async () => {
+        for (const extra of [{}, { finish: "logo" }] as Record<string, string>[]) {
+            storage.upload.mockClear()
+            mockDb.queue = [ok(record()), ok(record({ image_path: OLD_IMAGE }))]
+            const res = await upload({ id: "slot-1", sticker: new Blob([png(768, 768)], { type: "image/png" }), ...extra })
+            expect(res.status).toBe(200)
+            expect(storage.upload.mock.calls[0][0]).toMatch(/^spots\/slot-1\/[0-9a-f-]{36}\.png$/)
+            expect(await res.json()).toMatchObject({ dieCut: false })
+        }
+    })
+
+    it("refuses a finished sticker that isn't a PNG, and an unknown finish, before storing anything", async () => {
+        const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 0x04, 0xb0, 0x04, 0xb0, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1])
+        const asJpeg = await upload({ id: "slot-1", sticker: new Blob([jpeg], { type: "image/jpeg" }), finish: "sticker" })
+        expect(asJpeg.status).toBe(400)
+        expect((await asJpeg.json()).error).toMatch(/must be a PNG/)
+        const odd = await upload({ id: "slot-1", sticker: new Blob([png(768, 768)], { type: "image/png" }), finish: "../cut" })
+        expect(odd.status).toBe(400)
+        expect(storage.upload).not.toHaveBeenCalled()
+        expect(mockDb.calls).toHaveLength(0)
+    })
+
     it("needs a sponsor name on the spot first", async () => {
         mockDb.queue = [ok(record({ sponsor_name: null }))]
         const res = await upload({ id: "slot-1", sticker: new Blob([png(1000, 1000)]) })

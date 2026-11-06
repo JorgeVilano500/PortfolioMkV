@@ -19,6 +19,7 @@ import {
     nextSlotId,
     spotAccent,
     spotName,
+    withPreview,
 } from "@/lib/laptop-stickers"
 import { themeMap } from "@/lib/theme"
 
@@ -134,6 +135,11 @@ describe("names and descriptions", () => {
         expect(describeSlot(getSlot("palm-left"))).toBe("Palm rest, left of trackpad: Demo Robotics (sample sponsor)")
     })
 
+    it("calls a preview a preview", () => {
+        const [slot] = withPreview(STICKER_SLOTS, { spotId: "slot-1", imageUrl: "blob:x", label: "Your logo" })
+        expect(describeSlot(slot)).toBe("Lid, upper left: Your logo (preview)")
+    })
+
     it("doesn't call a real sponsor a sample", () => {
         const real = { ...getSlot("slot-1"), sponsor: { name: "Real Co", mark: "RC", tagline: "", description: "", theme: "pink" as const } }
         expect(describeSlot(real)).toBe("Lid, upper left: Real Co")
@@ -168,5 +174,24 @@ describe("nextSlotId (radio-group keys)", () => {
     it("ignores keys that aren't navigation keys", () => {
         expect(nextSlotId("slot-1", "Enter")).toBeNull()
         expect(nextSlotId("slot-1", "a")).toBeNull()
+    })
+})
+
+describe("withPreview (a sticker tried on a spot, never saved)", () => {
+    it("puts the preview on its spot only, in that spot's colour, and marks it", () => {
+        const slots = withPreview(STICKER_SLOTS, { spotId: "slot-2", imageUrl: "blob:local", label: "Bright Labs" })
+        expect(slots.filter((slot, i) => slot !== STICKER_SLOTS[i]).map((slot) => slot.id)).toEqual(["slot-2"])
+        expect(slots[1].sponsor).toEqual({ name: "Bright Labs", mark: "", tagline: "", description: "", theme: "green", imageUrl: "blob:local", finish: undefined, preview: true })
+        expect(slots[1].node).toBe(STICKER_SLOTS[1].node)
+    })
+
+    it("uses violet on an open spot, and carries a finished sticker's finish", () => {
+        const [, , , open] = withPreview(STICKER_SLOTS, { spotId: "slot-4", imageUrl: "blob:x", label: "Mine", finish: "sticker" })
+        expect(open.sponsor).toMatchObject({ theme: "purple", finish: "sticker", preview: true })
+        expect(spotAccent(open)).toBe(STICKER_COLORS.purple.fill)
+    })
+
+    it("returns the very same spots when there's nothing to preview", () => {
+        expect(withPreview(STICKER_SLOTS, null)).toBe(STICKER_SLOTS)
     })
 })
