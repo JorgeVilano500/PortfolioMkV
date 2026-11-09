@@ -50,7 +50,7 @@ npm run build        # production build. Needs Supabase env vars (see §6)
 
 | Check | Result on 2026-11-09 |
 |---|---|
-| `npm test` | ✅ **1,026 tests, 52 suites** (incl. jsdom component suites), about 10–40 s depending on load |
+| `npm test` | ✅ **1,029 tests, 53 suites** (incl. jsdom component suites), about 10–40 s depending on load |
 | `npx tsc --noEmit` | ✅ clean |
 | `npm run lint` | ✅ clean |
 | `npm run build` | ✅ (Next 16.4.2; built with `SUPABASE_SERVICE_ROLE_KEY=junk`, so `/laptop` prerendered the samples) |

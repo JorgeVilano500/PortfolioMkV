@@ -38,7 +38,13 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-11-09, analytics write ceilings): 1,026 tests, 52 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-11-09, image route limits): 1,029 tests, 53 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Added or extended on 2026-11-09 (limits on the public image routes, SECURITY.md S-47, branch `security-image-limits`):
+| Suite | Tests | Covers |
+|---|---|---|
+| `blog-og-image.test.ts` (new) | 2 | The share image renders. The 31st request in a minute from one client gets `429` with `no-store` and `Retry-After`, without querying the post, while another client still gets its image. `next/og` and `next/headers` are mocked |
+| `api-sponsor-spots.test.ts` | +1 | The 61st sticker request in a minute from one client gets the same `429`, before any table read or storage download |
 
 Extended on 2026-11-09 (daily ceilings on analytics writes, SECURITY.md S-46, branch `security-analytics-caps`):
 | Suite | Tests | Covers |
