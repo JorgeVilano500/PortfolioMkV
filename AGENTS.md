@@ -12,7 +12,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 This is the entry point for AI coding agents. Claude Code loads it through `CLAUDE.md` (`@AGENTS.md`); most other agents read it automatically. Read this whole file first, then open only the doc your task needs. This file stays short on purpose. The details are in the linked docs.
 
-_Last verified against the code: **2026-11-05**, branch `sticker-studio` (on top of `laptop-lid-drag`)._
+_Last verified against the code: **2026-11-09**, `main` after PR #8 (`bfd61db`)._
 
 ---
 
@@ -32,6 +32,7 @@ _Last verified against the code: **2026-11-05**, branch `sticker-studio` (on top
 | Adding or changing tests, or verifying a change | [TESTING.md](TESTING.md) |
 | Building or replacing the 3D laptop model for `/laptop` | [LAPTOP_MODEL.md](LAPTOP_MODEL.md): asset contract, Blender workflow, export settings |
 | Setting up or changing sponsorships (the sticker bucket, offers, Studio → Sponsorships) | [SPONSORSHIPS.md](SPONSORSHIPS.md): owner setup steps, Studio controls, REST reference |
+| Running a security review, or working through its findings | `/security-triage` ([.claude/skills/security-triage/SKILL.md](.claude/skills/security-triage/SKILL.md)): ranks up to 15 verified risks, then fixes them one at a time. How to use it: [SECURITY.md §10](SECURITY.md#10-running-a-security-review) |
 | Setting up locally, or wanting the human-oriented overview | [README.md](README.md) |
 | Looking for the historical daily status log | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md): written by an external automation, **stale since 2026-08-05** |
 

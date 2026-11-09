@@ -1,8 +1,8 @@
 # Security — portfoliomkv
 
-_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-05** (sticker editor and logo previews, branch `sticker-studio`)._
+_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-09** (the reusable security review, §10)._
 
-Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, and history. **Read §3 before writing any API route, rendering user content, or touching secrets.**
+Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, history, and how to run a security review (§10). **Read §3 before writing any API route, rendering user content, or touching secrets.**
 
 > ⚠️ **Still needs you (all in §7):** run `supabase/auth-lockout-schema.sql` in the Supabase SQL editor (S-4; until then lockouts stay per instance and the logs warn once); set `ADMIN_2FA=email` in Netlify for the second factor (S-6); verify a Resend sending domain (S-2); add the Cloudflare Turnstile keys to switch on the sponsorship form's spam check (S-40); and run `supabase/sponsorships-schema.sql` so offers and spots are saved for Studio ([SPONSORSHIPS.md](SPONSORSHIPS.md) §2). The 2026-10-19 SQL (`security-hardening.sql`) has been run: anon gets `permission denied` on `page_views`, `consent_events` and `project_documents` (verified live 2026-10-21).
 
@@ -290,6 +290,8 @@ Request bodies are additionally capped by the platform (Netlify Functions: ~6 MB
 
 Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs your action · 🟠 partially mitigated · 🔴 open (needs external work or a product decision)
 
+**To re-check this queue,** run `/security-triage` in Claude Code (§10). Mark items here as they're fixed, so the next run sees them as done.
+
 ### Tally (2026-10-21 sweep)
 | | Count |
 |---|---|
@@ -486,3 +488,76 @@ Constant-time secret comparison everywhere (fail closed when unset); brute-force
 
 ## 9. Reporting a vulnerability
 Email the address on the site's `/contact` page, which is also in [`/.well-known/security.txt`](https://javastudios.netlify.app/.well-known/security.txt), with the subject "Security". Please don't open a public GitHub issue for an unfixed vulnerability.
+
+## 10. Running a security review
+
+A reusable review re-checks this file against the code whenever you like, in one of two ways. Both start from this file and `AGENTS.md` and treat the code as the proof. Neither sends requests to the live site, sends email, uploads files, runs SQL or opens `.env*` files.
+
+### 10.1 In Claude Code: `/security-triage`
+
+The command lives in [`.claude/skills/security-triage/SKILL.md`](.claude/skills/security-triage/SKILL.md).
+
+| Command | What it does |
+|---|---|
+| `/security-triage` | Reviews the repo without changing anything and ranks up to 15 verified Medium, High or Critical risks. It labels each one as a bug in the code, a control that isn't switched on, or a decision for you, then asks what to do next. |
+| `/security-triage <focus>` | Runs the same review, looking harder at one area, such as `auth`, `APIs`, `dependencies` or `the open SECURITY.md queue`. |
+| `/security-triage fix <item>` | Skips the review and works on one item, such as `fix S-40`. |
+
+After a review it offers three follow-ups:
+- **Fix highest severity issues:** it lists the top code findings, and you pick which to fix.
+- **Fix all issues:** it fixes every code finding, one at a time.
+- **Commit a summary of findings:** it writes `SECURITY-REVIEW.md` and commits it. This repo is public, so committing it publishes unfixed findings.
+
+Each fix comes with a test, has to pass `npm test`, `npx tsc --noEmit` and `npm run lint`, and updates §7 and §8 here. That's how the next run knows where the last one stopped. It doesn't commit or push unless you ask.
+
+### 10.2 Anywhere else: paste the prompt
+
+Copy this block into any AI chat (VS Code chat, Cursor, claude.ai, or Claude Code without the command). To narrow it, add a focus area at the end, such as "Focus on authentication." The block is a prompt for you to paste, not an instruction for agents reading this file. The command in §10.1 runs the same review and adds rules for fixing, so if you change the review, change this block and `SKILL.md` together.
+
+```markdown
+Perform a defensive security review of the current repository, using the repository's `AGENTS.md` and `SECURITY.md` as starting points. The goal is to identify and prioritize **up to 15 distinct, currently relevant security risks rated Medium, High, or Critical** so the owner can decide what to address first.
+
+## Review process
+
+1. Read the applicable contributor instructions and the security documentation. Treat documentation and issue-queue statuses as leads, not proof: confirm each candidate against the current code, configuration, tests, and dependency lockfile.
+2. Inspect the security-sensitive areas relevant to the project, including authentication and sessions, API route authorization and input handling, rate limits, Supabase/RLS assumptions, file and content parsing/rendering, CSP and response headers, secrets boundaries, dependency advisories, and deployment-dependent controls.
+3. Re-check the known open or conditional items in `SECURITY.md` (including S-2, S-4, S-5, S-6, S-7, S-12, S-23, S-37, and S-40). Report an item only if it remains applicable. Clearly distinguish:
+   - a vulnerability confirmed in repository code;
+   - a control that is implemented but not enabled or verified in deployment;
+   - an owner decision or operational action, rather than a code vulnerability.
+4. Rank by severity first, then confidence and practical exposure. Include **no more than 15** findings. Do not invent, split, or downgrade findings just to reach 15; if fewer than 15 qualify, report only those.
+5. For each finding, provide concise evidence: affected file and line(s), relevant behavior or missing control, realistic preconditions, impact, and why existing mitigations do or do not cover it. Cite exact source locations and label anything that cannot be confirmed locally as needing verification.
+6. End with a short “What to tackle first” recommendation: name the highest-priority one to three items and explain the order, including any prerequisite owner actions.
+
+## Safety and scope
+
+- Review only this checked-out repository and systems the owner has explicitly authorized. Keep the work defensive and evidence-based.
+- Do not attack, scan, fuzz, or send crafted requests to the production site or any third party. Do not use real credentials, send email, upload files, read or modify production data, run migrations/DDL, or change external account settings.
+- Prefer static review and existing tests. Dependency audit commands are acceptable when available; report their results as evidence with the applicable production/development scope.
+- Do not print, expose, copy, or include secrets or sensitive visitor data in findings.
+- This is a review and prioritization task: **do not modify code or documentation**. If a finding needs a live check or owner action, describe the safest verification/action and leave it to the owner.
+
+## Output
+
+Start with a compact summary stating the number of qualifying findings and any important limits on what could be verified. Then provide a table, ordered by severity and confidence:
+
+| # | Severity | File | Lines | Vulnerability | Confidence |
+|---|----------|------|-------|---------------|------------|
+| 1 | 🔴 CRITICAL | `path/to/file` | 10-14 | Specific, actionable issue and impact | 9/10 |
+
+Use only 🔴 CRITICAL, 🟠 HIGH, or 🟡 MEDIUM severity labels in the findings table. Do not include lower-severity or informational items as findings.
+
+After the table, add:
+
+1. **Top priorities** — the best first one to three actions, with brief rationale.
+2. **Owner/deployment actions** — any relevant open items that cannot be fixed in repository code, with their `SECURITY.md` IDs where available.
+3. **Not counted** — concise notes on suspected items ruled out by current controls, avoiding a long catalogue of false positives.
+
+Do not claim a finding is exploitable unless the repository evidence supports that conclusion. If no Medium-or-higher risks are verified, say so plainly and list any remaining deployment checks separately.
+
+If any findings are reported, offer these follow-up choices after the review:
+
+- **Fix highest severity issues** — list the highest-ranked findings and ask which one(s) to fix before making changes.
+- **Fix all issues** — implement minimal, surgical fixes for the reported repository-code vulnerabilities; do not make external account or production changes.
+- **Commit a summary of findings** — create `SECURITY-REVIEW.md` documenting the findings and commit it only after the user explicitly selects this option.
+```
