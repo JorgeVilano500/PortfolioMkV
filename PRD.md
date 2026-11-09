@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-09** (branch `security-email-guards`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-09** (branch `security-analytics-caps`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -296,6 +296,8 @@ Ask before acting on any of these:
 
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
+
+- 2026-11-09 (branch `security-analytics-caps`): **Daily ceilings on analytics writes** (SECURITY.md S-46). Page views stop being stored past 5,000 a day and consent receipts past 2,000 a day, per server instance, so many clients together can't grow the tables without limit. Visitors never see an error, and erasing your analytics is never capped.
 
 - 2026-11-09 (branch `security-email-guards`): **Safer sponsorship emails** (SPN-2b, SPN-5; SECURITY.md S-45). The thank-you copy no longer repeats the affiliation, the 2-per-day cap counts `name+tag@` and Gmail's dotted spellings as one inbox, and the no-web-addresses rule also catches look-alike dots and non-Latin domains.
 

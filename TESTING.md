@@ -38,7 +38,13 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-11-09, sponsorship email checks): 1,023 tests, 52 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-11-09, analytics write ceilings): 1,026 tests, 52 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Extended on 2026-11-09 (daily ceilings on analytics writes, SECURITY.md S-46, branch `security-analytics-caps`):
+| Suite | Tests | Covers |
+|---|---|---|
+| `api-analytics-track.test.ts` | +2 | Past the 5,000-a-day ceiling nothing is stored and the visitor gets `200 {tracked:false}`, not an error. Declined consent and admin pages don't count toward it |
+| `api-consent.test.ts` | +1 | Past the 2,000-a-day ceiling the receipt is skipped (`logged:false`), and erasure still works |
 
 Extended on 2026-11-09 (sponsorship email checks, SECURITY.md S-45, branch `security-email-guards`):
 | Suite | Tests | Covers |

@@ -3,8 +3,9 @@
  * Security/privacy: same-origin only, rate-limited, strict validation, no IP
  * stored in the consent log, erasure scoped to the caller's own visitor id.
  */
-import { resetRateLimits } from "@/lib/rate-limit"
+import { rateLimit, resetRateLimits } from "@/lib/rate-limit"
 import { CONSENT_COOKIE, CONSENT_VERSION, serializeConsent } from "@/lib/consent"
+import { CONSENT_EVENTS_DAILY_CAP, DAY_MS } from "@/lib/analytics"
 import { makeRequest, jsonRequest, firstCallArg, type SupabaseMockState } from "./helpers/test-utils"
 
 jest.mock("@/lib/supabase-admin", () => {
@@ -87,6 +88,16 @@ describe("POST (record a choice)", () => {
         const res = await record({ id: ID, analytics: true, version: CONSENT_VERSION })
         expect(res.status).toBe(500)
         expect(JSON.stringify(await res.json())).not.toContain("secret")
+    })
+
+    it("skips the receipt past the daily ceiling across all clients, but still lets visitors erase (S-46)", async () => {
+        // The route's limiter is named "consent-daily", keyed "all".
+        for (let i = 0; i < CONSENT_EVENTS_DAILY_CAP; i++) rateLimit("consent-daily", "all", CONSENT_EVENTS_DAILY_CAP, DAY_MS)
+        const res = await record({ id: ID, analytics: true, version: CONSENT_VERSION }, { "x-forwarded-for": "9.9.9.9" })
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true, logged: false })
+        expect(mockDb.calls.some((call) => call.method === "insert")).toBe(false)
+        expect((await erase({ cookie: cookieFor(true) })).status).toBe(200)
     })
 })
 

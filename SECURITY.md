@@ -1,6 +1,6 @@
 # Security — portfoliomkv
 
-_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-09** (S-45, the sponsorship email checks; the reusable security review, §10)._
+_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-09** (S-45 sponsorship email checks; S-46 analytics write ceilings; the reusable security review, §10)._
 
 Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, history, and how to run a security review (§10). **Read §3 before writing any API route, rendering user content, or touching secrets.**
 
@@ -44,7 +44,7 @@ Threat model, the controls that exist (and must keep existing), per-endpoint aut
 | Timing-safe secret comparison, fail closed when unset | ✅ |
 | Brute-force lockout: per IP (unspoofable on Netlify, IPv6 per /64), global ceiling, **one counter for every admin-password route** | ✅ (S-3, S-25, S-27) |
 | Lockout shared across serverless instances | 🟡 code ready — run `auth-lockout-schema.sql` (S-4) |
-| Public write endpoints rate-limited | ✅ track 30/min/IP · consent 20/min/IP · sponsorships: 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall |
+| Public write endpoints rate-limited | ✅ track 30/min/IP and 5,000 stored views/day overall · consent 20/min/IP and 2,000 receipts/day overall · sponsorships: 10 req/10 min, 3 offers/hr per client, 2 emails/day per recipient, 20/day overall |
 | Public sponsorship form: uploads + email to a typed address | ✅ same-origin only, honeypot, byte-capped multipart, files judged by their bytes (PNG/JPEG only, no SVG) and their pixel size (S-44), link-free text, escaped emails, private bucket and tables. 🟡 Cloudflare Turnstile check built, off until its keys are set (S-40). |
 | Sponsor stickers on `/laptop`, managed in Studio | ✅ offers, unplaced files and hidden spots are never public; a shown spot's image is served from this origin by `/laptop/stickers/<spot>` (bucket stays private, no signed URLs, CSP unchanged); Studio's routes use `checkAdminAuth` and whitelist every field. |
 | Request bodies byte-capped before parsing, on every route | ✅ (S-24) |
@@ -117,7 +117,9 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 | Admin password failures (global) | `admin-password` × all | 100 failures / 15 min across all IPs → `429` for new sign-ins | same |
 | Machine-secret failures (per IP / global) | `<ROUTE>` × IP bucket / all | 10 / 100 per 15 min | `/api/blog/upload`, `/api/docs/upload`, `/api/email-summary` (each its own scope, since each has its own secret) |
 | Track | `track` × IP bucket | 30 req / min → `429` + `Retry-After` | `POST /api/analytics/track` |
+| Track, daily ceiling | `analytics/track-daily` × `all` | 5,000 stored views / day, counted only for rows it would store → `200 {tracked:false}`, no error | same (many clients together; S-46) |
 | Consent | `consent` × IP bucket | 20 req / min | `/api/consent` |
+| Consent, daily ceiling | `consent-daily` × `all` | 2,000 receipts / day → receipt skipped, `200 {logged:false}`; erasure is never capped | `POST /api/consent` (S-46) |
 | Email sends | `email-send` × `"global"` | 10 successful-path sends / hour | `POST /api/email-summary` |
 | 2FA code sends | `2fa-send` × `"global"` | 5 / 15 min | `POST /api/auth` with `ADMIN_2FA=email` |
 | Sponsorship requests | `sponsorships-requests` × IP bucket | 10 / 10 min, checked **before** reading the body | `POST /api/sponsorships` |
@@ -243,8 +245,8 @@ DB/provider errors logged server-side with a `[route]` prefix; clients get gener
 | Route | Methods | Auth | Rate limit / CSRF | Writes |
 |---|---|---|---|---|
 | `/api/auth` | GET, POST, DELETE | POST: password → session cookie; with `ADMIN_2FA=email`, password → emailed code → session | shared admin lockout; POST/DELETE same-origin only; body ≤2 KB; 5 codes/15 min | session cookie, 2FA challenge cookie |
-| `/api/analytics/track` | POST | none (public); **requires a `java_consent` analytics opt-in cookie** to store anything | 30/min/IP; body ≤8 KB | `page_views` insert (with IP, language, timezone, and visitor id for consenting visitors) |
-| `/api/consent` | POST, DELETE | none (public); same-origin only | 20/min/IP; body ≤2 KB | `consent_events` insert; DELETE removes the caller's own `page_views` rows |
+| `/api/analytics/track` | POST | none (public); **requires a `java_consent` analytics opt-in cookie** to store anything | 30/min/IP; 5,000 stored views/day overall; body ≤8 KB | `page_views` insert (with IP, language, timezone, and visitor id for consenting visitors) |
+| `/api/consent` | POST, DELETE | none (public); same-origin only | 20/min/IP; 2,000 receipts/day overall (POST); body ≤2 KB | `consent_events` insert; DELETE removes the caller's own `page_views` rows |
 | `/api/analytics/stats` | GET | session cookie **or** `x-logistics-key` (header refused under 2FA) | shared admin lockout | — |
 | `/api/blog/posts` | GET, POST, PATCH, DELETE | session cookie **or** `x-logistics-key` (header refused under 2FA) | shared admin lockout; cookie writes same-origin only; body ≤1 MB | `posts` (bulk delete ≤100) |
 | `/api/projects` | GET, POST, PATCH, DELETE | session cookie **or** `x-logistics-key` (header refused under 2FA) | shared admin lockout; cookie writes same-origin only; body ≤1 MB | `projects` (bulk delete ≤100) |
@@ -384,10 +386,11 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 |---|---|---|---|---|
 | S-44 | Low | Sticker uploads were checked for type and byte size, but not pixel size. Once stickers are drawn on `/laptop`, a small PNG declaring a 50,000 × 50,000 canvas (a "decompression bomb") would make every visitor's browser try to allocate gigabytes. | ✅ | `imageSize()` reads the declared size from the header without decoding; the form route and Studio's upload refuse anything outside 64–8,000 px a side or over 40 MP (tests added). |
 
-### Found by `/security-triage` (2026-11-06 review, fixed 2026-11-09)
+### Found by `/security-triage` (2026-11-06 review, fixes from 2026-11-09)
 | ID | Severity | Issue | Status | Fix |
 |---|---|---|---|---|
 | S-45 | Medium | The sponsorship form's guards on the email to a typed-in address could be bypassed. The 2-per-day cap counted the literal address, so `victim+1@gmail.com` and `v.ictim@gmail.com` each got their own allowance, though they reach one inbox. The link rule knew only ASCII dots and endings, so `evil。com`, `evil.рф` and `_evil.com` passed. And the copy repeated the affiliation, so text like "Your account is locked. Call +1 800…" reached a stranger with no link at all. Delivery to strangers was blocked only by the unverified sender (S-2). | ✅ | The thank-you copy leaves the affiliation out. `mailboxKey()` counts one key per inbox. The link rule runs on an NFKC copy with look-alike dots turned into "." and accepts names and endings in any script (tests added). |
+| S-46 | Low | `/api/analytics/track` and `POST /api/consent` had per-IP limits only. The review rated this Medium because the consent cookie is unsigned, but signing wouldn't help, since opting in is free and a script can always get a valid cookie. The real gap was that many clients together could grow `page_views` and `consent_events` without limit, and nothing prunes them (S-5). | ✅ | Daily ceilings across all clients: 5,000 stored views and 2,000 consent receipts, per instance like every in-memory limit (§4.3). Past them nothing more is stored, the visitor sees no error, and erasure is never capped (tests added). Retention (S-5) is still the real bound on table size. |
 
 ### How to finish the 🟡 items (≈3 minutes)
 1. **S-4:** Supabase dashboard → **SQL Editor** → New query → paste `supabase/auth-lockout-schema.sql` → **Run**. Its last two result sets should show `rowsecurity = true`, with only `postgres` and `service_role` able to execute the two functions.
@@ -396,6 +399,10 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 4. **S-40 (optional, recommended once S-2 is done):** Cloudflare dashboard → **Turnstile** → **Add widget** → hostname `javastudios.netlify.app`, widget mode **Managed** → copy the **site key** and **secret key**. In Netlify → Environment variables, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (site key) and `TURNSTILE_SECRET_KEY` (secret) → **redeploy** (the site key and the CSP allowance are built in at build time). The "Sponsor a spot" dialog then shows the check, and an offer without it gets a 400.
 
 ## 8. History
+
+### 2026-11-09: daily ceilings on analytics writes (branch `security-analytics-caps`)
+- **S-46 fixed**, finding 7 of the 2026-11-06 review, reframed: the unsigned consent cookie isn't the gap (opting in is free), the missing overall ceiling is. `/api/analytics/track` stores at most 5,000 views a day and `POST /api/consent` at most 2,000 receipts, per instance (§4.3, §5).
+- **Verified:** 1,026 tests (the 3 new ones fail on the old routes), `tsc` and lint.
 
 ### 2026-11-09: sponsorship email checks (branch `security-email-guards`)
 - **S-45 fixed**, the top code finding of the 2026-11-06 `/security-triage` review. The email to a typed-in address now carries only values the site chose or checked, the recipient cap counts inboxes rather than spellings, and the link rule covers look-alike dots and other scripts (§4.4, §4.9).
