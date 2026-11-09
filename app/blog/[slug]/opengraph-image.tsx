@@ -1,14 +1,32 @@
 import { ImageResponse } from "next/og"
+import { headers } from "next/headers"
 import { getPostBySlug } from "@/lib/blog"
+import { getClientIp } from "@/lib/security"
+import { rateLimit } from "@/lib/rate-limit"
 
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
+
+// Rendered on request (the post lookup isn't cached), so every hit costs a
+// database query and an image render, for any slug. Link previews fetch one
+// image per share, so 30 a minute per client is plenty (SECURITY.md S-47).
+const OG_LIMIT     = 30
+const OG_WINDOW_MS = 60_000
 
 type Props = {
     params: Promise<{ slug: string }>
 }
 
 export default async function OGImage({ params }: Props) {
+    const rl = rateLimit("blog-og-image", getClientIp({ headers: await headers() }), OG_LIMIT, OG_WINDOW_MS)
+    if (!rl.ok) {
+        // no-store: a CDN must never hand one client's 429 to everyone else
+        return new Response("Too many requests", {
+            status: 429,
+            headers: { "Retry-After": String(rl.retryAfterSeconds), "Cache-Control": "no-store" },
+        })
+    }
+
     const { slug } = await params
     const post = await getPostBySlug(slug)
 

@@ -1,4 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { getClientIp } from "@/lib/security"
+import { rateLimit } from "@/lib/rate-limit"
 import { STORED_FILE_RE, isSlotId } from "@/lib/sponsor-spots"
 import { STICKER_BUCKET, readSpotRecords } from "@/lib/sponsor-spots-server"
 
@@ -13,9 +15,25 @@ const CACHE = "public, max-age=300, s-maxage=300"
 
 const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "public, max-age=60" } })
 
-export async function GET(_req: Request, { params }: { params: Promise<{ spot: string }> }) {
+// Per client, before any database or storage work (SECURITY.md S-47). A visit
+// to /laptop asks for at most six stickers and the CDN answers most repeats,
+// but a "?v=" that changes on every request skips the CDN, and each miss reads
+// the table and downloads up to 4 MB from storage.
+const STICKER_LIMIT     = 60
+const STICKER_WINDOW_MS = 60_000
+
+export async function GET(req: Request, { params }: { params: Promise<{ spot: string }> }) {
     const { spot } = await params
     if (!isSlotId(spot)) return notFound()
+
+    const rl = rateLimit("laptop-stickers", getClientIp(req), STICKER_LIMIT, STICKER_WINDOW_MS)
+    if (!rl.ok) {
+        // no-store: a CDN must never hand one client's 429 to everyone else
+        return new Response("Too many requests", {
+            status: 429,
+            headers: { "Retry-After": String(rl.retryAfterSeconds), "Cache-Control": "no-store" },
+        })
+    }
 
     const { records } = await readSpotRecords()
     const record = records?.find((r) => r.id === spot)

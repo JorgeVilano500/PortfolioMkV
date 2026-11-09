@@ -395,6 +395,26 @@ describe("GET /laptop/stickers/<spot>", () => {
         mockDb.result = missingTable
         expect((await sticker("slot-1")).status).toBe(404)
     })
+
+    it("limits one client to 60 a minute, before any database or storage work, with a 429 no CDN keeps (S-47)", async () => {
+        mockDb.result = ok([record({ image_path: "spots/slot-1/abc.png" })])
+        const from = (ip: string) => getSticker(
+            new Request("http://localhost/laptop/stickers/slot-1?v=x", { headers: { "x-forwarded-for": ip } }),
+            { params: Promise.resolve({ spot: "slot-1" }) },
+        )
+        for (let i = 0; i < 60; i++) expect((await from("1.2.3.4")).status).toBe(200)
+        storage.download.mockClear()
+        mockDb.calls = []
+
+        const res = await from("1.2.3.4")
+        expect(res.status).toBe(429)
+        expect(res.headers.get("Cache-Control")).toBe("no-store")
+        expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0)
+        expect(storage.download).not.toHaveBeenCalled()
+        expect(mockDb.calls).toHaveLength(0)
+
+        expect((await from("5.6.7.8")).status).toBe(200)
+    })
 })
 
 describe("GET /api/laptop/spots", () => {

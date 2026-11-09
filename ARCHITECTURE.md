@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-09** (branch `security-analytics-caps`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-09** (branch `security-image-limits`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -171,7 +171,7 @@ The app currently follows a **"client pages + server metadata"** pattern. Each p
 | `/about`, `/contact` | Client | Static arrays in the file | none | |
 | `/blog` | Client | `getPosts()`, then `getPostContent(id)` when the modal opens | anon | |
 | `/blog/[slug]` | Client page; **server** layout | Layout: cached `getPostBySlug` for metadata and JSON-LD. Page: `getPostBySlug` again on the client. | anon | The post is fetched twice. See PRD P1-4. |
-| `/blog/[slug]/opengraph-image` | Server | `getPostBySlug` | anon | `await params` (Next 16) |
+| `/blog/[slug]/opengraph-image` | Server | `getPostBySlug` | anon | `await params` (Next 16); rendered on request, 30/min per client via `headers()` (SECURITY.md S-47) |
 | `/sitemap.xml` | Server | `getPosts()` | anon | **Static** (`○` in the 2026-10-19 build), so new posts appear only after a redeploy. |
 | `/privacy` | **Server** (static) with a client `PrivacyActions` child | `lib/consent` constants | none | The intro modal never auto-opens here, so the policy stays readable |
 | `/laptop` | **Server** shell, **ISR** (`revalidate = 300`, plus `revalidatePath` on every Studio save), with a client `LaptopExperience` child; the Three.js viewer is client-only (`next/dynamic`, `ssr: false`) | `getPublicSlots()`: `sponsor_spots` (visible spots only), falling back to the samples in `lib/laptop-stickers.ts` until the table exists; sticker images from `/laptop/stickers/<spot>`; the GLB from `/models/macbook-pro-13-2019.glb` | service role (server-side) | **The GLB, or a built-in stand-in:** on a 404, the viewer builds `app/laptop/built-in-model.ts`, a simpler model to the same contract, so the 3D view works before the asset exists. The 2D drawings are for no WebGL, an invalid model, or a failed load. Render on demand (no animation loop; frames run only while the camera, the lid spring, or the power fades move). Statuses: loading, ready, invalid, unsupported, error. **The lid is moved by hand:** a drag (or the Lid slider) turns the `Lid` node anywhere from 0° to 108° (the math is in `lib/laptop-lid.ts`), and the viewer reports `onOpenChange` as the lid passes 30° going up or 18° going down. The page's **open** state follows that report. A change the page starts itself (the button, a palm-rest spot) swings the lid fully open or closed. The screen boots and the keyboard lights as the lid lifts past 30°. "Sponsor a spot" opens an offer form (`SponsorForm.tsx`, in the shared `Modal`) that posts to `/api/sponsorships` (§6.9). **Highlight sync:** the selected spot lights up in its sponsor's colour on the sticker (halo + emissive glow), its tile and the details card; hovering any of them lights the others faintly (`hoveredId` is page state, reported back by the viewer). No payments. |
@@ -323,7 +323,7 @@ Both methods require a same-origin request (otherwise `403`) and are rate-limite
 
 ### 6.12 Sticker files and the public spot list
 - `GET /api/sponsorships/file?path=<stored path>` (admin): streams a file from the bucket for Studio's thumbnails and 3D preview (same origin, so no CORS or signed URLs). `&download=1` sends it as an attachment. `400` unless the path matches `STORED_FILE_RE`; `404` if it's missing.
-- `GET /laptop/stickers/<spot>` (public): a **visible** spot's image, `Cache-Control: public, max-age=300, s-maxage=300`. Outside `/api` so it can be cached (`/api/*` is `no-store`). Hidden, open or image-less spots, and unknown ids, get `404`. The page links it as `?v=<updated_at>`, so a new image is fetched at once.
+- `GET /laptop/stickers/<spot>` (public): a **visible** spot's image, `Cache-Control: public, max-age=300, s-maxage=300`. Outside `/api` so it can be cached (`/api/*` is `no-store`). Hidden, open or image-less spots, and unknown ids, get `404`. The page links it as `?v=<updated_at>`, so a new image is fetched at once. A cache miss is limited to 60 a minute per client, checked before any database or storage work. Past that the route returns `429` with `Cache-Control: no-store` (SECURITY.md S-47).
 - `GET /api/laptop/spots` (public): `{ spots: [{ id, surface, position, sponsor }] }`, the same data `/laptop` renders (hidden sponsors as `null`). Served from the ISR cache (`revalidate = 60`), refreshed by Studio's saves.
 
 ## 7. Data model (Supabase)

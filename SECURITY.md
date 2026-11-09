@@ -1,6 +1,6 @@
 # Security — portfoliomkv
 
-_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-09** (S-45 sponsorship email checks; S-46 analytics write ceilings; the reusable security review, §10)._
+_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-09** (S-45 sponsorship email checks; S-46 analytics write ceilings; S-47 image route limits; the reusable security review, §10)._
 
 Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, history, and how to run a security review (§10). **Read §3 before writing any API route, rendering user content, or touching secrets.**
 
@@ -126,6 +126,8 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 | Sponsorship offers | `sponsorships-sends` × IP bucket | 3 valid offers / hour | same |
 | Sponsorship recipient | `sponsorships-recipient` × SHA-256 of the inbox (`mailboxKey`: lowercased, `+tag` dropped, Gmail dots ignored; S-45) | 2 thank-you emails / day to one inbox | same (no email-bombing a stranger) |
 | Sponsorship global | `sponsorships-global` × `"all"` | 20 offers / day | same (Resend quota, owner inbox) |
+| Sticker images | `laptop-stickers` × IP bucket | 60 / min, before any database or storage work → `429` + `Retry-After`, `Cache-Control: no-store` | `GET /laptop/stickers/<spot>` (S-47) |
+| Blog share images | `blog-og-image` × IP bucket (from `headers()`) | 30 / min, before the post query → same `429` | `/blog/<slug>/opengraph-image` (S-47) |
 
 - **Two layers for auth failures.**
   - **Layer 1** is in-process and instant.
@@ -258,7 +260,8 @@ DB/provider errors logged server-side with a `[route]` prefix; clients get gener
 | `/api/sponsorships/spots` | GET, PATCH, POST (multipart) | session cookie **or** `x-logistics-key` (header refused under 2FA) | shared admin lockout; cookie writes same-origin only; JSON ≤1 MB, image ≤4 MB | `sponsor_spots` upsert; bucket `spots/<spot>/<id>.*` (copy or upload, old image removed); offer marked accepted; revalidates `/laptop` |
 | `/api/sponsorships/file` | GET | session cookie **or** `x-logistics-key` | shared admin lockout; `path` must match `STORED_FILE_RE` | — |
 | `/api/laptop/spots` | GET | none (public) | served from the ISR cache (≤1 rebuild/min) | — (visible spots only) |
-| `/laptop/stickers/<spot>` | GET | none (public) | cached 5 min | — (a visible spot's image; otherwise 404) |
+| `/laptop/stickers/<spot>` | GET | none (public) | cached 5 min; 60/min per client on a cache miss | — (a visible spot's image; otherwise 404) |
+| `/blog/<slug>/opengraph-image` | GET | none (public) | 30/min per client (rendered on request) | — (reads a published post through the anon client) |
 | `/.well-known/security.txt` | GET | none (public) | — | — (RFC 9116 contact; `Expires` 180 days ahead, computed per request) |
 
 Request bodies are additionally capped by the platform (Netlify Functions: ~6 MB).
@@ -391,6 +394,7 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 |---|---|---|---|---|
 | S-45 | Medium | The sponsorship form's guards on the email to a typed-in address could be bypassed. The 2-per-day cap counted the literal address, so `victim+1@gmail.com` and `v.ictim@gmail.com` each got their own allowance, though they reach one inbox. The link rule knew only ASCII dots and endings, so `evil。com`, `evil.рф` and `_evil.com` passed. And the copy repeated the affiliation, so text like "Your account is locked. Call +1 800…" reached a stranger with no link at all. Delivery to strangers was blocked only by the unverified sender (S-2). | ✅ | The thank-you copy leaves the affiliation out. `mailboxKey()` counts one key per inbox. The link rule runs on an NFKC copy with look-alike dots turned into "." and accepts names and endings in any script (tests added). |
 | S-46 | Low | `/api/analytics/track` and `POST /api/consent` had per-IP limits only. The review rated this Medium because the consent cookie is unsigned, but signing wouldn't help, since opting in is free and a script can always get a valid cookie. The real gap was that many clients together could grow `page_views` and `consent_events` without limit, and nothing prunes them (S-5). | ✅ | Daily ceilings across all clients: 5,000 stored views and 2,000 consent receipts, per instance like every in-memory limit (§4.3). Past them nothing more is stored, the visitor sees no error, and erasure is never capped (tests added). Retention (S-5) is still the real bound on table size. |
+| S-47 | Low | Two public image routes did backend work on every uncached request with no limit. `/laptop/stickers/<spot>` read the spots table and downloaded up to 4 MB from storage, and a `?v=` that changes every time skips the CDN. `/blog/<slug>/opengraph-image` ran a post query and an image render for any slug. The cost was quota and money, not data. | ✅ | Per-client limits checked before any backend work: 60 a minute for stickers, 30 for share images. The `429` carries `Cache-Control: no-store`, so a CDN never hands it to other visitors. `getClientIp()` now takes anything with headers, so the OG image can pass `headers()` (tests added; checked on a local production server). |
 
 ### How to finish the 🟡 items (≈3 minutes)
 1. **S-4:** Supabase dashboard → **SQL Editor** → New query → paste `supabase/auth-lockout-schema.sql` → **Run**. Its last two result sets should show `rowsecurity = true`, with only `postgres` and `service_role` able to execute the two functions.
@@ -399,6 +403,10 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 4. **S-40 (optional, recommended once S-2 is done):** Cloudflare dashboard → **Turnstile** → **Add widget** → hostname `javastudios.netlify.app`, widget mode **Managed** → copy the **site key** and **secret key**. In Netlify → Environment variables, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (site key) and `TURNSTILE_SECRET_KEY` (secret) → **redeploy** (the site key and the CSP allowance are built in at build time). The "Sponsor a spot" dialog then shows the check, and an offer without it gets a 400.
 
 ## 8. History
+
+### 2026-11-09: limits on the public image routes (branch `security-image-limits`)
+- **S-47 fixed**, finding 10 of the 2026-11-06 review. Sticker images and blog share images are limited per client before any database, storage or render work, and their `429` is never cached (§4.3, §5). That leaves no open code findings from that review. Finding 4 (the CSP's `img-src https:`) was looked at and left alone: blog posts may show images from other sites, and the real fix is the nonce-based CSP (S-7).
+- **Verified:** 1,029 tests in 53 suites (the 2 new limit tests fail on the old routes), `tsc`, lint, a junk-key build, and a local production server returning `429` with `no-store` on the 31st share-image request.
 
 ### 2026-11-09: daily ceilings on analytics writes (branch `security-analytics-caps`)
 - **S-46 fixed**, finding 7 of the 2026-11-06 review, reframed: the unsigned consent cookie isn't the gap (opting in is free), the missing overall ceiling is. `/api/analytics/track` stores at most 5,000 views a day and `POST /api/consent` at most 2,000 receipts, per instance (§4.3, §5).

@@ -31,8 +31,12 @@ export function safeEqual(
  * Only well-formed IPv4/IPv6 values are accepted: the result becomes a
  * rate-limit key and (with consent) a stored value, so arbitrary header text
  * must never flow through. Anything else collapses to "unknown".
+ *
+ * Takes anything with headers: a NextRequest, a plain Request, or
+ * `{ headers: await headers() }` in files that get no request object (the
+ * blog's OG image).
  */
-export function getClientIp(req: NextRequest): string {
+export function getClientIp(req: { headers: Pick<Headers, "get"> }): string {
     return (
         cleanIp(req.headers.get("x-nf-client-connection-ip")) ??
         cleanIp(req.headers.get("x-forwarded-for")?.split(",")[0]) ??
