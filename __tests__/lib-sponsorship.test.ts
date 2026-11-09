@@ -15,6 +15,7 @@ import {
     formatOffer,
     imageSize,
     isValidEmail,
+    mailboxKey,
     parseOffer,
     sniffStickerType,
     spotLabel,
@@ -43,6 +44,27 @@ describe("isValidEmail", () => {
         ["not a string", 42],
     ])("rejects %s", (_label, email) => {
         expect(isValidEmail(email)).toBe(false)
+    })
+})
+
+describe("mailboxKey (one key per inbox for the recipient cap, S-45)", () => {
+    it.each([
+        "victim@gmail.com",
+        "VICTIM@gmail.com",
+        "victim+1@gmail.com",
+        "v.ictim@gmail.com",
+        "v.i.c.t.i.m+news@Gmail.com",
+        "victim@googlemail.com",
+    ])("counts %s as victim@gmail.com", (email) => {
+        expect(mailboxKey(email)).toBe("victim@gmail.com")
+    })
+
+    it("drops +tags everywhere, but keeps dots outside Gmail", () => {
+        expect(mailboxKey("First.Last+stickers@Acme.dev")).toBe("first.last@acme.dev")
+    })
+
+    it("keeps an address that starts with +", () => {
+        expect(mailboxKey("+tag@acme.dev")).toBe("+tag@acme.dev")
     })
 })
 
@@ -78,13 +100,21 @@ describe("validateSponsorFields", () => {
         ["www.", "www.cheap-pills"],
         ["a bare domain (mail clients auto-link these)", "Get rich at evil.com today"],
         ["a dotted product name", "Node.js Meetup"],
+        // S-45: look-alike dots, other scripts and word-joined starts got through before
+        ["an ideographic dot", "evil。com"],
+        ["a full-width dot", "evil．com"],
+        ["a half-width ideographic dot", "evil｡com"],
+        ["full-width letters", "ｅｖｉｌ．ｃｏｍ"],
+        ["a non-Latin ending", "evil.рф"],
+        ["a domain in another script", "пример.рф"],
+        ["a domain after an underscore", "_evil.com"],
     ])("refuses %s in the affiliation (no link-spam relay)", (_label, affiliation) => {
         const result = validateSponsorFields({ ...valid, affiliation })
         expect("errors" in result && result.errors.affiliation).toMatch(/web addresses/)
     })
 
-    it("allows ordinary names with dots and initials", () => {
-        for (const affiliation of ["St. Louis Devs", "U.S. Robotics", "J. Smith", "Node JS Meetup"]) {
+    it("allows ordinary names with dots and initials, in any script", () => {
+        for (const affiliation of ["St. Louis Devs", "U.S. Robotics", "J. Smith", "Node JS Meetup", "Acme Inc. Berlin", "Café Rouge", "Студия Север"]) {
             expect("fields" in validateSponsorFields({ ...valid, affiliation })).toBe(true)
         }
     })

@@ -353,6 +353,13 @@ describe("abuse limits", () => {
         expect(sends().filter((mail) => String(mail.to).toLowerCase() === "victim@example.com")).toHaveLength(2)
     })
 
+    it("counts +tags and Gmail's ignored dots as the same inbox (S-45)", async () => {
+        expect((await offer({ email: "victim@gmail.com" }, { ip: "10.0.1.1" })).status).toBe(200)
+        expect((await offer({ email: "v.ictim+1@gmail.com" }, { ip: "10.0.1.2" })).status).toBe(200)
+        expect((await offer({ email: "victim+2@googlemail.com" }, { ip: "10.0.1.3" })).status).toBe(429)
+        expect((await offer({ email: "someone.else@gmail.com" }, { ip: "10.0.1.4" })).status).toBe(200)
+    })
+
     it("caps all offers at 20 per day", async () => {
         for (let i = 0; i < 20; i++) {
             expect((await offer({ email: `s${i}@acme.dev` }, { ip: `10.1.0.${i}` })).status).toBe(200)

@@ -1,6 +1,6 @@
 # PRD: JAVA.dev Portfolio (portfoliomkv)
 
-_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-05** (branch `sticker-studio`)._
+_Product requirements, current feature inventory, and the prioritized roadmap. Last verified against the code: **2026-11-09** (branch `security-email-guards`)._
 
 Requirement IDs (`PUB-3`, `BLOG-2`, …) and roadmap IDs (`P0-1`, `S-1`, …) are stable, so reference them in commits, PRs, and other docs.
 
@@ -192,10 +192,10 @@ published: true           # optional: only literal true publishes
 - **SPN-1** "Sponsor a spot" opens a dialog with **email**, **affiliation**, **preferred spot** (pre-set to the selected one, or "Any"), **offer in USD** (negotiable), and the **sticker file to print** (PNG or JPG, up to 4 MB, 64–8,000 px on a side; WebP and PDF were dropped on 2026-11-03 so every sticker can be drawn on the laptop). Everything is required.
 - **SPN-2** Sending triggers **two separate emails** in the site's look:
   - (a) To `SUMMARY_RECIPIENT_EMAIL`: "someone is inquiring about a sponsorship", with all details, the sticker attached, and **Reply-To set to the sponsor** so replying continues the negotiation.
-  - (b) To the sponsor: thanks, "I'll get back to you as soon as possible", and a copy of what they sent.
+  - (b) To the sponsor: thanks, "I'll get back to you as soon as possible", and the offer's details. It leaves out the affiliation, free text a stranger could fill with a scam, because anyone can type any address (SECURITY.md S-45).
 - **SPN-3** The offer is saved for Studio: a `sponsor_offers` row, and the file in the private bucket `sponsor-stickers` (`offers/<id>/`). The form still works if either is missing; the owner's email then says it's the only copy. The owner's email links to Studio → Sponsorships.
 - **SPN-4** The dialog shows a receipt of what was sent, and says honestly whether the email copy went out.
-- **SPN-5** Abuse limits: same-origin, honeypot, 3 offers per hour per client, 2 thank-you emails per day per address, 20 offers per day overall. No web addresses in text. Files are checked by their bytes (SECURITY.md §4.9).
+- **SPN-5** Abuse limits: same-origin, honeypot, 3 offers per hour per client, 2 thank-you emails per day per inbox (`name+tag@` and Gmail's dotted spellings count as one), 20 offers per day overall. No web addresses in text, in any script. Files are checked by their bytes (SECURITY.md §4.9).
 - **SPN-6** Accessible dialog: focus moves in and is trapped, Esc closes (not while sending), focus returns to the trigger, and errors are tied to their fields. `/privacy` explains what the form collects and keeps.
 
 ### 5.7 Automation endpoints (AUTO)
@@ -296,6 +296,8 @@ Ask before acting on any of these:
 
 ## 10. Change log
 _Newest first. One line per shipped change that affects product behaviour._
+
+- 2026-11-09 (branch `security-email-guards`): **Safer sponsorship emails** (SPN-2b, SPN-5; SECURITY.md S-45). The thank-you copy no longer repeats the affiliation, the 2-per-day cap counts `name+tag@` and Gmail's dotted spellings as one inbox, and the no-web-addresses rule also catches look-alike dots and non-Latin domains.
 
 - 2026-11-05 (branch `sticker-studio`): **Sticker editor and logo previews** (STU-10, STU-11, LAP-9). Studio can check, adjust and print a sponsor's sticker (Cricut-ready 300 DPI PNG, or real-size print), try it on the laptop, and save it as the spot's sticker; visitors can try their own logo on the laptop and send it as an offer.
 

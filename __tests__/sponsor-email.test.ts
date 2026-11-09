@@ -42,10 +42,18 @@ describe("sponsor's thank-you copy", () => {
         expect(mail.text).toMatch(/I'll get back to you as soon as possible/)
     })
 
-    it("includes a copy of everything they provided", () => {
-        for (const value of ["jane@acme.dev", "Acme Dev Tools", "Lid, upper right", "$1,500", "PNG, 1.2 MB", "3F2B6C1E"]) {
+    it("includes the offer's details", () => {
+        for (const value of ["jane@acme.dev", "Lid, upper right", "$1,500", "PNG, 1.2 MB", "3F2B6C1E"]) {
             expect(mail.html).toContain(value)
             expect(mail.text).toContain(value)
+        }
+    })
+
+    it("leaves out the affiliation: free text a stranger could fill with a scam (S-45)", () => {
+        const scam = sponsorConfirmationEmail(inquiry({ affiliation: "Your account is locked. Call +1 800 555 0100 today" }), SITE)
+        for (const part of [scam.subject, scam.html, scam.text]) {
+            expect(part).not.toContain("account is locked")
+            expect(part).not.toContain("800 555 0100")
         }
     })
 
@@ -104,12 +112,16 @@ describe("owner's inquiry notice", () => {
 describe("hostile input", () => {
     const evil = inquiry({ affiliation: `<img src=x onerror=alert(1)> "Acme" & <b>Co</b>`, fileName: `<script>x</script>.png` })
 
-    it.each([
-        ["thank-you copy", sponsorConfirmationEmail(evil, SITE)],
-        ["owner notice", ownerNotificationEmail(evil, SITE, { stored: true })],
-    ])("escapes visitor text in the %s", (_label, mail) => {
+    it("escapes visitor text in the owner notice", () => {
+        const mail = ownerNotificationEmail(evil, SITE, { stored: true })
         expect(mail.html).not.toMatch(/<img|<script|<b>Co/)
         expect(mail.html).toContain("&lt;img src=x onerror=alert(1)&gt;")
+    })
+
+    it("keeps visitor text out of the thank-you copy entirely", () => {
+        const mail = sponsorConfirmationEmail(evil, SITE)
+        expect(mail.html).not.toMatch(/<img|<script|<b>Co|onerror/)
+        expect(mail.text).not.toMatch(/onerror|<script/)
     })
 
     it("only ever links to the validated email address", () => {

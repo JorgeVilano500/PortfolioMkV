@@ -1,6 +1,6 @@
 # Testing
 
-_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-11-05**._
+_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-11-09**._
 
 ---
 
@@ -38,7 +38,14 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-11-05, sticker editor and logo previews): 1,006 tests, 52 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-11-09, sponsorship email checks): 1,023 tests, 52 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Extended on 2026-11-09 (sponsorship email checks, SECURITY.md S-45, branch `security-email-guards`):
+| Suite | Tests | Covers |
+|---|---|---|
+| `lib-sponsorship.test.ts` | 67 (was 52) | `mailboxKey`: `+tags`, case, Gmail dots and `googlemail.com` count as one inbox, and dots elsewhere are kept. The affiliation now refuses look-alike dots (`。` `．` `｡`), full-width letters, non-Latin endings (`.рф`) and a domain after `_`, while names like "Café Rouge" or a Cyrillic name still pass |
+| `sponsor-email.test.ts` | 20 (was 19) | The thank-you copy carries no affiliation, so a scam line ("Call +1 800…") never reaches a typed-in address, and no visitor text at all. The owner notice still escapes it |
+| `api-sponsorships.test.ts` | 57 (was 56) | The recipient cap counts `v.ictim+1@gmail.com` and `victim+2@googlemail.com` as `victim@gmail.com` |
 
 Added or extended on 2026-11-05 (sticker editor and logo previews, branch `sticker-studio`):
 | Suite | Tests | Covers |

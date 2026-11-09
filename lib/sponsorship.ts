@@ -69,13 +69,39 @@ export type SponsorFieldErrors = Partial<Record<keyof SponsorFields | "sticker",
 // the owner's mailto: link, where "%3F" / "%26" decode to "?" / "&"), and a dotted
 // domain. It rejects some exotic-but-valid addresses; that's fine here.
 const EMAIL_RE = /^[A-Za-z0-9._+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/
-// The affiliation is echoed into an email sent to whatever address was typed,
-// and mail clients auto-link anything domain-shaped ("Node.js" included).
-// Refusing web addresses keeps the form from becoming a link-spam relay.
-const WEB_ADDRESS_RE = /https?:\/\/|www\.|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b/i
+// The affiliation shows in the owner's notice and in Studio, and mail clients
+// auto-link anything domain-shaped ("Node.js" included), so web addresses stay
+// out. Names and endings can be in any script ("пример.рф"), and the check runs
+// on a normalized copy: NFKC turns full-width letters into plain ones, and the
+// look-alike dots browsers treat as "." ("。", "．", "｡") become ".".
+// (Since 2026-11-09 the sponsor's own copy leaves the affiliation out: S-45.)
+const WEB_ADDRESS_RE = /https?:\/\/|www\.|[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/iu
+const LOOKALIKE_DOTS_RE = /[。．｡]/g
+
+function hasWebAddress(text: string): boolean {
+    return WEB_ADDRESS_RE.test(text.normalize("NFKC").replace(LOOKALIKE_DOTS_RE, "."))
+}
 
 export function isValidEmail(value: unknown): value is string {
     return typeof value === "string" && value.length <= SPONSOR_LIMITS.email && EMAIL_RE.test(value)
+}
+
+/**
+ * One key per inbox, for the per-recipient email cap (SECURITY.md S-45). Most
+ * providers deliver "name+anything@" to "name@", and Gmail ignores dots before
+ * the @, so "v.ictim+1@gmail.com" counts as "victim@gmail.com". Counting only:
+ * the email still goes to the address as typed.
+ */
+export function mailboxKey(email: string): string {
+    const at = email.lastIndexOf("@")
+    if (at < 1) return email.toLowerCase()
+    let local  = email.slice(0, at).toLowerCase()
+    let domain = email.slice(at + 1).toLowerCase()
+    const plus = local.indexOf("+")
+    if (plus > 0) local = local.slice(0, plus)
+    if (domain === "googlemail.com") domain = "gmail.com"
+    if (domain === "gmail.com") local = local.replace(/\./g, "")
+    return `${local}@${domain}`
 }
 
 /** C0/C1 controls and the U+2028/2029 line separators, as spaces. */
@@ -130,7 +156,7 @@ export function validateSponsorFields(input: {
     const affiliation = typeof input.affiliation === "string" ? cleanText(input.affiliation) : ""
     if (!affiliation) errors.affiliation = "Tell me who the sticker is for."
     else if (affiliation.length > SPONSOR_LIMITS.affiliation) errors.affiliation = `Keep it under ${SPONSOR_LIMITS.affiliation} characters.`
-    else if (WEB_ADDRESS_RE.test(affiliation)) errors.affiliation = "Please leave web addresses out; a name is enough (\"Node JS Meetup\", not \"nodejs.org\")."
+    else if (hasWebAddress(affiliation)) errors.affiliation = "Please leave web addresses out; a name is enough (\"Node JS Meetup\", not \"nodejs.org\")."
 
     const offer = parseOffer(input.offer)
     if (offer === null) errors.offer = "Enter an amount in US dollars, like 150 or 1,500."

@@ -1,6 +1,6 @@
 # Security — portfoliomkv
 
-_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-09** (the reusable security review, §10)._
+_Last full security pass: **2026-11-03** (security patch, branch `security-patch`, see §8). Previous passes: 2026-10-21, 2026-10-19, 2026-07-06. Last updated: **2026-11-09** (S-45, the sponsorship email checks; the reusable security review, §10)._
 
 Threat model, the controls that exist (and must keep existing), per-endpoint auth, secrets, the open-issue queue with status, history, and how to run a security review (§10). **Read §3 before writing any API route, rendering user content, or touching secrets.**
 
@@ -122,7 +122,7 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 | 2FA code sends | `2fa-send` × `"global"` | 5 / 15 min | `POST /api/auth` with `ADMIN_2FA=email` |
 | Sponsorship requests | `sponsorships-requests` × IP bucket | 10 / 10 min, checked **before** reading the body | `POST /api/sponsorships` |
 | Sponsorship offers | `sponsorships-sends` × IP bucket | 3 valid offers / hour | same |
-| Sponsorship recipient | `sponsorships-recipient` × SHA-256 of the email | 2 thank-you emails / day to one address | same (no email-bombing a stranger) |
+| Sponsorship recipient | `sponsorships-recipient` × SHA-256 of the inbox (`mailboxKey`: lowercased, `+tag` dropped, Gmail dots ignored; S-45) | 2 thank-you emails / day to one inbox | same (no email-bombing a stranger) |
 | Sponsorship global | `sponsorships-global` × `"all"` | 20 offers / day | same (Resend quota, owner inbox) |
 
 - **Two layers for auth failures.**
@@ -152,7 +152,7 @@ First layer: `SameSite=Strict` (browser won't send the cookie cross-site). Secon
 - **Docs filenames**: `^[A-Za-z0-9][A-Za-z0-9._ -]{0,198}\.md$`.
 - **Sponsorship offers** (`lib/sponsorship.ts`, shared by the form and the route):
   - **Email:** a strict pattern with no spaces, quotes, `?`, `&`, `%`, or CR/LF, so no header or mailto tricks (in a `mailto:` link, `%3F` and `%26` decode to `?` and `&`).
-  - **Affiliation:** at most 120 characters, control characters stripped, and **no URLs or domain-shaped text**. Mail clients auto-link domains, and this text goes to a typed-in address.
+  - **Affiliation:** at most 120 characters, control characters stripped, and **no URLs or domain-shaped text**, in any script and with look-alike dots (`。` `．` `｡`) or full-width letters treated as plain ones (S-45). Mail clients auto-link domains, and this text shows in the owner's notice and in Studio. It no longer goes to the typed-in address (§4.9).
   - **Offer:** $1–$1,000,000 with at most 2 decimals. **Spot:** from a fixed list (`SPOT_CHOICES`: four lid spots, two palm-rest spots, or "any").
   - **File:** at most 4 MB, and **sniffed by its magic bytes**: PNG or JPEG only (WebP and PDF were dropped on 2026-11-03, since every sticker can now be drawn on `/laptop`). SVG and everything else are refused, whatever the name or declared type. The file name is shown only after cleaning (no path or reserved characters).
   - **Pixel size (S-44):** read from the PNG `IHDR` chunk or the JPEG frame header without decoding: 64–8,000 px on a side and at most 40 megapixels. A few-KB file can declare a huge canvas that would stall every visitor's browser once drawn on `/laptop`.
@@ -223,8 +223,8 @@ DB/provider errors logged server-side with a `[route]` prefix; clients get gener
 
 **`/api/sponsorships`** is the one route that emails an address a stranger typed in, so it gets the most guards:
 - **Recipients are fixed per message.** The owner's notice goes to `SUMMARY_RECIPIENT_EMAIL`, with Reply-To set to the sponsor and the sticker attached. The thank-you copy goes **only** to the address in the form, with Reply-To set to the public `/contact` address (or `SPONSOR_REPLY_TO`). The private summary inbox is never exposed.
-- **Caps:** §4.3, including **2 thank-you emails per recipient per day**.
-- **Content:** every visitor value is HTML-escaped. The affiliation can't contain web addresses. The sponsor's copy omits the original file name, which could be domain-shaped. The only link built from input is the owner's `mailto:` to the validated address.
+- **Caps:** §4.3, including **2 thank-you emails per inbox per day**, where `name+tag@` and Gmail's dotted spellings count as one inbox.
+- **Content:** every visitor value is HTML-escaped. The affiliation can't contain web addresses. **The sponsor's copy carries only values the site chose or checked** (address, spot, amount, file type and size, reference): no affiliation, which a stranger could fill with a scam such as "call this number" (S-45), and no original file name, which could be domain-shaped. The only link built from input is the owner's `mailto:` to the validated address.
 - **Bots:** a honeypot field gets a fake "ok" and nothing is stored or sent.
 - **Failures:** if the owner's notice fails, the visitor gets a generic 502 and no copy is sent. If only the copy fails, the response says `confirmationSent: false` and the page tells the visitor honestly. With the Resend sandbox sender, that is every time until a domain is verified (S-2).
 - **Spam check (optional, S-40):** with `TURNSTILE_SECRET_KEY` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` set, every offer needs a Cloudflare Turnstile token, verified by `lib/turnstile.ts` after field validation (so a typo doesn't spend the single-use token) and before any cap, storage or email. No token or a rejected one → `400 {captcha:true}`; Cloudflare unreachable → `503` (fails closed). A secret without a site key logs once, since nobody could pass.
@@ -384,6 +384,11 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 |---|---|---|---|---|
 | S-44 | Low | Sticker uploads were checked for type and byte size, but not pixel size. Once stickers are drawn on `/laptop`, a small PNG declaring a 50,000 × 50,000 canvas (a "decompression bomb") would make every visitor's browser try to allocate gigabytes. | ✅ | `imageSize()` reads the declared size from the header without decoding; the form route and Studio's upload refuse anything outside 64–8,000 px a side or over 40 MP (tests added). |
 
+### Found by `/security-triage` (2026-11-06 review, fixed 2026-11-09)
+| ID | Severity | Issue | Status | Fix |
+|---|---|---|---|---|
+| S-45 | Medium | The sponsorship form's guards on the email to a typed-in address could be bypassed. The 2-per-day cap counted the literal address, so `victim+1@gmail.com` and `v.ictim@gmail.com` each got their own allowance, though they reach one inbox. The link rule knew only ASCII dots and endings, so `evil。com`, `evil.рф` and `_evil.com` passed. And the copy repeated the affiliation, so text like "Your account is locked. Call +1 800…" reached a stranger with no link at all. Delivery to strangers was blocked only by the unverified sender (S-2). | ✅ | The thank-you copy leaves the affiliation out. `mailboxKey()` counts one key per inbox. The link rule runs on an NFKC copy with look-alike dots turned into "." and accepts names and endings in any script (tests added). |
+
 ### How to finish the 🟡 items (≈3 minutes)
 1. **S-4:** Supabase dashboard → **SQL Editor** → New query → paste `supabase/auth-lockout-schema.sql` → **Run**. Its last two result sets should show `rowsecurity = true`, with only `postgres` and `service_role` able to execute the two functions.
 2. **S-6 (optional, recommended):** Netlify → Site configuration → Environment variables → add `ADMIN_2FA` = `email` → redeploy. The next sign-in asks for the emailed code. Scripts using `x-logistics-key` stop working while it's on.
@@ -391,6 +396,10 @@ Status key: ✅ fixed in code (live after deploy) · 🟡 fix ready — needs yo
 4. **S-40 (optional, recommended once S-2 is done):** Cloudflare dashboard → **Turnstile** → **Add widget** → hostname `javastudios.netlify.app`, widget mode **Managed** → copy the **site key** and **secret key**. In Netlify → Environment variables, add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (site key) and `TURNSTILE_SECRET_KEY` (secret) → **redeploy** (the site key and the CSP allowance are built in at build time). The "Sponsor a spot" dialog then shows the check, and an offer without it gets a 400.
 
 ## 8. History
+
+### 2026-11-09: sponsorship email checks (branch `security-email-guards`)
+- **S-45 fixed**, the top code finding of the 2026-11-06 `/security-triage` review. The email to a typed-in address now carries only values the site chose or checked, the recipient cap counts inboxes rather than spellings, and the link rule covers look-alike dots and other scripts (§4.4, §4.9).
+- **Verified:** 1,023 tests (the 18 new or changed ones fail on the old code), `tsc` and lint.
 
 ### 2026-11-05: sticker editor and logo previews (branch `sticker-studio`)
 - **No new routes.** One new field: `finish` on `POST /api/sponsorships/spots` (admin), whitelisted and PNG-only for `sticker` (§4.4).
