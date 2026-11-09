@@ -5,6 +5,7 @@ import { rateLimit } from "@/lib/rate-limit"
 import { BODY_LIMITS, readJsonBody } from "@/lib/http"
 import { isJsonObject, isUuid } from "@/lib/validation"
 import { CONSENT_COOKIE, CONSENT_VERSION, parseConsent } from "@/lib/consent"
+import { CONSENT_EVENTS_DAILY_CAP, DAY_MS } from "@/lib/analytics"
 import { isMissingColumn, isMissingTable, warnSchemaOnce } from "@/lib/supabase-errors"
 
 const ROUTE = "consent"
@@ -60,6 +61,12 @@ export async function POST(req: NextRequest) {
     const { id, analytics, version } = body
     if (!isUuid(id) || typeof analytics !== "boolean" || version !== CONSENT_VERSION) {
         return NextResponse.json({ error: "id (uuid), analytics (boolean) and the current version are required" }, { status: 400 })
+    }
+
+    // Overall daily ceiling across all clients (S-46). Past it the receipt is
+    // skipped; the visitor's choice still stands in their own cookie.
+    if (!rateLimit(`${ROUTE}-daily`, "all", CONSENT_EVENTS_DAILY_CAP, DAY_MS).ok) {
+        return NextResponse.json({ ok: true, logged: false })
     }
 
     const result = await logEvent(id, analytics, "set")

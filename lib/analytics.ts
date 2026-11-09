@@ -3,6 +3,19 @@
  * and the server route (/api/analytics/track), so the two can't drift.
  */
 
+export const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Daily ceilings on rows the public endpoints write, across all clients
+ * (SECURITY.md S-46). Opting in is free, so a script can always get a valid
+ * consent cookie: the per-IP limits stop one client, and these stop many
+ * clients together from growing the tables without bound. Like every
+ * in-memory limit, each serverless instance counts on its own. Real traffic
+ * is far below them; past them, nothing more is stored until the window resets.
+ */
+export const PAGE_VIEWS_DAILY_CAP     = 5_000
+export const CONSENT_EVENTS_DAILY_CAP = 2_000
+
 /** Pages that are never tracked (internal/admin surfaces). */
 export const ANALYTICS_SKIP_PREFIXES = ["/logistics", "/studio", "/api"]
 

@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-09** (branch `security-email-guards`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-09** (branch `security-analytics-caps`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -231,7 +231,8 @@ All handlers live in `app/api/**/route.ts`. Errors are always `{"error": "<gener
   3. Content type, otherwise `400`. JSON parse, otherwise `400`.
   4. `page` must be a string starting with `/` (≤300 chars) and `session_id` must be 1 to 100 chars, otherwise `400`.
   5. If `page` starts with `/logistics`, `/studio`, or `/api`, return `200 {ok:true}` without inserting.
-  6. Insert, then return `200 {ok:true}`, or `500 {error:"DB error"}`.
+  6. A daily ceiling of **5,000 stored views across all clients** (per instance, SECURITY.md S-46), counted only for rows that reach this step. Past it, return `200 {ok:true, tracked:false}` without inserting, and warn once in the log.
+  7. Insert, then return `200 {ok:true}`, or `500 {error:"DB error"}`.
 - **Server-side normalization:** `referrer` is reduced to its **origin** (http/https only; anything else, or anything over 2,000 chars, becomes `""`); `user_agent` is read **from the request header** and cut to 500; `is_new_visitor` is stored only if it is strictly `true`; `load_time` must be 0 to 120,000 ms (rounded) or it becomes null; `screen_width` must be 1 to 10,000 (rounded) or it becomes null.
 
 ### 6.2 `GET /api/analytics/stats` (admin)
@@ -272,7 +273,7 @@ Same shape as 6.3, for the `projects` table.
 - Upserts on `(project_slug, filename)`, computes `content_hash` (SHA-256 hex), sets `updated_at`, and returns `201 {success:true, document:{id, project_slug, filename, content_hash, updated_at}}`.
 
 ### 6.7 `/api/consent` (public, browser-only)
-Both methods require a same-origin request (otherwise `403`) and are rate-limited to 20/min per IP (`429`).
+Both methods require a same-origin request (otherwise `403`) and are rate-limited to 20/min per IP (`429`). POST also has a daily ceiling of **2,000 receipts across all clients** (per instance, SECURITY.md S-46). Past it the receipt is skipped and the route returns `200 {ok:true, logged:false}`. DELETE has no ceiling.
 | Method | Body | Result |
 |---|---|---|
 | POST | `{ id: uuid, analytics: boolean, version: CONSENT_VERSION }` | Inserts `{visitor_id, analytics, policy_version, action:"set"}` into `consent_events` (no IP, no user agent) and returns `200 {ok:true, logged:true}`. If the table is missing it returns `{ok:true, logged:false}`. Validation errors return `400`. |

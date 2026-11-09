@@ -3,7 +3,8 @@
  * Security: rate limiting, strict input validation, size caps, IP exclusion,
  * admin-page filtering.
  */
-import { resetRateLimits } from "@/lib/rate-limit"
+import { rateLimit, resetRateLimits } from "@/lib/rate-limit"
+import { DAY_MS, PAGE_VIEWS_DAILY_CAP } from "@/lib/analytics"
 import {
     makeRequest,
     firstCallArg,
@@ -237,5 +238,29 @@ describe("rate limiting", () => {
         for (let i = 0; i < 31; i++) await track(validBody)
         const res = await track(validBody, { "x-forwarded-for": "8.8.8.8" })
         expect(res.status).toBe(200)
+    })
+
+    // S-46: opting in is free, so many clients together need an overall ceiling.
+    // The route's limiter is named "analytics/track-daily", keyed "all".
+    const fillDailyCap = (count: number) => {
+        for (let i = 0; i < count; i++) rateLimit("analytics/track-daily", "all", PAGE_VIEWS_DAILY_CAP, DAY_MS)
+    }
+
+    it("stops storing past the daily ceiling across all clients, without an error", async () => {
+        jest.spyOn(console, "warn").mockImplementation(() => {})
+        fillDailyCap(PAGE_VIEWS_DAILY_CAP)
+        const res = await track(validBody, { "x-forwarded-for": "9.9.9.9" })
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true, tracked: false })
+        expect(mockDb.calls.some((call) => call.method === "insert")).toBe(false)
+    })
+
+    it("counts only rows it would store toward the daily ceiling", async () => {
+        jest.spyOn(console, "warn").mockImplementation(() => {})
+        fillDailyCap(PAGE_VIEWS_DAILY_CAP - 1)
+        await track(validBody, { cookie: consentCookie(false) }) // declined: stores nothing
+        await track({ ...validBody, page: "/studio" })            // admin page: skipped
+        expect(await (await track(validBody)).json()).toEqual({ ok: true, tracked: true })
+        expect(await (await track(validBody, { "x-forwarded-for": "5.5.5.5" })).json()).toEqual({ ok: true, tracked: false })
     })
 })

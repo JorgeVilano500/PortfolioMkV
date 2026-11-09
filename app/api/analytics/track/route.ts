@@ -5,7 +5,7 @@ import { getClientIp } from "@/lib/security"
 import { rateLimit } from "@/lib/rate-limit"
 import { BODY_LIMITS, readJsonBody } from "@/lib/http"
 import { LIMITS, isJsonObject } from "@/lib/validation"
-import { isTrackablePath, isValidPagePath, normalizeLanguage, normalizeTimezone } from "@/lib/analytics"
+import { DAY_MS, PAGE_VIEWS_DAILY_CAP, isTrackablePath, isValidPagePath, normalizeLanguage, normalizeTimezone } from "@/lib/analytics"
 import { CONSENT_COOKIE, CONSENT_VERSION, allowsAnalytics, parseConsent } from "@/lib/consent"
 import { isMissingColumn, warnSchemaOnce } from "@/lib/supabase-errors"
 
@@ -39,6 +39,8 @@ function referrerOrigin(raw: unknown): string {
 }
 
 const notTracked = () => NextResponse.json({ ok: true, tracked: false })
+
+let warnedDailyCap = false
 
 export async function POST(req: NextRequest) {
     // IP-level exclusion — checked before anything else
@@ -103,6 +105,16 @@ export async function POST(req: NextRequest) {
                              ? Math.round(load_time) : null,
         screen_width:    typeof screen_width === "number" && Number.isFinite(screen_width) && screen_width > 0 && screen_width <= 10_000
                              ? Math.round(screen_width) : null,
+    }
+
+    // Overall daily ceiling across all clients (S-46), counted only for rows we'd
+    // store. Past it the visitor sees no error; the view just isn't counted.
+    if (!rateLimit(`${ROUTE}-daily`, "all", PAGE_VIEWS_DAILY_CAP, DAY_MS).ok) {
+        if (!warnedDailyCap) {
+            warnedDailyCap = true
+            console.warn(`[${ROUTE}] daily ceiling of ${PAGE_VIEWS_DAILY_CAP} page views reached on this instance; not storing more until it resets`)
+        }
+        return notTracked()
     }
 
     // Opt-in fields (disclosed in the consent modal and on /privacy). The IP and
