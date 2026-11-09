@@ -1,6 +1,6 @@
 # Architecture
 
-_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-05** (branch `sticker-studio`)._
+_How the system is put together: the runtime model, data flow, the API contract, the data model, configuration, deployment, and recipes for extending it. Last verified against the code: **2026-11-09** (branch `security-email-guards`)._
 
 Related docs: [SECURITY.md](SECURITY.md) covers the controls in depth, [PRD.md](PRD.md) covers what each feature must do, and [CODE_STYLE.md](CODE_STYLE.md) covers how to write it.
 
@@ -300,7 +300,7 @@ Both methods require a same-origin request (otherwise `403`) and are rate-limite
 - **Side effects, in order:**
   1. Save it for Studio: upload `offers/<uuid>/sticker.<ext>` to the **private** bucket `sponsor-stickers`, then insert the `sponsor_offers` row (`file_path` null if the upload failed). Not fatal: a missing bucket or table logs one "run supabase/sponsorships-schema.sql" warning, and the owner email says the offer wasn't saved.
   2. **Email 1** goes to `SUMMARY_RECIPIENT_EMAIL`, with `replyTo` set to the sponsor and the sticker attached (subject `Sponsorship inquiry: <affiliation> ($offer)`). If it fails, the route returns `502` and stops.
-  3. **Email 2**, sent separately, goes to the sponsor: a thank-you plus a copy of what they sent, with `replyTo` set to `SPONSOR_REPLY_TO` or the public `/contact` address.
+  3. **Email 2**, sent separately, goes to the sponsor: a thank-you plus the offer's details (address, spot, amount, file type and size, reference), with `replyTo` set to `SPONSOR_REPLY_TO` or the public `/contact` address. It leaves out the affiliation and the file name, because anyone can type any address into the form (SECURITY.md S-45).
 - **Response:** `200 {ok:true, reference:"3F2B6C1E", confirmationSent:boolean}`. `confirmationSent` is false when email 2 failed, which with Resend's sandbox sender is always (SECURITY.md S-2).
 - **Templates:** `lib/sponsor-email.ts` builds table-based HTML in the site palette, with plain-text twins. All visitor input is escaped.
 

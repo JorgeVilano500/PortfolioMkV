@@ -18,6 +18,7 @@ import {
     checkStickerPixels,
     cleanFileName,
     imageSize,
+    mailboxKey,
     sniffStickerType,
     validateSponsorFields,
     type SponsorFieldErrors,
@@ -133,7 +134,8 @@ export async function POST(req: NextRequest) {
 
     // 8. Send caps, counted only for valid offers
     const { fields } = result
-    const recipientKey = createHash("sha256").update(fields.email.toLowerCase()).digest("base64url")
+    // One key per inbox, so "victim+1@" and "v.ictim@gmail.com" share the cap (S-45)
+    const recipientKey = createHash("sha256").update(mailboxKey(fields.email)).digest("base64url")
     for (const [name, key, limit, windowMs] of [
         [`${ROUTE}-sends`,     ip,           SEND_LIMIT,      SEND_WINDOW_MS],
         [`${ROUTE}-recipient`, recipientKey, RECIPIENT_LIMIT, RECIPIENT_WINDOW_MS],

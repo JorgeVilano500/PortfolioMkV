@@ -145,12 +145,15 @@ export function sponsorConfirmationEmail(inquiry: SponsorInquiry, siteUrl: strin
     const heading = "Thanks for your sponsorship offer!"
     const paragraphs = [
         "Thanks for offering to sponsor a sticker spot on my laptop. I've received your offer and I'll get back to you as soon as possible to talk it through.",
-        "Here's a copy of what you sent, for your records:",
+        "Here are your offer's details, for your records:",
     ]
     const type = STICKER_FILE_TYPES[inquiry.fileType].label
+    // Anyone can type any address into the form, so this email carries only
+    // values the site chose or checked. The affiliation is free text a stranger
+    // could fill with a scam ("Call this number..."), so only the owner's notice
+    // shows it (SECURITY.md S-45). The original file name stays out too.
     const rows: Row[] = [
         { label: "Your email",         value: inquiry.email },
-        { label: "Affiliation",        value: inquiry.affiliation },
         { label: "Preferred spot",     value: spotLabel(inquiry.spot) },
         { label: "Your offer (USD)",   value: `${formatOffer(inquiry.offer)} · open to negotiation` },
         { label: "Sticker file",       value: `${type}, ${formatBytes(inquiry.fileBytes)} (received)` },
