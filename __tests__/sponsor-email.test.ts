@@ -36,10 +36,17 @@ describe("escapeHtml", () => {
 describe("sponsor's thank-you copy", () => {
     const mail = sponsorConfirmationEmail(inquiry(), SITE)
 
-    it("thanks them and promises a reply soon", () => {
+    it("thanks them warmly and promises a reply within 24–48 hours, in the HTML, the text and the preview line", () => {
         expect(mail.subject).toBe("Thanks for your sponsorship offer · JAVA.dev")
         expect(mail.html).toMatch(/Thanks for your sponsorship offer!/)
-        expect(mail.text).toMatch(/I'll get back to you as soon as possible/)
+        expect(mail.text).toMatch(/Thank you so much for offering to sponsor/)
+        for (const part of [mail.html, mail.text]) expect(part).toContain("reply within 24–48 hours")
+        expect(mail.html).toMatch(/<div style="display:none[^>]*>[^<]*within 24–48 hours/)
+    })
+
+    it("says the offer was received, not accepted", () => {
+        expect(mail.text).toMatch(/I've received your offer\. It isn't accepted yet/)
+        expect(mail.html).toContain("It isn&#39;t accepted yet")
     })
 
     it("includes the offer's details", () => {

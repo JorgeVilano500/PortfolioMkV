@@ -157,6 +157,7 @@ describe("sending", () => {
         submit()
         await screen.findByText(/A copy is on its way to your inbox/)
         const receipt = within(dialog()).getByText("Offer sent").closest('[role="status"]') as HTMLElement
+        expect(receipt.textContent).toMatch(/reply to jane@acme\.dev within 24–48 hours/)
         for (const value of ["jane@acme.dev", "Acme Dev Tools", "$1,500 (negotiable)", "logo.png", "3F2B6C1E"]) {
             expect(within(receipt).getAllByText(value, { exact: false }).length).toBeGreaterThan(0)
         }

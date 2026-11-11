@@ -329,6 +329,15 @@ describe("controls", () => {
         expect(viewer().selectedId).toBe("slot-4")
     })
 
+    it("shows everything the applicant sent, and replies to them from the card", async () => {
+        await renderPanel()
+        const card = offerCard()
+        expect(card.textContent).toMatch(/Bright Labs.*\$1,500.*new/)
+        expect(card.textContent).toMatch(/jane@bright\.dev · wants Lid, lower right · .* · bright\.png/)
+        const reply = within(card).getByRole("link", { name: "jane@bright.dev" })
+        expect(reply.getAttribute("href")).toBe("mailto:jane@bright.dev?subject=Your%20sticker%20sponsorship%20offer")
+    })
+
     it("declines an offer and keeps a note on it", async () => {
         await renderPanel()
         await act(async () => { fireEvent.click(within(offerCard()).getByRole("button", { name: "Decline" })) })

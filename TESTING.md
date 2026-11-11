@@ -1,6 +1,6 @@
 # Testing
 
-_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-11-09**._
+_How the project is tested, what's covered, how to write new tests, and how to verify changes that tests can't reach. Last verified: **2026-11-10**._
 
 ---
 
@@ -38,7 +38,16 @@ The bundled Next.js guides for alternatives (Vitest, Playwright, Cypress) are in
 
 ## 3. Current suites
 
-**Baseline (2026-11-09, image route limits): 1,029 tests, 53 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+**Baseline (2026-11-10, sponsor reply time): 1,031 tests, 53 suites, all passing, about 10–40 s depending on machine load.** Update these numbers when they change, and update AGENTS.md §3 too.
+
+Extended on 2026-11-10 (a reply time for sponsors, branch `sponsor-reply-window`):
+| Suite | Tests | Covers |
+|---|---|---|
+| `sponsor-email.test.ts` | 21 (was 20) | The thank-you copy thanks them warmly, promises a reply "within 24–48 hours" in the HTML, the plain text and the hidden preview line, and says the offer was received but "isn't accepted yet" |
+| `sponsor-form.test.tsx` | (assertion added) | The form's receipt says it will reply to the sponsor's address within 24–48 hours |
+| `studio-sponsorships.test.tsx` | 21 (was 20) | An offer card shows everything the applicant sent (affiliation, amount, status, email, spot, date, file name), and its email is a `mailto:` reply link with the subject filled in |
+
+The two emails were also rendered with sample data and checked in headless Edge at 700 px and 360 px wide: no sideways scrolling, and the message still reads with every inline style removed.
 
 Added or extended on 2026-11-09 (limits on the public image routes, SECURITY.md S-47, branch `security-image-limits`):
 | Suite | Tests | Covers |

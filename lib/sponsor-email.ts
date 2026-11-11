@@ -1,5 +1,5 @@
 import "server-only"
-import { STICKER_FILE_TYPES, formatOffer, spotLabel, type SponsorFields, type StickerMime } from "./sponsorship"
+import { SPONSOR_REPLY_WINDOW, STICKER_FILE_TYPES, formatOffer, spotLabel, type SponsorFields, type StickerMime } from "./sponsorship"
 
 /**
  * The two emails sent for a "Sponsor a spot" offer, in the site's look
@@ -143,8 +143,10 @@ function textVersion(heading: string, paragraphs: string[], rows: Row[], footer:
 
 export function sponsorConfirmationEmail(inquiry: SponsorInquiry, siteUrl: string): EmailContent {
     const heading = "Thanks for your sponsorship offer!"
+    // Received, not accepted: the offer starts a conversation (SPONSORSHIPS.md).
     const paragraphs = [
-        "Thanks for offering to sponsor a sticker spot on my laptop. I've received your offer and I'll get back to you as soon as possible to talk it through.",
+        "Thank you so much for offering to sponsor a sticker spot on my laptop. It genuinely means a lot that you'd like to be part of it.",
+        `I've received your offer. It isn't accepted yet: I'll look it over and reply within ${SPONSOR_REPLY_WINDOW} so we can talk it through.`,
         "Here are your offer's details, for your records:",
     ]
     const type = STICKER_FILE_TYPES[inquiry.fileType].label
@@ -164,7 +166,7 @@ export function sponsorConfirmationEmail(inquiry: SponsorInquiry, siteUrl: strin
     return {
         subject: "Thanks for your sponsorship offer · JAVA.dev",
         html: layout({
-            preheader: "I've received your sticker sponsorship offer and will be in touch soon.",
+            preheader: `I've received your sticker sponsorship offer and will reply within ${SPONSOR_REPLY_WINDOW}.`,
             eyebrow: "Sponsorship offer received",
             heading,
             paragraphs: paragraphs.map(escapeHtml),

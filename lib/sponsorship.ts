@@ -50,6 +50,9 @@ export type SponsorSpot = StickerSlotId | "any"
 /** The form field carrying the Cloudflare Turnstile token (SECURITY.md S-40), when the check is on. */
 export const TURNSTILE_FIELD = "cf-turnstile-response"
 
+/** How soon the owner promises to reply, in the sponsor's email and the form's thank-you. */
+export const SPONSOR_REPLY_WINDOW = "24–48 hours"
+
 // Full names ("Palm rest, left of trackpad"): the label also goes into both emails.
 export const SPOT_CHOICES: readonly { value: SponsorSpot; label: string }[] = [
     ...STICKER_SLOTS.map((slot) => ({ value: slot.id, label: spotName(slot) })),

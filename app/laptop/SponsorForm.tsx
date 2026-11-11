@@ -7,6 +7,7 @@ import { SPONSOR_CTA_HREF } from "@/lib/laptop-stickers"
 import { Turnstile, turnstileSiteKey } from "./Turnstile"
 import {
     SPONSOR_LIMITS,
+    SPONSOR_REPLY_WINDOW,
     SPOT_CHOICES,
     STICKER_ACCEPT,
     TURNSTILE_FIELD,
@@ -309,7 +310,7 @@ function Receipt({ state, onDone }: { state: Extract<SubmitState, { kind: "sent"
                 </div>
                 <h3 className="font-syne font-bold text-xl text-[#f0eeff] mb-2">Thanks, I&apos;ll be in touch!</h3>
                 <p className="text-sm text-[#8a88a0] leading-relaxed">
-                    Your offer reached me, and I&apos;ll reply to <span className="text-[#c4c0d8]">{summary.email}</span> as soon as possible.{" "}
+                    Your offer reached me, and I&apos;ll reply to <span className="text-[#c4c0d8]">{summary.email}</span> within {SPONSOR_REPLY_WINDOW}.{" "}
                     {state.confirmationSent
                         ? "A copy is on its way to your inbox."
                         : "I couldn't email you a copy just now, so here's what you sent. Take a screenshot if you'd like to keep it."}
